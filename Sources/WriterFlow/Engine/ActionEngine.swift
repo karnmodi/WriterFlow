@@ -9,7 +9,8 @@ final class ActionEngine {
     private var runningTask: Task<Void, Never>?
 
     var onStreamDelta: StreamHandler?
-    var onCompleted: ((WritingAction, String) -> Void)?
+    var onCompleted: ((WritingAction, String, FieldSnapshot) -> Void)?
+    var onFailed: ((String) -> Void)?
 
     init(config: AzureModelsConfig) {
         self.client = AzureOpenAIClient(config: config)
@@ -34,15 +35,17 @@ final class ActionEngine {
             pid: field.appPID,
             bundleID: field.appBundleID
         ) else {
-            await MainActor.run {
-                ErrorToast.show("Couldn't read the text field. Try again.")
-            }
+            let msg = "Couldn't read the text field. Try again."
+            onFailed?(msg)
+            ErrorToast.show(msg)
             return
         }
 
         let inputText = snapshot.actionText
         guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            ErrorToast.show("Nothing to rewrite — type or select some text first.")
+            let msg = "Nothing to rewrite — type or select some text first."
+            onFailed?(msg)
+            ErrorToast.show(msg)
             return
         }
 
@@ -62,11 +65,13 @@ final class ActionEngine {
             let stream = await client.stream(action: action, prompt: prompt)
             for try await delta in stream {
                 if Task.isCancelled { return }
-                output += delta
-                onStreamDelta?(delta)
+                let clean = OutputSanitizer.sanitize(delta)
+                output += clean
+                onStreamDelta?(clean)
             }
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            onFailed?(message)
             ErrorToast.show(message)
             Log.engine.error("ActionEngine failed: \(message, privacy: .public)")
             return
@@ -80,6 +85,6 @@ final class ActionEngine {
 
         event.output = output
         await ConversionEventStore.shared.append(event)
-        onCompleted?(action, output)
+        onCompleted?(action, OutputSanitizer.sanitize(output), snapshot)
     }
 }

@@ -6,6 +6,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var pauseMenuItem: NSMenuItem?
+    private var statusMenuItem: NSMenuItem?
     private let permissions = PermissionsCoordinator()
     private lazy var onboarding = OnboardingWindowController(permissions: permissions)
     private let focusMonitor = FocusMonitor()
@@ -15,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let modelsConfig = AzureModelsConfig.load()
     private lazy var actionEngine = ActionEngine(config: modelsConfig)
     private var cancellables: Set<AnyCancellable> = []
+    private var hadAccessibility = false
+    private var hadInputMonitoring = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -22,8 +25,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.app.info("WriterFlow launched")
 
         permissions.refresh()
+        hadAccessibility = permissions.accessibility
+        hadInputMonitoring = permissions.inputMonitoring
+        applyPermissionState()
+
+        // Register with TCC early so WriterFlow appears in System Settings lists.
+        if !permissions.allGranted {
+            permissions.registerWithSystem()
+            permissions.startPolling()
+        }
+
+        // Always surface setup when permissions are missing — dock icon + setup window.
         if !permissions.allGranted {
             Log.app.info("Permissions missing — showing onboarding")
+            NSApp.setActivationPolicy(.regular)
             onboarding.show()
         }
 
@@ -31,14 +46,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         seedAzureCredentials()
 
-        actionEngine.onStreamDelta = { delta in
-            // Phase 1.4 streams into the preview card; for now log chunks at debug level.
-            Log.engine.debug("stream delta len=\(delta.count, privacy: .public)")
+        actionEngine.onStreamDelta = { [weak self] delta in
+            self?.overlay.appendPreview(delta)
         }
-        actionEngine.onCompleted = { action, output in
-            Log.engine.info(
-                "Action complete: \(action.title, privacy: .public) — \(output.prefix(200), privacy: .public)"
-            )
+        actionEngine.onCompleted = { [weak self] _, output, snapshot in
+            self?.overlay.finishPreview(output: output, snapshot: snapshot)
+        }
+        actionEngine.onFailed = { [weak self] message in
+            self?.overlay.failPreview(message: message)
         }
 
         overlay.onActionSelected = { [weak self] action, field in
@@ -64,6 +79,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.$isPaused
             .sink { [weak self] paused in self?.applyPause(paused) }
             .store(in: &cancellables)
+
+        settings.$iconMode
+            .sink { [weak self] mode in self?.overlay.iconMode = mode }
+            .store(in: &cancellables)
+
+        permissions.$accessibility
+            .combineLatest(permissions.$inputMonitoring)
+            .dropFirst()
+            .sink { [weak self] _ in self?.applyPermissionState() }
+            .store(in: &cancellables)
+
+        if !settings.isPaused {
+            focusMonitor.start()
+        }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+
+    @objc private func appDidBecomeActive() {
+        permissions.refresh()
+        applyPermissionState()
+        if !permissions.allGranted {
+            onboarding.show()
+        }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !permissions.allGranted {
+            onboarding.show()
+        } else {
+            showOnboarding()
+        }
+        return true
+    }
+
+    private func applyPermissionState() {
+        let axNow = permissions.accessibility
+        let imNow = permissions.inputMonitoring
+
+        overlay.iconMode = settings.iconMode
+
+        let ax = axNow ? "✓" : "✗"
+        let im = imNow ? "✓" : "✗"
+        statusMenuItem?.title = "Permissions — Accessibility \(ax)  Input Monitoring \(im)"
+
+        if !axNow {
+            Log.app.error("Accessibility not granted — WriterFlow cannot detect text fields")
+        }
+        if !imNow {
+            Log.app.error("Input Monitoring not granted — icon shows on field focus (degraded mode)")
+        }
+        if permissions.allGranted {
+            Log.app.info("All permissions granted")
+            permissions.stopPolling()
+            NSApp.setActivationPolicy(.accessory)
+        }
+
+        // Event tap / AX observer only succeed when TCC is already granted at install time.
+        if !settings.isPaused {
+            if (!hadAccessibility && axNow) || (!hadInputMonitoring && imNow) {
+                focusMonitor.restart()
+                _ = globalHotkey.install()
+                Log.app.info("Permissions newly granted — restarted focus monitor + hotkey")
+            }
+        }
+        hadAccessibility = axNow
+        hadInputMonitoring = imNow
     }
 
     private func applyPause(_ paused: Bool) {
@@ -85,11 +172,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.image = NSImage(
-                systemSymbolName: "highlighter",
-                accessibilityDescription: "WriterFlow"
-            )
-            button.image?.isTemplate = true
+            button.image = WriterFlowIcon.makeNSImage(size: 16)
+            button.image?.isTemplate = false
+            button.imagePosition = .imageOnly
         }
         item.menu = buildMenu()
         statusItem = item
@@ -106,9 +191,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let status = NSMenuItem(title: "Checking permissions…", action: nil, keyEquivalent: "")
+        status.isEnabled = false
+        statusMenuItem = status
+        menu.addItem(status)
+
+        menu.addItem(.separator())
+
         let onboard = NSMenuItem(title: "Setup Permissions…", action: #selector(showOnboarding), keyEquivalent: "")
         onboard.target = self
         menu.addItem(onboard)
+
+        let actions = NSMenuItem(title: "Open Actions", action: #selector(openActions), keyEquivalent: "")
+        actions.keyEquivalentModifierMask = [.control, .option]
+        actions.keyEquivalent = " "
+        actions.target = self
+        menu.addItem(actions)
 
         let dashboard = NSMenuItem(title: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "")
         dashboard.target = self
@@ -131,7 +229,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.isPaused.toggle()
     }
 
+    @objc private func openActions() {
+        overlay.toggleActionPopover()
+    }
+
     @objc private func showOnboarding() {
+        permissions.refresh()
+        applyPermissionState()
         onboarding.show()
     }
 
@@ -151,8 +255,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func seedAzureCredentials() {
         let exec = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? ".")
-        let envFile = DotEnvLoader.findEnvFile(startingAt: exec.deletingLastPathComponent())
-        let env = DotEnvLoader.loadMerged(fileURL: envFile)
-        KeychainStore.seedFromEnvIfNeeded(env, keyEnvName: modelsConfig.defaultApiKeyEnv)
+        let projectEnvURL = DotEnvLoader.findProjectEnvFile(startingAt: exec.deletingLastPathComponent())
+        let projectEnv = projectEnvURL.flatMap { DotEnvLoader.load(from: $0) } ?? [:]
+        let secretsEnv = DotEnvLoader.load(from: KeychainStore.secretsFileURL) ?? [:]
+        var merged = secretsEnv
+        for (key, value) in projectEnv where !value.isEmpty {
+            merged[key] = value
+        }
+        KeychainStore.bootstrap(from: merged, keyEnvName: modelsConfig.defaultApiKeyEnv)
     }
 }
