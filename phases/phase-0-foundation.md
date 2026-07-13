@@ -14,10 +14,10 @@
 
 ## Stage 0.2 — Permissions onboarding
 
-- [ ] Detect Accessibility permission: `AXIsProcessTrustedWithOptions`.
-- [ ] Detect Input Monitoring: `CGPreflightListenEventAccess()` / `CGRequestListenEventAccess()`.
-- [ ] First-launch onboarding window (SwiftUI): 2 steps, one per permission, with a "Open System Settings" deep link (`x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`) and a live green check when granted (poll every 1 s).
-- [ ] App functions in "degraded" mode without permissions (menu bar only + persistent hint).
+- [x] Detect Accessibility permission: `AXIsProcessTrustedWithOptions`.
+- [x] Detect Input Monitoring: `CGPreflightListenEventAccess()` / `CGRequestListenEventAccess()`.
+- [x] First-launch onboarding window (SwiftUI): 2 steps, one per permission, with a "Open System Settings" deep link (`x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`) and a live green check when granted (poll every 1 s).
+- [x] App functions in "degraded" mode without permissions (menu bar only + persistent hint).
 
 **Accept:** Fresh install → both permissions granted through the flow without touching System Settings manually beyond the deep link.
 

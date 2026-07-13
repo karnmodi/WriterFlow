@@ -4,11 +4,19 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
+    private let permissions = PermissionsCoordinator()
+    private lazy var onboarding = OnboardingWindowController(permissions: permissions)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         installStatusItem()
         Log.app.info("WriterFlow launched")
+
+        permissions.refresh()
+        if !permissions.allGranted {
+            Log.app.info("Permissions missing — showing onboarding")
+            onboarding.show()
+        }
     }
 
     private func installStatusItem() {
@@ -33,6 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let onboard = NSMenuItem(title: "Setup Permissions…", action: #selector(showOnboarding), keyEquivalent: "")
+        onboard.target = self
+        menu.addItem(onboard)
+
         let dashboard = NSMenuItem(title: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "")
         dashboard.target = self
         menu.addItem(dashboard)
@@ -54,6 +66,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Wired in Phase 0.5
         sender.state = sender.state == .on ? .off : .on
         Log.app.info("Pause toggled: \(sender.state == .on ? "on" : "off", privacy: .public)")
+    }
+
+    @objc private func showOnboarding() {
+        onboarding.show()
     }
 
     @objc private func openDashboard() {
