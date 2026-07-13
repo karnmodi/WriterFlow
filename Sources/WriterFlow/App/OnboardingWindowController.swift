@@ -11,7 +11,11 @@ final class OnboardingWindowController {
     }
 
     func show() {
+        // Show dock icon while onboarding so the user can find the app.
+        NSApp.setActivationPolicy(.regular)
+
         if let window {
+            window.level = .floating
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -27,14 +31,24 @@ final class OnboardingWindowController {
         window.title = "WriterFlow — Setup"
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
         self.window = window
+
+        // Register with macOS TCC — do NOT open Settings yet (that prevents list registration).
+        permissions.registerWithSystem()
     }
 
     func close() {
         window?.close()
+        window = nil
+        // Return to invisible menu-bar-only mode once setup is done.
+        if permissions.allGranted {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 }

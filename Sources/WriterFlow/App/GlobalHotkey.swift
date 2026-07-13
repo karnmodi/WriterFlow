@@ -1,7 +1,8 @@
 import Carbon.HIToolbox
 import Foundation
 
-/// Global ⌥ Space hotkey via Carbon RegisterEventHotKey.
+/// Global ⌃⌥ Space hotkey via Carbon RegisterEventHotKey.
+/// (⌃⌥ Space avoids conflict with Claude and other apps using ⌥ Space.)
 final class GlobalHotkey {
     private static let hotKeyID = EventHotKeyID(signature: OSType(0x5746_4C57), id: 1) // "WFLW"
 
@@ -16,7 +17,7 @@ final class GlobalHotkey {
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(
             UInt32(kVK_Space),
-            UInt32(optionKey),
+            UInt32(controlKey | optionKey),
             Self.hotKeyID,
             GetApplicationEventTarget(),
             0,
