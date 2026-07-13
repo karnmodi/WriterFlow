@@ -9,7 +9,7 @@ final class ActionEngine {
     private var runningTask: Task<Void, Never>?
 
     var onStreamDelta: StreamHandler?
-    var onCompleted: ((WritingAction, String, FieldSnapshot) -> Void)?
+    var onCompleted: ((WritingAction, String, FieldSnapshot, ConversionEvent) -> Void)?
     var onFailed: ((String) -> Void)?
 
     init(config: AzureModelsConfig) {
@@ -84,7 +84,6 @@ final class ActionEngine {
         )
 
         event.output = output
-        await ConversionEventStore.shared.append(event)
-        onCompleted?(action, OutputSanitizer.sanitize(output), snapshot)
+        onCompleted?(action, OutputSanitizer.sanitize(output), snapshot, event)
     }
 }

@@ -11,6 +11,8 @@ final class PopoverKeyMonitor {
         case down
         case escape
         case returnKey
+        case copy
+        case retry
     }
 
     private var tap: CFMachPort?
@@ -58,6 +60,7 @@ final class PopoverKeyMonitor {
 
     fileprivate func handleKeyDown(_ event: CGEvent) -> Bool {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        let cmdHeld = event.flags.contains(.maskCommand)
 
         let mapped: KeyEvent? = switch Int(keyCode) {
         case kVK_ANSI_1: .digit(1)
@@ -68,6 +71,8 @@ final class PopoverKeyMonitor {
         case kVK_DownArrow: .down
         case kVK_Escape: .escape
         case kVK_Return, kVK_ANSI_KeypadEnter: .returnKey
+        case kVK_ANSI_C where cmdHeld: .copy
+        case kVK_ANSI_R where cmdHeld: .retry
         default: nil
         }
 

@@ -18,16 +18,27 @@ final class OverlayController {
     private var previewStreaming: Bool = false
     private var previewCanReplace: Bool = false
     private var previewActionTitle: String = ""
+    private var previewOriginalText: String = ""
     private var pendingSnapshot: FieldSnapshot?
     private var pendingAction: WritingAction?
+    private var pendingEvent: ConversionEvent?
+    private var pendingUndo: PendingUndo?
     private var isApplyingPreview = false
+
+    private struct PendingUndo {
+        let pid: pid_t
+        let bundleID: String?
+        let role: String
+        let range: NSRange
+        let originalText: String
+    }
 
     var iconMode: IconMode = .onTyping
     var onActionSelected: ((WritingAction, FocusedField) -> Void)?
 
     private let iconSize = CGSize(width: 28, height: 28)
     private let popoverSize = CGSize(width: 220, height: 248)
-    private let previewSize = CGSize(width: 300, height: 200)
+    private let previewSize = CGSize(width: 300, height: 216)
     /// Fixed dock offset from the bottom of the visible screen (Whisperflow-style).
     private let iconBottomMargin: CGFloat = 36
 
@@ -75,10 +86,14 @@ final class OverlayController {
         PreviewCardView(
             actionTitle: previewActionTitle,
             text: previewText,
+            originalText: previewOriginalText,
+            action: pendingAction,
             isStreaming: previewStreaming,
             canReplace: previewCanReplace,
             onReplace: { [weak self] in self?.applyPreview() },
-            onDiscard: { [weak self] in self?.dismissPreview() }
+            onCopy: { [weak self] in self?.copyPreview() },
+            onRetry: { [weak self] in self?.retryPreview() },
+            onDiscard: { [weak self] in self?.discardPreview() }
         )
     }
 
@@ -131,10 +146,13 @@ final class OverlayController {
     func beginPreview(action: WritingAction) {
         previewActionTitle = action.title
         previewText = ""
+        previewOriginalText = ""
         previewStreaming = true
         previewCanReplace = false
         pendingAction = action
         pendingSnapshot = nil
+        pendingEvent = nil
+        pendingUndo = nil
 
         guard let field = currentField else { return }
         dismissActionPopover()
@@ -154,11 +172,13 @@ final class OverlayController {
         refreshPreviewContent()
     }
 
-    func finishPreview(output: String, snapshot: FieldSnapshot) {
+    func finishPreview(output: String, snapshot: FieldSnapshot, event: ConversionEvent) {
         previewText = output
+        previewOriginalText = snapshot.actionText
         previewStreaming = false
         previewCanReplace = !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         pendingSnapshot = snapshot
+        pendingEvent = event
         refreshPreviewContent()
         installPreviewKeyMonitor()
     }
@@ -168,6 +188,17 @@ final class OverlayController {
         previewCanReplace = false
         dismissPreview()
         ErrorToast.show(message)
+    }
+
+    // MARK: - Event logging
+
+    /// Persists the pending conversion event exactly once, tagged with the
+    /// terminal outcome (Replace/Copy → accepted, Discard/Retry/blur → not).
+    private func finalizeEvent(accepted: Bool) {
+        guard var event = pendingEvent else { return }
+        pendingEvent = nil
+        event.accepted = accepted
+        Task { await ConversionEventStore.shared.append(event) }
     }
 
     // MARK: - FocusMonitor events
@@ -182,6 +213,7 @@ final class OverlayController {
     func fieldDidBlur() {
         currentField = nil
         dismissActionPopover()
+        finalizeEvent(accepted: false)
         dismissPreview()
         hideIcon()
     }
@@ -293,6 +325,7 @@ final class OverlayController {
         guard isPreviewVisible else { return }
         isPreviewVisible = false
         previewText = ""
+        previewOriginalText = ""
         previewStreaming = false
         previewCanReplace = false
         pendingSnapshot = nil
@@ -305,6 +338,12 @@ final class OverlayController {
         }, completionHandler: { [weak self] in
             Task { @MainActor in self?.previewPanel.orderOut(nil) }
         })
+    }
+
+    /// User-initiated close without accepting the result (Discard button / Esc).
+    private func discardPreview() {
+        finalizeEvent(accepted: false)
+        dismissPreview()
     }
 
     // MARK: - Interaction
@@ -324,7 +363,7 @@ final class OverlayController {
     private func applyPreview() {
         guard let snapshot = pendingSnapshot, let field = currentField else {
             ErrorToast.show("Couldn't apply — field changed. Try again.")
-            dismissPreview()
+            discardPreview()
             return
         }
         guard previewCanReplace, !previewText.isEmpty, !isApplyingPreview else { return }
@@ -335,6 +374,8 @@ final class OverlayController {
         let bundleID = field.appBundleID
         let range = snapshot.actionRange
         let role = snapshot.role
+        let originalText = snapshot.actionText
+        let postReplaceRange = NSRange(location: range.location, length: (text as NSString).length)
 
         hidePanelsForReplace()
         keyMonitor.uninstall()
@@ -349,14 +390,58 @@ final class OverlayController {
             )
             await MainActor.run {
                 isApplyingPreview = false
+                finalizeEvent(accepted: true)
                 dismissPreview()
                 switch result {
                 case .selectedTextReplaced, .fullValueReplaced, .clipboardPasted:
-                    ErrorToast.show("Text replaced ✓")
+                    pendingUndo = PendingUndo(
+                        pid: pid,
+                        bundleID: bundleID,
+                        role: role,
+                        range: postReplaceRange,
+                        originalText: originalText
+                    )
+                    UndoToast.show(message: "Replaced ✓") { [weak self] in
+                        self?.restoreOriginal()
+                    }
                 case .failed(let reason):
                     ErrorToast.show("Replace failed: \(reason)")
                 }
             }
+        }
+    }
+
+    /// Copies the preview result to the clipboard and closes the card — an
+    /// alternative to Replace when the user wants to paste it elsewhere.
+    private func copyPreview() {
+        guard previewCanReplace, !previewText.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(previewText, forType: .string)
+        finalizeEvent(accepted: true)
+        dismissPreview()
+        ErrorToast.show("Copied ✓")
+    }
+
+    /// Discards the current attempt and re-runs the same action against the
+    /// field's live contents.
+    private func retryPreview() {
+        guard let action = pendingAction, let field = currentField else { return }
+        finalizeEvent(accepted: false)
+        beginPreview(action: action)
+        onActionSelected?(action, field)
+    }
+
+    private func restoreOriginal() {
+        guard let undo = pendingUndo else { return }
+        pendingUndo = nil
+        Task {
+            _ = await TextWriter.replace(
+                pid: undo.pid,
+                range: undo.range,
+                with: undo.originalText,
+                bundleID: undo.bundleID,
+                role: undo.role
+            )
         }
     }
 
@@ -377,11 +462,15 @@ final class OverlayController {
     private func handlePreviewKeyEvent(_ event: PopoverKeyMonitor.KeyEvent) {
         switch event {
         case .escape:
-            dismissPreview()
+            discardPreview()
         case .returnKey:
             if previewCanReplace, !previewText.isEmpty {
                 applyPreview()
             }
+        case .copy:
+            copyPreview()
+        case .retry:
+            retryPreview()
         default:
             break
         }
@@ -400,6 +489,8 @@ final class OverlayController {
             let actions = WritingAction.popoverOrder
             guard highlightedIndex >= 0, highlightedIndex < actions.count else { return }
             handleActionSelected(actions[highlightedIndex])
+        case .copy, .retry:
+            break
         }
     }
 

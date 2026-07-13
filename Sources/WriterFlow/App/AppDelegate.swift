@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusMenuItem: NSMenuItem?
     private let permissions = PermissionsCoordinator()
     private lazy var onboarding = OnboardingWindowController(permissions: permissions)
+    private lazy var settingsWindow = SettingsWindowController(modelsConfig: modelsConfig)
     private let focusMonitor = FocusMonitor()
     private let overlay = OverlayController()
     private let globalHotkey = GlobalHotkey()
@@ -49,8 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         actionEngine.onStreamDelta = { [weak self] delta in
             self?.overlay.appendPreview(delta)
         }
-        actionEngine.onCompleted = { [weak self] _, output, snapshot in
-            self?.overlay.finishPreview(output: output, snapshot: snapshot)
+        actionEngine.onCompleted = { [weak self] _, output, snapshot, event in
+            self?.overlay.finishPreview(output: output, snapshot: snapshot, event: event)
         }
         actionEngine.onFailed = { [weak self] message in
             self?.overlay.failPreview(message: message)
@@ -245,8 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
-        // Settings window ships in Phase 1.5
-        Log.app.info("Settings requested (stub)")
+        settingsWindow.show()
     }
 
     @objc private func quitApp() {
