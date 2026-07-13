@@ -25,6 +25,17 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(launchAtLogin, forKey: Keys.launchAtLogin) }
     }
 
+    /// Last 5 Custom-action instructions, most recent first — quick-repeat chips.
+    @Published var recentCustomInstructions: [String] {
+        didSet { defaults.set(recentCustomInstructions, forKey: Keys.recentCustomInstructions) }
+    }
+
+    func recordCustomInstruction(_ instruction: String) {
+        var list = recentCustomInstructions.filter { $0 != instruction }
+        list.insert(instruction, at: 0)
+        recentCustomInstructions = Array(list.prefix(5))
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let modeRaw = defaults.string(forKey: Keys.iconMode) ?? IconMode.onTyping.rawValue
@@ -37,11 +48,13 @@ final class SettingsStore: ObservableObject {
         } else {
             self.launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         }
+        self.recentCustomInstructions = defaults.stringArray(forKey: Keys.recentCustomInstructions) ?? []
     }
 
     private enum Keys {
         static let iconMode      = "wf.iconMode"
         static let isPaused      = "wf.isPaused"
         static let launchAtLogin = "wf.launchAtLogin"
+        static let recentCustomInstructions = "wf.recentCustomInstructions"
     }
 }

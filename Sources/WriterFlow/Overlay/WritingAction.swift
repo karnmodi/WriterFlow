@@ -1,46 +1,45 @@
 import Foundation
 
-/// The six writing actions shown in the action popover.
+/// The writing actions shown in the action popover.
 enum WritingAction: CaseIterable, Sendable, Equatable {
     case elaborate
     case formal
     case casual
     case fixGrammar
     case reply
+    case promptBuilder
     case custom
 
     var title: String {
         switch self {
-        case .elaborate:   return "Elaborate"
-        case .formal:      return "Formal"
-        case .casual:      return "Casual"
-        case .fixGrammar:  return "Fix Grammar"
-        case .reply:       return "Reply"
-        case .custom:      return "Custom"
+        case .elaborate:      return "Elaborate"
+        case .formal:         return "Formal"
+        case .casual:         return "Casual"
+        case .fixGrammar:     return "Fix Grammar"
+        case .reply:          return "Reply"
+        case .promptBuilder:  return "Prompt Builder"
+        case .custom:         return "Custom"
         }
     }
 
-    /// Keyboard shortcut digit (1–4) for the core four actions.
+    /// Keyboard shortcut digit (1–6) for the list-row actions.
     var shortcut: Int? {
         switch self {
-        case .elaborate:   return 1
-        case .formal:      return 2
-        case .casual:      return 3
-        case .fixGrammar:  return 4
-        case .reply, .custom: return nil
+        case .elaborate:      return 1
+        case .formal:         return 2
+        case .casual:         return 3
+        case .fixGrammar:     return 4
+        case .reply:          return 5
+        case .promptBuilder:  return 6
+        case .custom:         return nil
         }
     }
 
-    /// Reply and Custom ship in Phase 2.
-    var isEnabled: Bool {
-        switch self {
-        case .reply, .custom: return false
-        default: return true
-        }
-    }
+    var isEnabled: Bool { true }
 
-    /// Selectable actions in popover order (all six, including disabled).
-    static var popoverOrder: [WritingAction] { allCases }
+    /// List rows shown in the popover — Custom has its own text-input row instead
+    /// of a selectable list row (see `ActionPopoverView`), so it's excluded here.
+    static var popoverOrder: [WritingAction] { allCases.filter { $0 != .custom } }
 
     /// Enabled actions only — used for keyboard navigation.
     static var enabledActions: [WritingAction] {

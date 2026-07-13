@@ -91,6 +91,75 @@ actor AzureOpenAIClient {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
+    /// Non-streaming classification call for the Recommendation Engine — one word
+    /// out of elaborate/formal/casual/grammar/reply, or nil if it doesn't parse.
+    func classifyAction(fieldText: String, hasVisibleThread: Bool, toneBias: String) async throws -> WritingAction? {
+        let slot = config.slots.grammar
+        let apiKey = try resolveAPIKey(for: slot)
+        let url = try resolveURL()
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "api-key")
+        request.timeoutInterval = 8
+
+        let threadNote = hasVisibleThread ? "A conversation thread is visible above this field." : "No conversation thread is visible."
+        let user = "App context: \(toneBias)\n\(threadNote)\nCurrent text:\n\(fieldText.isEmpty ? "(empty)" : fieldText)"
+        let input: [[String: Any]] = [
+            ["role": "system", "content": Prompts.recommendationSystem],
+            ["role": "user", "content": user]
+        ]
+        let body: [String: Any] = [
+            "model": slot.deployment,
+            "input": input,
+            "stream": false,
+            "max_output_tokens": 5
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: request)
+        try validateHTTP(response: response, data: data)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let text = Self.extractOutputText(from: json)
+        else { return nil }
+
+        return Self.parseAction(text)
+    }
+
+    private static func extractOutputText(from json: [String: Any]) -> String? {
+        if let text = json["output_text"] as? String, !text.isEmpty {
+            return text
+        }
+        guard let output = json["output"] as? [[String: Any]] else { return nil }
+        for item in output {
+            guard let content = item["content"] as? [[String: Any]] else { continue }
+            for part in content {
+                if let text = part["text"] as? String, !text.isEmpty {
+                    return text
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func parseAction(_ text: String) -> WritingAction? {
+        let cleaned = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .split(whereSeparator: { $0.isWhitespace || $0 == "." || $0 == "," || $0 == ":" || $0 == "\"" })
+            .first
+            .map(String.init) ?? ""
+        switch cleaned {
+        case "elaborate": return .elaborate
+        case "formal": return .formal
+        case "casual": return .casual
+        case "grammar", "fixgrammar", "fix_grammar": return .fixGrammar
+        case "reply": return .reply
+        default: return nil
+        }
+    }
+
     // MARK: - Private
 
     private func resolveURL() throws -> URL {

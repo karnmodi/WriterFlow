@@ -9,6 +9,9 @@ actor CompatibilityMap {
         var readFail: Int = 0
         var writeOK: Int = 0
         var writeFail: Int = 0
+        var contextOK: Int = 0
+        var contextFail: Int = 0
+        var site: String?
     }
 
     static let shared = CompatibilityMap()
@@ -34,6 +37,22 @@ actor CompatibilityMap {
         guard let bundleID else { return }
         var entry = entries[bundleID] ?? Entry()
         if ok { entry.writeOK += 1 } else { entry.writeFail += 1 }
+        entries[bundleID] = entry
+        scheduleWrite()
+    }
+
+    func recordContext(bundleID: String?, ok: Bool) {
+        guard let bundleID else { return }
+        var entry = entries[bundleID] ?? Entry()
+        if ok { entry.contextOK += 1 } else { entry.contextFail += 1 }
+        entries[bundleID] = entry
+        scheduleWrite()
+    }
+
+    func recordIdentity(bundleID: String?, site: String?) {
+        guard let bundleID, let site else { return }
+        var entry = entries[bundleID] ?? Entry()
+        entry.site = site
         entries[bundleID] = entry
         scheduleWrite()
     }

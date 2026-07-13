@@ -38,18 +38,42 @@ enum ContextExtractor {
               let role = AXCall.string(focused, AXAttr.role)
         else { return nil }
 
-        let fullText = AXCall.string(focused, AXAttr.value) ?? ""
+        let rawText = AXCall.string(focused, AXAttr.value) ?? ""
+        let windowTitle = focusedWindowTitle(app: app)
+        let isTerminal = TerminalApps.isTerminal(bundleID: bundleID)
+
+        // Terminals expose the whole scrollback as one blob with no meaningful
+        // selection — reduce to just the current input line, no write-back.
+        if isTerminal {
+            let line = TerminalApps.currentLine(from: rawText)
+            return FieldSnapshot(
+                fullText: line,
+                selectedText: "",
+                selectedRange: NSRange(location: 0, length: (line as NSString).length),
+                role: role,
+                appBundleID: bundleID,
+                windowTitle: windowTitle,
+                supportsReplace: false
+            )
+        }
+
         let selectedText = AXCall.string(focused, AXAttr.selectedText) ?? ""
         let range = AXCall.range(focused, AXAttr.selectedTextRange)
-            ?? NSRange(location: 0, length: (fullText as NSString).length)
+            ?? NSRange(location: 0, length: (rawText as NSString).length)
 
         return FieldSnapshot(
-            fullText: fullText,
+            fullText: rawText,
             selectedText: selectedText,
             selectedRange: range,
             role: role,
-            appBundleID: bundleID
+            appBundleID: bundleID,
+            windowTitle: windowTitle
         )
+    }
+
+    private static func focusedWindowTitle(app: AXUIElement) -> String? {
+        guard let window = AXCall.element(app, AXAttr.focusedWindow) else { return nil }
+        return AXCall.string(window, AXAttr.title)
     }
 
     private static func logSnapshot(_ snapshot: FieldSnapshot) {

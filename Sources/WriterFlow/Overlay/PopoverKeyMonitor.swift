@@ -67,6 +67,9 @@ final class PopoverKeyMonitor {
         case kVK_ANSI_2: .digit(2)
         case kVK_ANSI_3: .digit(3)
         case kVK_ANSI_4: .digit(4)
+        case kVK_ANSI_5: .digit(5)
+        case kVK_ANSI_6: .digit(6)
+        case kVK_ANSI_7: .digit(7)
         case kVK_UpArrow: .up
         case kVK_DownArrow: .down
         case kVK_Escape: .escape

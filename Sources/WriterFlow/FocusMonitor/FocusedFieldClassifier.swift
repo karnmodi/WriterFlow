@@ -43,7 +43,8 @@ enum FocusedFieldClassifier {
             frame: cocoaFrame,
             anchorRect: anchor,
             appBundleID: bundleID,
-            appPID: pid
+            appPID: pid,
+            supportsReplace: !TerminalApps.isTerminal(bundleID: bundleID)
         )
     }
 

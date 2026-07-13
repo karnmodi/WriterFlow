@@ -32,17 +32,15 @@ private struct WaveLineShape: Shape {
     }
 }
 
-/// Three parallel wave lines — neutral, clearly visible, gently animated.
+/// Three wave lines — light gray fill with black border, readable on any background.
 struct WaveLinesIconView: View {
     var size: CGFloat = 22
     var animated: Bool = true
 
     @State private var wavePhase: CGFloat = 0
-    @State private var shadowOpacity: Double = 0.18
 
-    private var lineColor: Color {
-        Color.primary.opacity(0.78)
-    }
+    private static let fillColor = Color(white: 0.82)
+    private static let borderColor = Color.black
 
     var body: some View {
         ZStack {
@@ -51,28 +49,30 @@ struct WaveLinesIconView: View {
             waveLine(yFraction: 0.70, phaseOffset: 2.2)
         }
         .frame(width: size, height: size)
-        .shadow(color: .black.opacity(shadowOpacity), radius: size * 0.14, y: 1)
         .onAppear {
             guard animated else { return }
             withAnimation(.linear(duration: 2.2).repeatForever(autoreverses: false)) {
                 wavePhase = .pi * 2
             }
-            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                shadowOpacity = 0.38
-            }
         }
     }
 
     private func waveLine(yFraction: CGFloat, phaseOffset: CGFloat) -> some View {
-        WaveLineShape(yFraction: yFraction, wavePhase: wavePhase + phaseOffset)
-            .stroke(
-                lineColor,
-                style: StrokeStyle(
-                    lineWidth: max(1.4, size * 0.075),
-                    lineCap: .round,
-                    lineJoin: .round
-                )
+        let shape = WaveLineShape(yFraction: yFraction, wavePhase: wavePhase + phaseOffset)
+        let borderWidth = max(1.0, size * 0.038)
+        let fillWidth = max(1.5, size * 0.072)
+        let outerWidth = fillWidth + borderWidth * 2
+
+        return ZStack {
+            shape.stroke(
+                Self.borderColor,
+                style: StrokeStyle(lineWidth: outerWidth, lineCap: .round, lineJoin: .round)
             )
+            shape.stroke(
+                Self.fillColor,
+                style: StrokeStyle(lineWidth: fillWidth, lineCap: .round, lineJoin: .round)
+            )
+        }
     }
 }
 

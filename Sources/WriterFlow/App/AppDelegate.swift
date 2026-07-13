@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsStore.shared
     private let modelsConfig = AzureModelsConfig.load()
     private lazy var actionEngine = ActionEngine(config: modelsConfig)
+    private lazy var recommendationEngine = RecommendationEngine(config: modelsConfig)
     private var cancellables: Set<AnyCancellable> = []
     private var hadAccessibility = false
     private var hadInputMonitoring = false
@@ -50,6 +51,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         actionEngine.onStreamDelta = { [weak self] delta in
             self?.overlay.appendPreview(delta)
         }
+        actionEngine.onStreamPromptBuilder = { [weak self] prompt in
+            self?.overlay.updatePromptBuilderPreview(prompt: prompt)
+        }
+        actionEngine.onPromptBuilderClarify = { [weak self] questions in
+            self?.overlay.showPromptBuilderClarify(questions: questions)
+        }
         actionEngine.onCompleted = { [weak self] _, output, snapshot, event in
             self?.overlay.finishPreview(output: output, snapshot: snapshot, event: event)
         }
@@ -59,6 +66,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         overlay.onActionSelected = { [weak self] action, field in
             self?.actionEngine.run(action: action, field: field)
+        }
+        overlay.onCustomActionSelected = { [weak self] instruction, field in
+            self?.actionEngine.run(action: .custom, field: field, customInstruction: instruction)
+        }
+        overlay.onPromptBuilderActionSelected = { [weak self] brief, field in
+            self?.actionEngine.run(action: .promptBuilder, field: field, customInstruction: brief)
+        }
+        overlay.onPromptBuilderAnswersSelected = { [weak self] answers, field in
+            self?.actionEngine.finalizePromptBuilder(answers: answers, field: field)
+        }
+        overlay.onRequestRecommendation = { [weak self] field in
+            self?.recommendationEngine.recommend(field: field)
+        }
+        overlay.onCancelRecommendation = { [weak self] in
+            self?.recommendationEngine.cancel()
+        }
+        recommendationEngine.onRecommendation = { [weak self] action, field in
+            self?.overlay.applyRecommendation(action, for: field)
         }
 
         globalHotkey.onTrigger = { [weak self] in

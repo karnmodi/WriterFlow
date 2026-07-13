@@ -12,6 +12,10 @@ struct FieldSnapshot: Sendable, Equatable {
     let role: String
     /// Bundle id of the owning app when known.
     let appBundleID: String?
+    /// Focused window title when readable — used for browser site detection.
+    let windowTitle: String?
+    /// False for apps (terminals) where AX writes aren't safe — Replace is disabled, Copy-only.
+    var supportsReplace: Bool = true
 
     /// The substring the action should operate on: selection if any, else the full text.
     var actionText: String {
