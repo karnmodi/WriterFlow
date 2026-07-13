@@ -47,10 +47,10 @@
 
 ## Stage 0.5 — Plumbing
 
-- [ ] `UserDefaults`-backed settings store (icon mode: on-typing / hotkey-only / always-on-focus).
-- [ ] Launch-at-login via `SMAppService.mainApp`.
-- [ ] Pause toggle in menu bar (suspends event tap + observers).
-- [ ] Basic os_log categories: focus, overlay, engine.
+- [x] `UserDefaults`-backed `SettingsStore` (icon mode: on-typing / hotkey-only / always-on-focus; `isPaused`; `launchAtLogin`).
+- [x] Launch-at-login via `SMAppService.mainApp` (`LaunchAtLogin.apply`), driven from `SettingsStore.launchAtLogin`.
+- [x] Pause toggle in menu bar (⌘P) — flips `SettingsStore.isPaused`, which stops the FocusMonitor (uninstalls event tap + AXObserver, hides overlay). The status-item button appears disabled while paused.
+- [x] `Log` enum with categories `app / focus / overlay / engine / store`.
 
 **Accept:** Survives reboot with launch-at-login; Pause fully stops icon behavior; idle CPU < 1%.
 

@@ -1,13 +1,17 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
+    private var pauseMenuItem: NSMenuItem?
     private let permissions = PermissionsCoordinator()
     private lazy var onboarding = OnboardingWindowController(permissions: permissions)
     private let focusMonitor = FocusMonitor()
     private let overlay = OverlayController()
+    private let settings = SettingsStore.shared
+    private var cancellables: Set<AnyCancellable> = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -21,7 +25,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         focusMonitor.delegate = overlay
-        focusMonitor.start()
+
+        // Reconcile persisted launch-at-login state with the current SMAppService registration.
+        LaunchAtLogin.apply(enabled: settings.launchAtLogin)
+
+        settings.$launchAtLogin
+            .dropFirst()
+            .sink { LaunchAtLogin.apply(enabled: $0) }
+            .store(in: &cancellables)
+
+        settings.$isPaused
+            .sink { [weak self] paused in self?.applyPause(paused) }
+            .store(in: &cancellables)
+    }
+
+    private func applyPause(_ paused: Bool) {
+        pauseMenuItem?.state = paused ? .on : .off
+        statusItem?.button?.appearsDisabled = paused
+        if paused {
+            focusMonitor.stop()
+            Log.app.info("Paused")
+        } else {
+            focusMonitor.start()
+            Log.app.info("Resumed")
+        }
     }
 
     private func installStatusItem() {
@@ -40,8 +67,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let pause = NSMenuItem(title: "Pause", action: #selector(togglePause(_:)), keyEquivalent: "")
+        let pause = NSMenuItem(title: "Pause", action: #selector(togglePause(_:)), keyEquivalent: "p")
         pause.target = self
+        pause.state = settings.isPaused ? .on : .off
+        pauseMenuItem = pause
         menu.addItem(pause)
 
         menu.addItem(.separator())
@@ -68,9 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePause(_ sender: NSMenuItem) {
-        // Wired in Phase 0.5
-        sender.state = sender.state == .on ? .off : .on
-        Log.app.info("Pause toggled: \(sender.state == .on ? "on" : "off", privacy: .public)")
+        settings.isPaused.toggle()
     }
 
     @objc private func showOnboarding() {
