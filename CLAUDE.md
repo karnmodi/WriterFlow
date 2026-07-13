@@ -8,7 +8,7 @@ WriterFlow is a native macOS menu bar app — an always-on, invisible writing as
 
 ## Current state
 
-**Phase 1.2 landed** — action popover (non-activating panel), ⌥ Space global hotkey, keyboard nav (1–4/arrows/Esc). Next: Phase 1.3 (OpenAI ActionEngine).
+**Phase 1.3 landed** — Azure OpenAI ActionEngine (Responses API SSE, models from `.env` → `models.json`, Keychain). Next: Phase 1.4 (preview card).
 
 ### Build system deviation from original spec
 
@@ -40,7 +40,7 @@ Never invent requirements — if something isn't specified in these docs, ask or
 - **App type:** Menu bar only (`LSUIElement = YES`), no dock icon. Launch at login via `SMAppService`.
 - **System integration:** Accessibility API (`AXUIElement*`), passive listen-only `CGEventTap` for typing detection, Carbon `RegisterEventHotKey` for the global hotkey.
 - **Overlay:** non-activating `NSPanel` (`.nonactivatingPanel`, level `.floating`) — focus must NEVER leave the user's text field.
-- **AI:** OpenAI Responses API with SSE streaming. Models via config JSON (default `gpt-5.4-mini`, grammar `gpt-5.4-nano`) — never hardcode model strings in logic.
+- **AI:** Azure OpenAI Responses API with SSE streaming. Endpoint + deployments from `.env` (dev) / hot-swappable `models.json` in Application Support. API key in Keychain (seeded from `.env`). Never hardcode model strings in logic.
 - **Storage:** SQLite via GRDB (history, memory, app rules) · Keychain (API key) · UserDefaults (settings).
 - **Distribution:** Developer ID + notarization + Sparkle 2. NOT Mac App Store (private AX usage would be rejected).
 

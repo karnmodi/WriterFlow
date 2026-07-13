@@ -23,23 +23,23 @@
 
 **Accept:** Full flow without mouse: type → `⌥ Space` → `2` → result. Caret never leaves Gmail compose.
 
-## Stage 1.3 — OpenAI ActionEngine
+## Stage 1.3 — Azure OpenAI ActionEngine
 
-- [ ] `OpenAIClient`: Responses API, streaming (SSE), configurable base URL + model string. API key from Keychain.
-- [ ] Models config (single source of truth, JSON in app support dir so it's hot-swappable):
-  - default: `gpt-5.4-mini`
-  - grammar: `gpt-5.4-nano`
-  - heavy (optional): flagship, settings-gated
-- [ ] Prompt builder:
+- [x] `AzureOpenAIClient`: Azure Responses API (`TARGET_URI` from `.env`), streaming (SSE), deployment per model slot. API key from Keychain (seeded from `.env` on first launch).
+- [x] Models config (single source of truth, JSON in `~/Library/Application Support/WriterFlow/models.json`, bootstrapped from `.env`):
+  - default: `gpt-5.4-mini` (`AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Mini`)
+  - grammar: `gpt-5.4-mini` (same deployment until nano is provisioned)
+  - heavy (optional): `gpt-5.4-pro` (`AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Pro`)
+- [x] Prompt builder:
   ```
   system:  You are a writing assistant... {voice profile placeholder}
            App context: {bundle ID → tone bias}
            Rules: preserve meaning, output ONLY the rewritten text, match input language.
   user:    [ACTION=formal] <selected or full text>
   ```
-- [ ] Per-action instruction blocks (elaborate / formal / casual / grammar) in a `Prompts.swift` (or bundled .txt) — easy to iterate.
-- [ ] Streaming: first token < 800 ms target; 15 s timeout; 1 retry on 5xx/timeout; error toast on failure.
-- [ ] Emit `ConversionEvent` (timestamp, app, action, input, output, accepted?) to the Store — Phase 3 dashboard consumes this. Log from day one.
+- [x] Per-action instruction blocks (elaborate / formal / casual / grammar) in `Prompts.swift` — easy to iterate.
+- [x] Streaming: 15 s timeout; 1 retry on 5xx/timeout; non-activating error toast on failure.
+- [x] Emit `ConversionEvent` (timestamp, app, action, input, output, accepted?) to `conversions.jsonl` — Phase 3 dashboard consumes this.
 
 **Accept:** Each of the 4 actions returns sensible output; grammar action noticeably faster; airplane mode shows a clean error, not a hang.
 

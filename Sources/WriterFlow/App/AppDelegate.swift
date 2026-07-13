@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let overlay = OverlayController()
     private let globalHotkey = GlobalHotkey()
     private let settings = SettingsStore.shared
+    private let modelsConfig = AzureModelsConfig.load()
+    private lazy var actionEngine = ActionEngine(config: modelsConfig)
     private var cancellables: Set<AnyCancellable> = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -27,10 +29,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         focusMonitor.delegate = overlay
 
-        overlay.onActionSelected = { action, field in
+        seedAzureCredentials()
+
+        actionEngine.onStreamDelta = { delta in
+            // Phase 1.4 streams into the preview card; for now log chunks at debug level.
+            Log.engine.debug("stream delta len=\(delta.count, privacy: .public)")
+        }
+        actionEngine.onCompleted = { action, output in
             Log.engine.info(
-                "Action stub: \(action.title, privacy: .public) app=\(field.appBundleID ?? "?", privacy: .public) — ActionEngine lands in Phase 1.3"
+                "Action complete: \(action.title, privacy: .public) — \(output.prefix(200), privacy: .public)"
             )
+        }
+
+        overlay.onActionSelected = { [weak self] action, field in
+            self?.actionEngine.run(action: action, field: field)
         }
 
         globalHotkey.onTrigger = { [weak self] in
@@ -59,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.button?.appearsDisabled = paused
         if paused {
             globalHotkey.uninstall()
+            actionEngine.cancel()
             overlay.dismissActionPopover()
             focusMonitor.stop()
             Log.app.info("Paused")
@@ -134,5 +147,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+
+    private func seedAzureCredentials() {
+        let exec = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? ".")
+        let envFile = DotEnvLoader.findEnvFile(startingAt: exec.deletingLastPathComponent())
+        let env = DotEnvLoader.loadMerged(fileURL: envFile)
+        KeychainStore.seedFromEnvIfNeeded(env, keyEnvName: modelsConfig.defaultApiKeyEnv)
     }
 }
