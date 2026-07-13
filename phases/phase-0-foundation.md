@@ -23,12 +23,14 @@
 
 ## Stage 0.3 — FocusMonitor
 
-- [ ] `AXObserver` on the frontmost app for `kAXFocusedUIElementChangedNotification`; re-attach on app switch (`NSWorkspace.didActivateApplicationNotification`).
-- [ ] Passive CGEventTap (`.listenOnly`, `keyDown`) as the "user is typing" signal. **Do not store key contents** — only bump a timestamp.
-- [ ] Classify focused element: is it text-editable? (`kAXRoleAttribute` in {`AXTextField`, `AXTextArea`, `AXComboBox`} or `kAXValueAttribute` settable; web content: role `AXTextField`/`contenteditable` heuristics).
-- [ ] Secure-field guard: role `AXSecureTextField` OR `IsSecureEventInputEnabled()` → treat as non-editable.
-- [ ] Emit events: `fieldFocused(frame:appBundleID:)`, `typingStarted`, `typingStopped(after: 4s debounce)`, `fieldBlurred`.
-- [ ] Get field screen frame via `kAXPositionAttribute` + `kAXSizeAttribute` for icon placement.
+- [x] `AXObserver` on the frontmost app for `kAXFocusedUIElementChangedNotification`; re-attach on app switch (`NSWorkspace.didActivateApplicationNotification`).
+- [x] Passive CGEventTap (`.listenOnly`, `keyDown`) as the "user is typing" signal. Tap re-enables on `tapDisabledBy…`. Only a `mach_absolute_time()` timestamp is bumped — key contents are never inspected.
+- [x] Classify focused element: role in `{AXTextField, AXTextArea, AXComboBox}` OR `AXValue` settable.
+- [x] Secure-field guard: role `AXSecureTextField` OR `IsSecureEventInputEnabled()` → treat as non-editable.
+- [x] Emits `fieldFocused / fieldBlurred / typingStarted / typingStopped (4 s) / fieldFrameUpdated` via `FocusMonitorDelegate`.
+- [x] Field screen frame via `AXPosition` + `AXSize`; converted AX→Cocoa via `MainScreenSnapshot.primaryHeight` (refreshed on `didChangeScreenParametersNotification`).
+- [x] Chrome/Chromium quirk: sets `AXEnhancedUserInterface = true` on first attach. Electron quirk: sets `AXManualAccessibility = true` for Slack/WhatsApp/Notion.
+- [x] All AX I/O runs on a dedicated background `DispatchQueue`; each element gets a 500 ms `AXUIElementSetMessagingTimeout`.
 
 **Accept:** Console-log events fire correctly in: TextEdit, Notes, Safari (Gmail), Chrome (Gmail), Slack. Password fields never fire.
 

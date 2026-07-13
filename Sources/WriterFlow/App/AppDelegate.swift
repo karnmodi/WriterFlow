@@ -6,6 +6,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private let permissions = PermissionsCoordinator()
     private lazy var onboarding = OnboardingWindowController(permissions: permissions)
+    private let focusMonitor = FocusMonitor()
+    private let loggingDelegate = LoggingFocusDelegate()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -17,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.app.info("Permissions missing — showing onboarding")
             onboarding.show()
         }
+
+        focusMonitor.delegate = loggingDelegate
+        focusMonitor.start()
     }
 
     private func installStatusItem() {

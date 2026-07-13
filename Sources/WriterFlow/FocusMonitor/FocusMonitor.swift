@@ -1,0 +1,257 @@
+import AppKit
+import ApplicationServices
+import Foundation
+
+/// Central focus + typing coordinator.
+///
+/// - Attaches an AXObserver to the frontmost app (re-attached on app switches).
+/// - Listens to a passive CGEventTap for a "user is typing" timestamp.
+/// - Classifies the focused element into an editable / secure / non-editable bucket.
+/// - Emits high-level events to a delegate.
+@MainActor
+final class FocusMonitor {
+    weak var delegate: FocusMonitorDelegate?
+
+    private let axQueue = DispatchQueue(label: "com.karan.writerflow.ax", qos: .userInitiated)
+    private let eventTap = EventTap()
+
+    private var currentAppObserver: AppObserver?
+    private var currentField: FocusedField?
+    private var typingActive: Bool = false
+    private var stopTypingTask: Task<Void, Never>?
+    private var frameTimer: Timer?
+    private var chromeQuirkApplied: Set<pid_t> = []
+    private var electronQuirkApplied: Set<pid_t> = []
+    private var isRunning: Bool = false
+
+    // 4-second debounce per phase-0 spec.
+    private let typingStopDelay: TimeInterval = 4.0
+
+    func start() {
+        guard !isRunning else { return }
+        isRunning = true
+
+        // Event tap for typing signal
+        if !eventTap.install() {
+            Log.focus.error("Failed to install keystroke event tap — Input Monitoring likely not granted")
+        }
+        eventTap.onKeyDown = { [weak self] in
+            // Main run loop already.
+            self?.handleKeystroke()
+        }
+
+        // Screen height snapshot for AX->Cocoa conversion; refresh on changes.
+        MainScreenSnapshot.primaryHeight = NSScreen.main?.frame.height ?? 1080
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(screenParametersChanged),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+
+        // Watch for app switches (re-attach observer)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(didActivateApp(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+
+        if let frontmost = NSWorkspace.shared.frontmostApplication {
+            attach(to: frontmost)
+        }
+        Log.focus.info("FocusMonitor started")
+    }
+
+    func stop() {
+        guard isRunning else { return }
+        isRunning = false
+
+        eventTap.uninstall()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        NotificationCenter.default.removeObserver(self)
+
+        currentAppObserver?.stop()
+        currentAppObserver = nil
+
+        stopTypingTask?.cancel()
+        stopTypingTask = nil
+        frameTimer?.invalidate()
+        frameTimer = nil
+
+        if let previous = currentField {
+            delegate?.focusMonitor(self, fieldDidBlur: previous.appBundleID)
+            currentField = nil
+        }
+        Log.focus.info("FocusMonitor stopped")
+    }
+
+    // MARK: - App attachment
+
+    @objc private func didActivateApp(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
+            return
+        }
+        attach(to: app)
+    }
+
+    private func attach(to app: NSRunningApplication) {
+        // Skip WriterFlow itself.
+        if app.processIdentifier == ProcessInfo.processInfo.processIdentifier { return }
+
+        // Detach previous.
+        currentAppObserver?.stop()
+        clearCurrentField()
+
+        let observer = AppObserver(pid: app.processIdentifier, bundleID: app.bundleIdentifier)
+        observer.onFocusChanged = { [weak self, weak observer] element in
+            guard let self, let observer else { return }
+            self.handleFocusChanged(element: element, in: observer)
+        }
+        observer.start()
+        currentAppObserver = observer
+
+        applyBrowserQuirks(for: app, on: observer)
+        Log.focus.info("Attached to \(app.bundleIdentifier ?? "?", privacy: .public) pid=\(app.processIdentifier)")
+    }
+
+    private func applyBrowserQuirks(for app: NSRunningApplication, on observer: AppObserver) {
+        guard let bundleID = app.bundleIdentifier else { return }
+        let chromiumBundles: Set<String> = [
+            "com.google.Chrome",
+            "com.google.Chrome.canary",
+            "com.brave.Browser",
+            "org.chromium.Chromium",
+            "com.microsoft.edgemac",
+            "company.thebrowser.Browser"    // Arc
+        ]
+        let electronBundles: Set<String> = [
+            "com.tinyspeck.slackmacgap",
+            "WhatsApp",
+            "net.whatsapp.WhatsApp",
+            "notion.id",
+            "com.electron.discord"
+        ]
+        if chromiumBundles.contains(bundleID), !chromeQuirkApplied.contains(app.processIdentifier) {
+            observer.setAppAttribute(AXAttr.enhancedUserInterface, boolValue: true)
+            chromeQuirkApplied.insert(app.processIdentifier)
+            Log.focus.info("Applied Chrome AXEnhancedUserInterface quirk for \(bundleID, privacy: .public)")
+        }
+        if electronBundles.contains(bundleID), !electronQuirkApplied.contains(app.processIdentifier) {
+            observer.setAppAttribute(AXAttr.manualAccessibility, boolValue: true)
+            electronQuirkApplied.insert(app.processIdentifier)
+            Log.focus.info("Applied Electron AXManualAccessibility quirk for \(bundleID, privacy: .public)")
+        }
+    }
+
+    // MARK: - Focus + classification
+
+    private func handleFocusChanged(element: AXUIElement?, in observer: AppObserver) {
+        guard let element else {
+            clearCurrentField()
+            return
+        }
+        let pid = observer.pid
+        let bundleID = observer.bundleID
+        axQueue.async { [weak self] in
+            let classified = FocusedFieldClassifier.classify(element, pid: pid, bundleID: bundleID)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let field = classified {
+                    self.applyClassifiedField(field)
+                } else {
+                    self.clearCurrentField()
+                }
+            }
+        }
+    }
+
+    private func applyClassifiedField(_ field: FocusedField) {
+        if currentField != field {
+            currentField = field
+            delegate?.focusMonitor(self, fieldDidFocus: field)
+            restartFrameTimer()
+        }
+    }
+
+    private func clearCurrentField() {
+        stopTypingTask?.cancel()
+        stopTypingTask = nil
+        frameTimer?.invalidate()
+        frameTimer = nil
+        if typingActive {
+            typingActive = false
+            delegate?.focusMonitorTypingStopped(self)
+        }
+        if let previous = currentField {
+            delegate?.focusMonitor(self, fieldDidBlur: previous.appBundleID)
+            currentField = nil
+        }
+    }
+
+    // MARK: - Typing signal
+
+    private func handleKeystroke() {
+        guard currentField != nil else { return }
+        if !typingActive {
+            typingActive = true
+            delegate?.focusMonitorTypingStarted(self)
+        }
+        scheduleTypingStopped()
+    }
+
+    private func scheduleTypingStopped() {
+        stopTypingTask?.cancel()
+        let delay = typingStopDelay
+        stopTypingTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            if self.typingActive {
+                self.typingActive = false
+                self.delegate?.focusMonitorTypingStopped(self)
+            }
+        }
+    }
+
+    // MARK: - Frame polling (only while a field is focused)
+
+    private func restartFrameTimer() {
+        frameTimer?.invalidate()
+        guard currentField != nil else { return }
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.pollFrame() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        frameTimer = timer
+    }
+
+    private func pollFrame() {
+        guard let observer = currentAppObserver, let field = currentField else { return }
+        let pid = observer.pid
+        let bundleID = observer.bundleID
+        axQueue.async { [weak self] in
+            _ = self  // keep alive across queue hop
+            let appElement = AXUIElementCreateApplication(pid)
+            guard let focused = AXCall.element(appElement, AXAttr.focusedUIElement),
+                  let axRect = AXCall.axFrame(focused)
+            else { return }
+            let cocoaRect = AXCoords.toCocoa(axRect)
+            let expectedBundle = field.appBundleID
+            let role = field.role
+            let previousFrame = field.frame
+            Task { @MainActor [weak self] in
+                guard let self, self.currentField?.appBundleID == expectedBundle else { return }
+                if cocoaRect != previousFrame {
+                    self.currentField = FocusedField(role: role, frame: cocoaRect, appBundleID: bundleID, appPID: pid)
+                    self.delegate?.focusMonitor(self, fieldFrameUpdated: cocoaRect)
+                }
+            }
+        }
+    }
+
+    // MARK: - Screen changes
+
+    @objc private func screenParametersChanged() {
+        MainScreenSnapshot.primaryHeight = NSScreen.main?.frame.height ?? 1080
+    }
+}
