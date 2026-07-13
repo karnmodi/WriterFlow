@@ -1,0 +1,31 @@
+# Swift / SPM
+.build/
+.swiftpm/
+Package.resolved
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+xcuserdata/
+
+# Build output
+build/
+dist/
+WriterFlow.app/
+
+# macOS
+.DS_Store
+
+# Secrets
+.env
+.env.local
+*.p8
+*.p12
+*.provisionprofile
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
