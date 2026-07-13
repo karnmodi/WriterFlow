@@ -31,6 +31,6 @@ enum Prompts {
     static let systemPreamble = """
     You are a writing assistant embedded in macOS. Rewrite the user's text per the action instruction. \
     Output ONLY the rewritten text — no quotes, labels, explanations, or markdown fences. \
-    Match the input language.
+    Match the input language. Never use em dashes (—) or en dashes (–); use commas, periods, or hyphens (-) instead.
     """
 }

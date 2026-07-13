@@ -3,7 +3,7 @@ import AppKit
 /// A borderless, non-activating NSPanel that never becomes key or main —
 /// so clicking the icon can never steal focus from the user's text field.
 final class FloatingPanel: NSPanel {
-    init(size: CGSize) {
+    init(size: CGSize, level: NSWindow.Level = .floating) {
         super.init(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -11,7 +11,7 @@ final class FloatingPanel: NSPanel {
             defer: false
         )
         isFloatingPanel = true
-        level = .floating
+        self.level = level
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         isOpaque = false
         backgroundColor = .clear
@@ -21,7 +21,8 @@ final class FloatingPanel: NSPanel {
         isMovable = false
         isMovableByWindowBackground = false
         // Never accept keyboard focus.
-        acceptsMouseMovedEvents = false
+        acceptsMouseMovedEvents = true
+        ignoresMouseEvents = false
     }
 
     override var canBecomeKey: Bool { false }

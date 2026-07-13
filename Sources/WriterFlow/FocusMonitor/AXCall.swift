@@ -69,6 +69,42 @@ enum AXCall {
         return CGRect(origin: position, size: sz)
     }
 
+    /// Screen bounds for a UTF-16 text range (caret when length == 0).
+    static func boundsForRange(_ element: AXUIElement, range: NSRange) -> CGRect? {
+        armTimeout(element)
+        var cf = CFRange(location: range.location, length: range.length)
+        guard let boxed = AXValueCreate(.cfRange, &cf) else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            AXAttr.boundsForRange as CFString,
+            boxed,
+            &value
+        ) == .success, let raw = value else {
+            return nil
+        }
+        var rect = CGRect.zero
+        guard AXValueGetValue(raw as! AXValue, .cgRect, &rect) else { return nil }
+        return rect
+    }
+
+    static func children(_ element: AXUIElement) -> [AXUIElement] {
+        armTimeout(element)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, AXAttr.children as CFString, &value) == .success,
+              let raw = value
+        else { return [] }
+        let array = raw as! NSArray
+        var out: [AXUIElement] = []
+        out.reserveCapacity(array.count)
+        for i in 0..<array.count {
+            let item = array[i]
+            guard CFGetTypeID(item as CFTypeRef) == AXUIElementGetTypeID() else { continue }
+            out.append(item as! AXUIElement)
+        }
+        return out
+    }
+
     static func isSettable(_ element: AXUIElement, _ attribute: String) -> Bool {
         armTimeout(element)
         var flag = DarwinBoolean(false)

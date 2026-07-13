@@ -19,6 +19,7 @@ enum AXAttr {
     static let title                = "AXTitle"
     static let url                  = "AXURL"
     static let frame                = "AXFrame"
+    static let boundsForRange       = "AXBoundsForRange"
     static let enhancedUserInterface = "AXEnhancedUserInterface"
     static let manualAccessibility  = "AXManualAccessibility"
 }
@@ -27,22 +28,27 @@ enum AXRole {
     static let textField        = "AXTextField"
     static let textArea         = "AXTextArea"
     static let comboBox         = "AXComboBox"
+    static let searchField      = "AXSearchField"
     static let secureTextField  = "AXSecureTextField"
     static let staticText       = "AXStaticText"
     static let window           = "AXWindow"
     static let webArea          = "AXWebArea"
+    static let group            = "AXGroup"
+    static let cell             = "AXCell"
 }
 
 enum AXNotify {
     static let focusedUIElementChanged = "AXFocusedUIElementChanged"
     static let focusedWindowChanged    = "AXFocusedWindowChanged"
     static let valueChanged            = "AXValueChanged"
+    static let selectedTextChanged     = "AXSelectedTextChanged"
 }
 
 /// A snapshot of a focused editable field the FocusMonitor cares about.
 struct FocusedField: Equatable, Sendable {
     let role: String
-    let frame: CGRect        // in Cocoa/AppKit coords
+    let frame: CGRect        // full field bounds in Cocoa/AppKit coords
+    let anchorRect: CGRect   // caret/selection line — use for icon placement
     let appBundleID: String?
     let appPID: pid_t
 }

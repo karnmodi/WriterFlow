@@ -100,9 +100,10 @@ actor AzureOpenAIClient {
     }
 
     private func resolveAPIKey(for slot: AzureModelsConfig.Slot) throws -> String {
-        if let key = KeychainStore.readAPIKey(), !key.isEmpty { return key }
         let envName = config.apiKeyEnv(for: slot)
-        if let key = env[envName], !key.isEmpty { return key }
+        if let key = KeychainStore.resolveAPIKey(env: env, envName: envName), !key.isEmpty {
+            return key
+        }
         throw AzureOpenAIError.missingAPIKey
     }
 

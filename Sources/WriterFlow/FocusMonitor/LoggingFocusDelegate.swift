@@ -22,7 +22,7 @@ final class LoggingFocusDelegate: FocusMonitorDelegate {
         Log.focus.info("typingStopped")
     }
 
-    func focusMonitor(_ monitor: FocusMonitor, fieldFrameUpdated frame: CGRect) {
-        Log.focus.debug("frameUpdated frame=\(String(describing: frame), privacy: .public)")
+    func focusMonitor(_ monitor: FocusMonitor, fieldFrameUpdated field: FocusedField) {
+        Log.focus.debug("frameUpdated anchor=\(String(describing: field.anchorRect), privacy: .public)")
     }
 }

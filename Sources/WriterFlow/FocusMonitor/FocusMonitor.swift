@@ -20,8 +20,7 @@ final class FocusMonitor {
     private var typingActive: Bool = false
     private var stopTypingTask: Task<Void, Never>?
     private var frameTimer: Timer?
-    private var chromeQuirkApplied: Set<pid_t> = []
-    private var electronQuirkApplied: Set<pid_t> = []
+    private var quirksApplied: Set<pid_t> = []
     private var isRunning: Bool = false
 
     // 4-second debounce per phase-0 spec.
@@ -61,6 +60,12 @@ final class FocusMonitor {
             attach(to: frontmost)
         }
         Log.focus.info("FocusMonitor started")
+    }
+
+    /// Stop and start — used when permissions are granted mid-session.
+    func restart() {
+        stop()
+        start()
     }
 
     func stop() {
@@ -108,49 +113,38 @@ final class FocusMonitor {
             guard let self, let observer else { return }
             self.handleFocusChanged(element: element, in: observer)
         }
+        observer.onValueChanged = { [weak self] in
+            Task { @MainActor [weak self] in self?.handleValueChanged() }
+        }
         observer.start()
         currentAppObserver = observer
 
-        applyBrowserQuirks(for: app, on: observer)
+        applyAccessibilityQuirks(for: app, on: observer)
         Log.focus.info("Attached to \(app.bundleIdentifier ?? "?", privacy: .public) pid=\(app.processIdentifier)")
     }
 
-    private func applyBrowserQuirks(for app: NSRunningApplication, on observer: AppObserver) {
-        guard let bundleID = app.bundleIdentifier else { return }
-        let chromiumBundles: Set<String> = [
-            "com.google.Chrome",
-            "com.google.Chrome.canary",
-            "com.brave.Browser",
-            "org.chromium.Chromium",
-            "com.microsoft.edgemac",
-            "company.thebrowser.Browser"    // Arc
-        ]
-        let electronBundles: Set<String> = [
-            "com.tinyspeck.slackmacgap",
-            "WhatsApp",
-            "net.whatsapp.WhatsApp",
-            "notion.id",
-            "com.electron.discord"
-        ]
-        if chromiumBundles.contains(bundleID), !chromeQuirkApplied.contains(app.processIdentifier) {
-            observer.setAppAttribute(AXAttr.enhancedUserInterface, boolValue: true)
-            chromeQuirkApplied.insert(app.processIdentifier)
-            Log.focus.info("Applied Chrome AXEnhancedUserInterface quirk for \(bundleID, privacy: .public)")
-        }
-        if electronBundles.contains(bundleID), !electronQuirkApplied.contains(app.processIdentifier) {
-            observer.setAppAttribute(AXAttr.manualAccessibility, boolValue: true)
-            electronQuirkApplied.insert(app.processIdentifier)
-            Log.focus.info("Applied Electron AXManualAccessibility quirk for \(bundleID, privacy: .public)")
-        }
+    /// Enable enhanced AX trees for browsers (Gmail in Chrome/Safari) and Electron
+    /// editors (Cursor, VS Code, Slack, Notion). Safe to attempt on every app —
+    /// unsupported attributes are ignored by the target process.
+    private func applyAccessibilityQuirks(for app: NSRunningApplication, on observer: AppObserver) {
+        guard !quirksApplied.contains(app.processIdentifier) else { return }
+        observer.setAppAttribute(AXAttr.enhancedUserInterface, boolValue: true)
+        observer.setAppAttribute(AXAttr.manualAccessibility, boolValue: true)
+        quirksApplied.insert(app.processIdentifier)
+        Log.focus.info(
+            "Applied accessibility quirks for \(app.bundleIdentifier ?? "?", privacy: .public)"
+        )
     }
 
     // MARK: - Focus + classification
 
     private func handleFocusChanged(element: AXUIElement?, in observer: AppObserver) {
         guard let element else {
+            observer.observeValueChanges(on: nil)
             clearCurrentField()
             return
         }
+        observer.observeValueChanges(on: element)
         let pid = observer.pid
         let bundleID = observer.bundleID
         axQueue.async { [weak self] in
@@ -163,6 +157,14 @@ final class FocusMonitor {
                     self.clearCurrentField()
                 }
             }
+        }
+    }
+
+    private func handleValueChanged() {
+        guard currentAppObserver != nil else { return }
+        pollFrame()
+        if currentField == nil {
+            bootstrapFocusFromKeystrokeSync()
         }
     }
 
@@ -192,12 +194,35 @@ final class FocusMonitor {
     // MARK: - Typing signal
 
     private func handleKeystroke() {
+        if currentField == nil {
+            bootstrapFocusFromKeystrokeSync()
+        }
         guard currentField != nil else { return }
+        pollFrame()
         if !typingActive {
             typingActive = true
             delegate?.focusMonitorTypingStarted(self)
         }
         scheduleTypingStopped()
+    }
+
+    private func bootstrapFocusFromKeystrokeSync() {
+        guard let observer = currentAppObserver else { return }
+        let pid = observer.pid
+        let bundleID = observer.bundleID
+        let classified: FocusedField? = axQueue.sync {
+            let appElement = AXUIElementCreateApplication(pid)
+            guard let raw = FocusedElementResolver.focusedElement(in: appElement) else { return nil }
+            return FocusedFieldClassifier.classify(raw, pid: pid, bundleID: bundleID)
+        }
+        if let classified {
+            applyClassifiedField(classified)
+            if let focused = FocusedElementResolver.focusedElement(
+                in: AXUIElementCreateApplication(pid)
+            ) {
+                observer.observeValueChanges(on: focused)
+            }
+        }
     }
 
     private func scheduleTypingStopped() {
@@ -218,7 +243,7 @@ final class FocusMonitor {
     private func restartFrameTimer() {
         frameTimer?.invalidate()
         guard currentField != nil else { return }
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.pollFrame() }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -232,18 +257,27 @@ final class FocusMonitor {
         axQueue.async { [weak self] in
             _ = self  // keep alive across queue hop
             let appElement = AXUIElementCreateApplication(pid)
-            guard let focused = AXCall.element(appElement, AXAttr.focusedUIElement),
+            guard let rawFocused = FocusedElementResolver.focusedElement(in: appElement),
+                  let focused = FocusedElementResolver.resolveEditable(from: rawFocused),
                   let axRect = AXCall.axFrame(focused)
             else { return }
             let cocoaRect = AXCoords.toCocoa(axRect)
+            let (anchor, _) = CaretEstimator.placement(for: focused, cocoaFieldFrame: cocoaRect)
             let expectedBundle = field.appBundleID
             let role = field.role
-            let previousFrame = field.frame
+            let previous = field
             Task { @MainActor [weak self] in
                 guard let self, self.currentField?.appBundleID == expectedBundle else { return }
-                if cocoaRect != previousFrame {
-                    self.currentField = FocusedField(role: role, frame: cocoaRect, appBundleID: bundleID, appPID: pid)
-                    self.delegate?.focusMonitor(self, fieldFrameUpdated: cocoaRect)
+                if cocoaRect != previous.frame || anchor != previous.anchorRect {
+                    let updated = FocusedField(
+                        role: role,
+                        frame: cocoaRect,
+                        anchorRect: anchor,
+                        appBundleID: bundleID,
+                        appPID: pid
+                    )
+                    self.currentField = updated
+                    self.delegate?.focusMonitor(self, fieldFrameUpdated: updated)
                 }
             }
         }

@@ -7,9 +7,9 @@ protocol FocusMonitorDelegate: AnyObject {
     func focusMonitor(_ monitor: FocusMonitor, fieldDidBlur previousBundleID: String?)
     func focusMonitorTypingStarted(_ monitor: FocusMonitor)
     func focusMonitorTypingStopped(_ monitor: FocusMonitor)
-    func focusMonitor(_ monitor: FocusMonitor, fieldFrameUpdated frame: CGRect)
+    func focusMonitor(_ monitor: FocusMonitor, fieldFrameUpdated field: FocusedField)
 }
 
 extension FocusMonitorDelegate {
-    func focusMonitor(_ monitor: FocusMonitor, fieldFrameUpdated frame: CGRect) {}
+    func focusMonitor(_ monitor: FocusMonitor, fieldFrameUpdated field: FocusedField) {}
 }

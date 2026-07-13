@@ -31,5 +31,6 @@ struct FieldSnapshot: Sendable, Equatable {
 enum WriteResult: Sendable {
     case selectedTextReplaced
     case fullValueReplaced
+    case clipboardPasted
     case failed(String)
 }

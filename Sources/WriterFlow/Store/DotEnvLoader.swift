@@ -9,7 +9,7 @@ enum DotEnvLoader {
     }
 
     /// Search upward from `start` for a `.env` file (up to `maxDepth` parents).
-    static func findEnvFile(startingAt start: URL, maxDepth: Int = 6) -> URL? {
+    static func findProjectEnvFile(startingAt start: URL, maxDepth: Int = 8) -> URL? {
         var dir = start
         for _ in 0...maxDepth {
             let candidate = dir.appendingPathComponent(".env")
@@ -21,6 +21,15 @@ enum DotEnvLoader {
             dir = parent
         }
         return nil
+    }
+
+    /// Runtime env file — prefers stable Application Support secrets, then project `.env`.
+    static func findEnvFile(startingAt start: URL, maxDepth: Int = 6) -> URL? {
+        let appSupportSecrets = KeychainStore.secretsFileURL
+        if FileManager.default.fileExists(atPath: appSupportSecrets.path) {
+            return appSupportSecrets
+        }
+        return findProjectEnvFile(startingAt: start, maxDepth: maxDepth)
     }
 
     /// Merged map: process environment overrides file values.
