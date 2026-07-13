@@ -36,12 +36,12 @@
 
 ## Stage 0.4 — Floating icon (OverlayController)
 
-- [ ] `NSPanel` subclass: `.nonactivatingPanel`, level `.floating`, `collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]`, transparent background, ignores mouse events except on the icon itself.
-- [ ] 28 px pill icon (SF Symbol or asset), positioned at bottom-right of the focused field's frame, clamped to screen bounds.
-- [ ] Fade in ≤150 ms on `typingStarted`; fade out on `typingStopped`/`fieldBlurred`.
-- [ ] Follows field when window moves/scrolls (poll frame at 10 Hz only while visible).
-- [ ] Click → placeholder popover ("Actions coming in Phase 1").
-- [ ] Clicking icon never steals focus from the text field (verify caret keeps blinking).
+- [x] `FloatingPanel`: `.borderless + .nonactivatingPanel`, level `.floating`, `collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]`, transparent, `canBecomeKey/canBecomeMain = false`.
+- [x] 28 px pill icon (`highlighter` SF Symbol on a `.thinMaterial` capsule with a pink→purple gradient), positioned at bottom-right of the focused field's frame, clamped to the visible frame of the containing screen.
+- [x] Fade in (120 ms) on `typingStarted`; fade out (150 ms) on `typingStopped`/`fieldBlurred`.
+- [x] Follows field via `FocusMonitor.fieldFrameUpdated` (10 Hz frame poll while a field is focused).
+- [x] Click → placeholder `NSPopover` ("Actions coming in Phase 1"); replaced by the real popover in Phase 1.2.
+- [x] Clicking icon cannot steal focus — `FloatingPanel` refuses key/main and uses `.nonactivatingPanel`.
 
 **Accept:** Type in Gmail (Chrome), WhatsApp Desktop, Notes → icon appears near field within 150 ms, disappears 4 s after stopping, never steals focus, never appears on password fields.
 

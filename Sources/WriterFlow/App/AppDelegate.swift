@@ -7,7 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let permissions = PermissionsCoordinator()
     private lazy var onboarding = OnboardingWindowController(permissions: permissions)
     private let focusMonitor = FocusMonitor()
-    private let loggingDelegate = LoggingFocusDelegate()
+    private let overlay = OverlayController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.show()
         }
 
-        focusMonitor.delegate = loggingDelegate
+        focusMonitor.delegate = overlay
         focusMonitor.start()
     }
 
