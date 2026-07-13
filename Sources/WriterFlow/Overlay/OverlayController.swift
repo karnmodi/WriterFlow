@@ -4,29 +4,104 @@ import SwiftUI
 @MainActor
 final class OverlayController {
     private let panel: FloatingPanel
-    private var currentField: FocusedField?
-    private var isVisible: Bool = false
+    private let actionPanel: FloatingPanel
+    private let keyMonitor = PopoverKeyMonitor()
 
-    /// Called when the user clicks the icon or the popover requests to open.
-    /// Phase 0.4 → placeholder; Phase 1.2 will replace with the real popover.
-    var onIconClicked: (() -> Void)?
+    private var currentField: FocusedField?
+    private var isIconVisible: Bool = false
+    private var isPopoverVisible: Bool = false
+    private var highlightedIndex: Int = 0
+
+    /// Phase 1.3 hooks ActionEngine here.
+    var onActionSelected: ((WritingAction, FocusedField) -> Void)?
 
     private let iconSize = CGSize(width: 28, height: 28)
+    private let popoverSize = CGSize(width: 220, height: 248)
     private let fieldPadding: CGFloat = 4
 
     init() {
         self.panel = FloatingPanel(size: iconSize)
-        panel.contentView = NSHostingView(rootView: FloatingIconView(onClick: {}))
+        self.actionPanel = FloatingPanel(size: popoverSize)
+        actionPanel.hasShadow = true
         panel.alphaValue = 0
-        rewireHosting()
+        rewireIconHosting()
+        rewirePopoverHosting()
     }
 
-    private func rewireHosting() {
+    private func rewireIconHosting() {
         let hosting = NSHostingView(rootView: FloatingIconView { [weak self] in
             self?.handleIconClick()
         })
         hosting.frame = NSRect(origin: .zero, size: iconSize)
         panel.contentView = hosting
+    }
+
+    private func rewirePopoverHosting() {
+        let hosting = NSHostingView(rootView: popoverRootView)
+        hosting.frame = NSRect(origin: .zero, size: popoverSize)
+        actionPanel.contentView = hosting
+        actionPanel.alphaValue = 0
+    }
+
+    private var popoverRootView: ActionPopoverView {
+        ActionPopoverView(highlightedIndex: highlightedIndex) { [weak self] action in
+            self?.handleActionSelected(action)
+        }
+    }
+
+    // MARK: - Public API
+
+    func toggleActionPopover() {
+        if isPopoverVisible {
+            dismissActionPopover()
+        } else {
+            showActionPopover()
+        }
+    }
+
+    func showActionPopover() {
+        guard let field = currentField else {
+            Log.overlay.info("Action popover skipped — no focused editable field")
+            return
+        }
+        guard !isPopoverVisible else { return }
+
+        highlightedIndex = firstEnabledPopoverIndex()
+        refreshPopoverContent()
+        positionPopover(near: field.frame)
+        isPopoverVisible = true
+
+        actionPanel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.12
+            actionPanel.animator().alphaValue = 1.0
+        }
+
+        if !keyMonitor.install() {
+            Log.overlay.error("Failed to install popover key monitor")
+        }
+        keyMonitor.onKey = { [weak self] event in
+            self?.handleKeyEvent(event)
+        }
+
+        Log.overlay.info("Action popover opened")
+    }
+
+    func dismissActionPopover() {
+        guard isPopoverVisible else { return }
+        isPopoverVisible = false
+        keyMonitor.uninstall()
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.10
+            actionPanel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            Task { @MainActor in
+                self?.actionPanel.orderOut(nil)
+            }
+        })
+
+        Log.overlay.info("Action popover dismissed")
     }
 
     // MARK: - FocusMonitor events
@@ -37,53 +112,62 @@ final class OverlayController {
 
     func fieldDidBlur() {
         currentField = nil
-        hide()
+        dismissActionPopover()
+        hideIcon()
     }
 
     func typingStarted() {
         guard let field = currentField else { return }
-        position(near: field.frame)
-        show()
+        positionIcon(near: field.frame)
+        showIcon()
     }
 
     func typingStopped() {
-        hide()
+        hideIcon()
     }
 
     func fieldFrameUpdated(_ frame: CGRect) {
         currentField = currentField.map {
             FocusedField(role: $0.role, frame: frame, appBundleID: $0.appBundleID, appPID: $0.appPID)
         }
-        if isVisible { position(near: frame) }
+        if isIconVisible { positionIcon(near: frame) }
+        if isPopoverVisible { positionPopover(near: frame) }
     }
 
     // MARK: - Positioning
 
-    private func position(near fieldFrame: CGRect) {
+    private func positionIcon(near fieldFrame: CGRect) {
         let anchorX = fieldFrame.maxX - iconSize.width - fieldPadding
         let anchorY = fieldFrame.minY + fieldPadding
-        var origin = CGPoint(x: anchorX, y: anchorY)
-        origin = clampToScreen(origin: origin)
+        let origin = clampToScreen(origin: CGPoint(x: anchorX, y: anchorY), size: iconSize)
         panel.setFrameOrigin(origin)
     }
 
-    private func clampToScreen(origin: CGPoint) -> CGPoint {
-        let iconRect = CGRect(origin: origin, size: iconSize)
-        let screen = NSScreen.screens.first(where: { $0.frame.intersects(iconRect) })
+    private func positionPopover(near fieldFrame: CGRect) {
+        // Anchor above the field's bottom-right corner, near the icon position.
+        let anchorX = fieldFrame.maxX - popoverSize.width - fieldPadding
+        let anchorY = fieldFrame.minY + fieldPadding + iconSize.height + 6
+        let origin = clampToScreen(origin: CGPoint(x: anchorX, y: anchorY), size: popoverSize)
+        actionPanel.setFrameOrigin(origin)
+    }
+
+    private func clampToScreen(origin: CGPoint, size: CGSize) -> CGPoint {
+        let rect = CGRect(origin: origin, size: size)
+        let screen = NSScreen.screens.first(where: { $0.frame.intersects(rect) })
             ?? NSScreen.main
             ?? NSScreen.screens.first
         guard let visible = screen?.visibleFrame else { return origin }
         var out = origin
-        out.x = min(max(out.x, visible.minX + 2), visible.maxX - iconSize.width - 2)
-        out.y = min(max(out.y, visible.minY + 2), visible.maxY - iconSize.height - 2)
+        out.x = min(max(out.x, visible.minX + 2), visible.maxX - size.width - 2)
+        out.y = min(max(out.y, visible.minY + 2), visible.maxY - size.height - 2)
         return out
     }
 
-    // MARK: - Show/hide with 120 ms fade
+    // MARK: - Icon show/hide
 
-    private func show() {
-        guard !isVisible else { return }
-        isVisible = true
+    private func showIcon() {
+        guard !isIconVisible else { return }
+        isIconVisible = true
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.12
@@ -91,47 +175,73 @@ final class OverlayController {
         }
     }
 
-    private func hide() {
-        guard isVisible else { return }
-        isVisible = false
+    private func hideIcon() {
+        guard isIconVisible else { return }
+        isIconVisible = false
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.15
             panel.animator().alphaValue = 0
-        }, completionHandler: { [weak panel] in
-            panel?.orderOut(nil)
+        }, completionHandler: { [weak self] in
+            Task { @MainActor in
+                self?.panel.orderOut(nil)
+            }
         })
     }
 
-    // MARK: - Click handling
+    // MARK: - Interaction
 
     private func handleIconClick() {
-        Log.overlay.info("Icon clicked (placeholder popover — replaced in Phase 1.2)")
-        onIconClicked?()
-        showPlaceholderPopover()
+        toggleActionPopover()
     }
 
-    private var placeholderPopover: NSPopover?
+    private func handleActionSelected(_ action: WritingAction) {
+        guard action.isEnabled, let field = currentField else { return }
+        Log.overlay.info("Action selected: \(action.title, privacy: .public)")
+        dismissActionPopover()
+        onActionSelected?(action, field)
+    }
 
-    private func showPlaceholderPopover() {
-        placeholderPopover?.close()
-
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentSize = NSSize(width: 240, height: 88)
-        popover.contentViewController = NSHostingController(
-            rootView: VStack(spacing: 6) {
-                Text("Actions coming in Phase 1")
-                    .font(.headline)
-                Text("Focus is preserved — try typing.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    private func handleKeyEvent(_ event: PopoverKeyMonitor.KeyEvent) {
+        switch event {
+        case .digit(let digit):
+            if let action = WritingAction.matching(shortcut: digit) {
+                handleActionSelected(action)
             }
-            .padding(12)
-        )
-        if let view = panel.contentView {
-            popover.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+        case .up:
+            moveHighlight(by: -1)
+        case .down:
+            moveHighlight(by: 1)
+        case .escape:
+            dismissActionPopover()
+        case .returnKey:
+            let actions = WritingAction.popoverOrder
+            guard highlightedIndex >= 0, highlightedIndex < actions.count else { return }
+            handleActionSelected(actions[highlightedIndex])
         }
-        placeholderPopover = popover
+    }
+
+    private func moveHighlight(by delta: Int) {
+        let actions = WritingAction.popoverOrder
+        guard !actions.isEmpty else { return }
+
+        var next = highlightedIndex
+        repeat {
+            next = (next + delta + actions.count) % actions.count
+        } while !actions[next].isEnabled && next != highlightedIndex
+
+        guard actions[next].isEnabled else { return }
+        highlightedIndex = next
+        refreshPopoverContent()
+    }
+
+    private func firstEnabledPopoverIndex() -> Int {
+        WritingAction.popoverOrder.firstIndex(where: \.isEnabled) ?? 0
+    }
+
+    private func refreshPopoverContent() {
+        let hosting = NSHostingView(rootView: popoverRootView)
+        hosting.frame = NSRect(origin: .zero, size: popoverSize)
+        actionPanel.contentView = hosting
     }
 }
 

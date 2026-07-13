@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var onboarding = OnboardingWindowController(permissions: permissions)
     private let focusMonitor = FocusMonitor()
     private let overlay = OverlayController()
+    private let globalHotkey = GlobalHotkey()
     private let settings = SettingsStore.shared
     private var cancellables: Set<AnyCancellable> = []
 
@@ -25,6 +26,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         focusMonitor.delegate = overlay
+
+        overlay.onActionSelected = { action, field in
+            Log.engine.info(
+                "Action stub: \(action.title, privacy: .public) app=\(field.appBundleID ?? "?", privacy: .public) — ActionEngine lands in Phase 1.3"
+            )
+        }
+
+        globalHotkey.onTrigger = { [weak self] in
+            guard self?.settings.isPaused == false else { return }
+            self?.overlay.toggleActionPopover()
+        }
+        if !settings.isPaused {
+            _ = globalHotkey.install()
+        }
 
         // Reconcile persisted launch-at-login state with the current SMAppService registration.
         LaunchAtLogin.apply(enabled: settings.launchAtLogin)
@@ -43,9 +58,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pauseMenuItem?.state = paused ? .on : .off
         statusItem?.button?.appearsDisabled = paused
         if paused {
+            globalHotkey.uninstall()
+            overlay.dismissActionPopover()
             focusMonitor.stop()
             Log.app.info("Paused")
         } else {
+            _ = globalHotkey.install()
             focusMonitor.start()
             Log.app.info("Resumed")
         }

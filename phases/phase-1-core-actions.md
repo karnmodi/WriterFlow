@@ -16,10 +16,10 @@
 
 ## Stage 1.2 — Action popover UI
 
-- [ ] Non-activating panel anchored to the icon: 6 buttons — Elaborate, Formal, Casual, Fix Grammar, Reply (disabled until Phase 2), Custom (disabled until Phase 2).
-- [ ] Keyboard-first: open with `⌥ Space` (Carbon `RegisterEventHotKey`), navigate with arrows/1–4, Esc closes.
-- [ ] Global hotkey works even when icon is hidden (acts on currently focused field).
-- [ ] Popover never takes key focus away from the text field; buttons respond to first click.
+- [x] Non-activating panel anchored to the icon: 6 buttons — Elaborate, Formal, Casual, Fix Grammar, Reply (disabled until Phase 2), Custom (disabled until Phase 2).
+- [x] Keyboard-first: open with `⌥ Space` (Carbon `RegisterEventHotKey`), navigate with arrows/1–4, Esc closes.
+- [x] Global hotkey works even when icon is hidden (acts on currently focused field).
+- [x] Popover never takes key focus away from the text field; buttons respond to first click.
 
 **Accept:** Full flow without mouse: type → `⌥ Space` → `2` → result. Caret never leaves Gmail compose.
 

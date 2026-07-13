@@ -8,7 +8,7 @@ WriterFlow is a native macOS menu bar app — an always-on, invisible writing as
 
 ## Current state
 
-**Phase 0.1 landed** — SPM project skeleton, menu bar app, bundle wrapper. Next: Phase 0.2 (permissions onboarding).
+**Phase 1.2 landed** — action popover (non-activating panel), ⌥ Space global hotkey, keyboard nav (1–4/arrows/Esc). Next: Phase 1.3 (OpenAI ActionEngine).
 
 ### Build system deviation from original spec
 
