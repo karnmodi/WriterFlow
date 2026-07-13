@@ -63,9 +63,10 @@ actor AzureOpenAIClient {
     }
 
     /// Non-streaming validation call (1-token ping for Settings in Phase 1.5).
-    func ping(deployment: String) async throws -> String {
+    /// `apiKeyOverride` lets Settings validate a freshly pasted key before it's saved.
+    func ping(deployment: String, apiKeyOverride: String? = nil) async throws -> String {
         let slot = AzureModelsConfig.Slot(deployment: deployment)
-        let apiKey = try resolveAPIKey(for: slot)
+        let apiKey = try apiKeyOverride ?? resolveAPIKey(for: slot)
         let url = try resolveURL()
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

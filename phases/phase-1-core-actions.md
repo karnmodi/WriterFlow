@@ -45,18 +45,18 @@
 
 ## Stage 1.4 — Preview card
 
-- [ ] Result streams into a card below/above the popover (auto-position within screen).
-- [ ] Actions: **Replace** (Enter), **Copy** (⌘C), **Retry** (⌘R), **Discard** (Esc).
-- [ ] Diff hint: subtle highlight of changed words for Fix Grammar (word-level diff, e.g. `CollectionDifference`).
-- [ ] After Replace: card shows a 5 s "Restore original" undo chip (uses saved original text).
-- [ ] Mark `ConversionEvent.accepted = true` on Replace/Copy.
+- [x] Result streams into a card below/above the popover (auto-position within screen).
+- [x] Actions: **Replace** (Enter), **Copy** (⌘C), **Retry** (⌘R), **Discard** (Esc).
+- [x] Diff hint: subtle highlight of changed words for Fix Grammar (word-level diff via `CollectionDifference` in `WordDiff.swift`).
+- [x] After Replace: card shows a 5 s "Restore original" undo chip (uses saved original text). Implemented as `UndoToast.swift`, a dedicated toast rather than extending `ErrorToast` (kept one responsibility per component).
+- [x] Mark `ConversionEvent.accepted = true` on Replace/Copy. Deviation: `ActionEngine` no longer appends the event itself — it hands the unpersisted `ConversionEvent` to `OverlayController`, which appends exactly once at each terminal outcome (Replace/Copy → accepted, Discard/Retry/blur → not) via `finalizeEvent(accepted:)`.
 
 **Accept:** Type rough sentence in WhatsApp Desktop → `⌥ Space` → Casual → Enter → text replaced, chat still focused, send with Enter works immediately after.
 
 ## Stage 1.5 — Keychain & first-run API key
 
-- [ ] Settings pane (stub window ok): paste OpenAI key → validate with a 1-token test call → store in Keychain (`kSecClassGenericPassword`).
-- [ ] Friendly error states: invalid key, quota exceeded, rate limited.
+- [x] Settings pane (stub window ok): paste OpenAI key → validate with a 1-token test call → store in Keychain (`kSecClassGenericPassword`). `AzureOpenAIClient.ping(deployment:apiKeyOverride:)` validates the pasted key directly (without touching the saved key) before `KeychainStore.saveUserProvidedKey` persists it.
+- [x] Friendly error states: invalid key, quota exceeded, rate limited. Mapped in `SettingsViewModel.friendlyMessage(for:)` from Azure HTTP status codes (401/403 → invalid key, 429 → rate limited).
 
 **Accept:** Key survives restart; never appears in logs or UserDefaults.
 

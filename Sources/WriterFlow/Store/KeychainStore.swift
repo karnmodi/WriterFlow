@@ -39,6 +39,15 @@ enum KeychainStore {
         return nil
     }
 
+    /// Save a user-provided key from the Settings pane (Phase 1.5).
+    @discardableResult
+    static func saveUserProvidedKey(_ key: String) -> Bool {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        cachedKey = trimmed
+        return resetAndSaveAPIKey(trimmed)
+    }
+
     /// Seed Keychain + Application Support from `.env` on launch.
     static func bootstrap(from env: [String: String], keyEnvName: String) {
         guard let key = env[keyEnvName], !key.isEmpty else { return }

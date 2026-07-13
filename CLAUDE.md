@@ -8,7 +8,7 @@ WriterFlow is a native macOS menu bar app — an always-on, invisible writing as
 
 ## Current state
 
-**Phase 1.3 landed** — Azure OpenAI ActionEngine (Responses API SSE, models from `.env` → `models.json`, Keychain). Next: Phase 1.4 (preview card).
+**Phase 1 complete** — preview card (streaming, Replace/Copy/Retry/Discard, Fix Grammar diff hint, restore-original undo chip, `ConversionEvent.accepted` tracking) and the Settings pane (paste + validate + Keychain-store an Azure API key) are both done. The Phase 4 clipboard-fallback pipeline (`TextInserter`/`ClipboardWriter`) and field-detection hardening (`StrictFieldGate`/`CaretEstimator`/`FocusedElementResolver`) were pulled forward during Phase 1 as part of making text replacement reliable. Next: Phase 2 (context awareness, reply, custom prompt).
 
 ### Build system deviation from original spec
 
