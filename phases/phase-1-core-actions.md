@@ -4,13 +4,13 @@
 
 ## Stage 1.1 — Text read/write via AX
 
-- [ ] `ContextExtractor.readField()` → `{ fullText, selectedText, selectedRange }` using `kAXValueAttribute`, `kAXSelectedTextAttribute`, `kAXSelectedTextRangeAttribute`.
-- [ ] `TextWriter.replace(range:with:)`:
-  1. Preferred: set `kAXSelectedTextRange` then `kAXSelectedText` (replaces selection in place).
-  2. Fallback A: set full `kAXValue` (only for plain fields — destroys rich formatting, so gate by role).
-  3. Fallback B (Phase 4): clipboard paste injection.
-- [ ] Report per-app capability (read-ok / write-ok) into a compatibility map for later diagnostics.
-- [ ] Off-main-thread with 500 ms timeout per AX call (AX can hang on busy apps).
+- [x] `ContextExtractor.readFocusedField(pid:bundleID:)` → `FieldSnapshot { fullText, selectedText, selectedRange, role, appBundleID }` using `AXValue`, `AXSelectedText`, `AXSelectedTextRange`.
+- [x] `TextWriter.replace(pid:range:with:)` tiered:
+  1. Set `AXSelectedTextRange` then `AXSelectedText` (preserves rich text).
+  2. Full `AXValue` overwrite, gated by role `AXTextField / AXTextArea / AXComboBox`.
+  3. Clipboard fallback deferred to Phase 4 → returns `.failed`.
+- [x] `CompatibilityMap` actor persists per-bundle read/write counters to `~/Library/Application Support/WriterFlow/compatibility.json` (500 ms debounce, atomic write).
+- [x] All AX IO on `AXQueue.shared`, 500 ms per-element `AXUIElementSetMessagingTimeout`.
 
 **Accept:** Read + in-place replace works in TextEdit, Notes, Safari-Gmail, Chrome-Gmail, Slack. Undo (`⌘Z`) restores original in at least TextEdit/Notes.
 
