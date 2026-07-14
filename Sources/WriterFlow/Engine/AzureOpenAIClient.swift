@@ -24,7 +24,11 @@ enum AzureOpenAIError: Error, LocalizedError, Sendable {
 
 /// Azure OpenAI Responses API client with SSE streaming.
 actor AzureOpenAIClient {
-    private let config: AzureModelsConfig
+    /// Fallback used only if `models.json` is momentarily unreadable — normal reads go
+    /// through `config`, which re-reads the file fresh every call so Stage 3.4's Settings
+    /// tab model-deployment edits and pricing edits live-apply without a restart.
+    private let initialConfig: AzureModelsConfig
+    private var config: AzureModelsConfig { AzureModelsConfig.loadFromDisk() ?? initialConfig }
     private let session: URLSession
     private let env: [String: String]
 
@@ -38,7 +42,7 @@ actor AzureOpenAIClient {
     }
 
     init(config: AzureModelsConfig, session: URLSession = .shared) {
-        self.config = config
+        self.initialConfig = config
         self.session = session
         let exec = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? ".")
         let envFile = DotEnvLoader.findEnvFile(startingAt: exec.deletingLastPathComponent())

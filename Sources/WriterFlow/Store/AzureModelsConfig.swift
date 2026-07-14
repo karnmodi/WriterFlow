@@ -14,11 +14,24 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
     /// Env var name for the default API key (e.g. `API_KEY_GPT_5-4_Pro`).
     var defaultApiKeyEnv: String
     var slots: Slots
+    /// Per-deployment $/1M-token pricing for the Usage tab's cost estimate (Stage 3.5).
+    /// Keyed by deployment name so it stays correct across slot reassignment; missing
+    /// entries fall back to `Pricing.fallback` rather than silently showing $0.
+    var pricing: [String: Pricing] = [:]
 
     struct Slots: Codable, Sendable, Equatable {
         var `default`: Slot
         var grammar: Slot
         var heavy: Slot
+    }
+
+    struct Pricing: Codable, Sendable, Equatable {
+        var inputPerMillion: Double
+        var outputPerMillion: Double
+
+        /// Rough placeholder used when a deployment has no pricing entry yet — better to
+        /// show an approximate, clearly-estimated cost than to silently show $0.
+        static let fallback = Pricing(inputPerMillion: 0.15, outputPerMillion: 0.60)
     }
 
     func slot(for action: WritingAction, useHeavy: Bool = false) -> Slot {
@@ -29,6 +42,18 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
 
     func apiKeyEnv(for slot: Slot) -> String {
         slot.apiKeyEnv ?? defaultApiKeyEnv
+    }
+
+    func pricing(for deployment: String) -> Pricing {
+        pricing[deployment] ?? .fallback
+    }
+
+    /// Writes to `models.json` immediately — the hot-swappable config `AzureOpenAIClient`
+    /// re-reads on every call, so this is how the Settings tab's model fields live-apply.
+    func save() {
+        try? FileManager.default.createDirectory(at: Self.appSupportURL, withIntermediateDirectories: true)
+        guard let data = try? JSONEncoder.pretty.encode(self) else { return }
+        try? data.write(to: Self.configURL, options: .atomic)
     }
 
     // MARK: - Persistence
@@ -76,21 +101,27 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
             env[key] ?? fallback
         }
 
+        let miniDeployment = deployment("AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Mini", fallback: "gpt-5.4-mini")
+        let proDeployment = deployment("AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Pro", fallback: "gpt-5.4-pro")
+
         return AzureModelsConfig(
             responsesURL: responsesURL,
             defaultApiKeyEnv: defaultKeyEnv,
             slots: Slots(
-                default: Slot(
-                    deployment: deployment("AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Mini", fallback: "gpt-5.4-mini")
-                ),
-                grammar: Slot(
-                    deployment: deployment("AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Mini", fallback: "gpt-5.4-mini")
-                ),
+                default: Slot(deployment: miniDeployment),
+                grammar: Slot(deployment: miniDeployment),
                 heavy: Slot(
-                    deployment: deployment("AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Pro", fallback: "gpt-5.4-pro"),
+                    deployment: proDeployment,
                     apiKeyEnv: env[defaultKeyEnv] != nil ? defaultKeyEnv : nil
                 )
-            )
+            ),
+            // Rough placeholder rates so the Usage tab shows a plausible estimate out of the
+            // box — editable per-deployment from the Settings tab (Stage 3.4/3.5), and this
+            // is explicitly labeled an estimate in the UI, not a billing-accurate figure.
+            pricing: [
+                miniDeployment: Pricing(inputPerMillion: 0.15, outputPerMillion: 0.60),
+                proDeployment: Pricing(inputPerMillion: 2.00, outputPerMillion: 8.00)
+            ]
         )
     }
 }

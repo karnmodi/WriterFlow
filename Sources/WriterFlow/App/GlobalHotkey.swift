@@ -1,30 +1,41 @@
 import Carbon.HIToolbox
 import Foundation
 
-/// Global ⌃⌥ Space hotkey via Carbon RegisterEventHotKey.
-/// (⌃⌥ Space avoids conflict with Claude and other apps using ⌥ Space.)
+/// Global hotkey via Carbon RegisterEventHotKey. Combo is configurable (Stage 3.4's hotkey
+/// recorder) — default ⌃⌥Space avoids conflict with Spotlight (⌘Space) and other assistants
+/// commonly bound to plain ⌥Space.
 final class GlobalHotkey {
     private static let hotKeyID = EventHotKeyID(signature: OSType(0x5746_4C57), id: 1) // "WFLW"
 
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
+    private(set) var installedCombo: HotkeyCombo?
 
     var onTrigger: (() -> Void)?
 
-    func install() -> Bool {
-        guard hotKeyRef == nil else { return true }
+    /// Registers `combo` with the OS. Returns `false` (leaving any previous registration
+    /// untouched) if another app already owns that exact key+modifier combination —
+    /// `RegisterEventHotKey` is the actual collision check, not a static guess-list.
+    @discardableResult
+    func install(combo: HotkeyCombo = .default) -> Bool {
+        if installedCombo == combo, hotKeyRef != nil { return true }
 
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(
-            UInt32(kVK_Space),
-            UInt32(controlKey | optionKey),
+            combo.keyCode,
+            combo.modifiers,
             Self.hotKeyID,
             GetApplicationEventTarget(),
             0,
             &ref
         )
         guard status == noErr, let ref else { return false }
+
+        // New combo registered successfully — release the old one now, not before,
+        // so a failed re-registration leaves the previous hotkey still working.
+        unregister()
         hotKeyRef = ref
+        installedCombo = combo
 
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()

@@ -3,11 +3,13 @@ import SwiftUI
 struct DashboardView: View {
     @StateObject private var historyViewModel = HistoryViewModel()
     @StateObject private var personalizationViewModel: PersonalizationViewModel
-    let settingsWindow: SettingsWindowController
+    @StateObject private var usageViewModel: UsageViewModel
+    private let modelsConfig: AzureModelsConfig
 
-    init(settingsWindow: SettingsWindowController, modelsConfig: AzureModelsConfig) {
-        self.settingsWindow = settingsWindow
+    init(modelsConfig: AzureModelsConfig) {
+        self.modelsConfig = modelsConfig
         _personalizationViewModel = StateObject(wrappedValue: PersonalizationViewModel(modelsConfig: modelsConfig))
+        _usageViewModel = StateObject(wrappedValue: UsageViewModel(modelsConfig: modelsConfig))
     }
 
     var body: some View {
@@ -18,52 +20,12 @@ struct DashboardView: View {
             PersonalizationView(viewModel: personalizationViewModel)
                 .tabItem { Label("Personalization", systemImage: "person.text.rectangle") }
 
-            SettingsTabView(settingsWindow: settingsWindow)
+            SettingsTabView(modelsConfig: modelsConfig)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
 
-            ComingSoonView(stage: "Stage 3.5", feature: "Usage")
+            UsageView(viewModel: usageViewModel)
                 .tabItem { Label("Usage", systemImage: "chart.bar") }
         }
-        .frame(minWidth: 720, minHeight: 480)
-    }
-}
-
-private struct ComingSoonView: View {
-    let stage: String
-    let feature: String
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "hourglass")
-                .font(.largeTitle)
-                .foregroundStyle(.tertiary)
-            Text("\(feature) ships in \(stage)")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-/// Stage 3.4 will move full settings editing into this tab; for now it hosts
-/// the Phase 1.5 API-key panel that already exists as its own window.
-private struct SettingsTabView: View {
-    let settingsWindow: SettingsWindowController
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "gearshape")
-                .font(.largeTitle)
-                .foregroundStyle(.tertiary)
-            Text("Full settings editing (hotkey, models, retention) lands in Stage 3.4.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Open API Key Settings…") {
-                settingsWindow.show()
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
+        .frame(minWidth: 820, minHeight: 560)
     }
 }

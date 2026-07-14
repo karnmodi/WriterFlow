@@ -28,7 +28,8 @@ enum TextInserter {
             return .failed("No focused element")
         }
 
-        if !context.isWeb {
+        let forceClipboard = await MainActor.run { SettingsStore.shared.forceClipboardFallback }
+        if !context.isWeb && !forceClipboard {
             if let result = await trySelectedTextReplace(context: context, replacement: replacement) {
                 recordWrite(context.bundleID, ok: true)
                 return result

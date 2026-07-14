@@ -9,8 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusMenuItem: NSMenuItem?
     private let permissions = PermissionsCoordinator()
     private lazy var onboarding = OnboardingWindowController(permissions: permissions)
-    private lazy var settingsWindow = SettingsWindowController(modelsConfig: modelsConfig)
-    private lazy var dashboardWindow = DashboardWindowController(settingsWindow: settingsWindow, modelsConfig: modelsConfig)
+    private lazy var dashboardWindow = DashboardWindowController(modelsConfig: modelsConfig)
     private let focusMonitor = FocusMonitor()
     private let overlay = OverlayController()
     private let globalHotkey = GlobalHotkey()
@@ -97,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.overlay.toggleActionPopover()
         }
         if !settings.isPaused {
-            _ = globalHotkey.install()
+            _ = globalHotkey.install(combo: settings.hotkeyCombo)
         }
 
         // Reconcile persisted launch-at-login state with the current SMAppService registration.
@@ -114,6 +113,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         settings.$iconMode
             .sink { [weak self] mode in self?.overlay.iconMode = mode }
+            .store(in: &cancellables)
+
+        settings.$hotkeyCombo
+            .dropFirst()
+            .sink { [weak self] combo in self?.applyHotkeyCombo(combo) }
             .store(in: &cancellables)
 
         permissions.$accessibility
@@ -176,7 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !settings.isPaused {
             if (!hadAccessibility && axNow) || (!hadInputMonitoring && imNow) {
                 focusMonitor.restart()
-                _ = globalHotkey.install()
+                _ = globalHotkey.install(combo: settings.hotkeyCombo)
                 Log.app.info("Permissions newly granted — restarted focus monitor + hotkey")
             }
         }
@@ -194,9 +198,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             focusMonitor.stop()
             Log.app.info("Paused")
         } else {
-            _ = globalHotkey.install()
+            _ = globalHotkey.install(combo: settings.hotkeyCombo)
             focusMonitor.start()
             Log.app.info("Resumed")
+        }
+    }
+
+    /// Live-apply for the Settings tab's hotkey recorder — attempts registration immediately;
+    /// on OS-level collision (another app already owns that combo), reverts and surfaces why.
+    private func applyHotkeyCombo(_ combo: HotkeyCombo) {
+        guard !settings.isPaused else { return }
+        let previous = globalHotkey.installedCombo ?? combo
+        if globalHotkey.install(combo: combo) {
+            settings.hotkeyStatusIsError = false
+            settings.hotkeyStatusMessage = "Shortcut set to \(combo.displayString)."
+        } else {
+            settings.hotkeyStatusIsError = true
+            settings.hotkeyStatusMessage = "\(combo.displayString) is already in use by another app — reverted to \(previous.displayString)."
+            settings.hotkeyCombo = previous
         }
     }
 
@@ -239,13 +258,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         actions.target = self
         menu.addItem(actions)
 
-        let dashboard = NSMenuItem(title: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "")
+        // Dashboard hosts History, Personalization, Settings, and Usage — one window,
+        // standard ⌘, "preferences" shortcut since Settings lives there now.
+        let dashboard = NSMenuItem(title: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: ",")
         dashboard.target = self
         menu.addItem(dashboard)
-
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(settings)
 
         menu.addItem(.separator())
 
@@ -272,10 +289,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openDashboard() {
         dashboardWindow.show()
-    }
-
-    @objc private func openSettings() {
-        settingsWindow.show()
     }
 
     @objc private func quitApp() {

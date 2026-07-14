@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import Combine
 import Foundation
 
@@ -5,6 +6,48 @@ enum IconMode: String, CaseIterable, Sendable {
     case onTyping
     case hotkeyOnly
     case alwaysOnFocus
+}
+
+/// A recordable global-hotkey combo — Carbon virtual key code + modifier bitmask
+/// (`controlKey`/`optionKey`/`shiftKey`/`cmdKey` from `Carbon.HIToolbox`).
+struct HotkeyCombo: Codable, Sendable, Equatable {
+    var keyCode: UInt32
+    var modifiers: UInt32
+
+    /// ⌃⌥Space — chosen in Phase 0 to avoid colliding with Spotlight (⌘Space) or
+    /// other assistants commonly bound to ⌥Space.
+    static let `default` = HotkeyCombo(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey))
+
+    var displayString: String {
+        var symbols = ""
+        if modifiers & UInt32(controlKey) != 0 { symbols += "⌃" }
+        if modifiers & UInt32(optionKey) != 0 { symbols += "⌥" }
+        if modifiers & UInt32(shiftKey) != 0 { symbols += "⇧" }
+        if modifiers & UInt32(cmdKey) != 0 { symbols += "⌘" }
+        return symbols + Self.keyName(for: keyCode)
+    }
+
+    /// Best-effort virtual-keycode → label map covering the keys people actually bind hotkeys to.
+    private static func keyName(for keyCode: UInt32) -> String {
+        let names: [UInt32: String] = [
+            UInt32(kVK_Space): "Space", UInt32(kVK_Return): "Return", UInt32(kVK_Tab): "Tab",
+            UInt32(kVK_Escape): "Esc", UInt32(kVK_Delete): "Delete",
+            UInt32(kVK_ANSI_A): "A", UInt32(kVK_ANSI_B): "B", UInt32(kVK_ANSI_C): "C",
+            UInt32(kVK_ANSI_D): "D", UInt32(kVK_ANSI_E): "E", UInt32(kVK_ANSI_F): "F",
+            UInt32(kVK_ANSI_G): "G", UInt32(kVK_ANSI_H): "H", UInt32(kVK_ANSI_I): "I",
+            UInt32(kVK_ANSI_J): "J", UInt32(kVK_ANSI_K): "K", UInt32(kVK_ANSI_L): "L",
+            UInt32(kVK_ANSI_M): "M", UInt32(kVK_ANSI_N): "N", UInt32(kVK_ANSI_O): "O",
+            UInt32(kVK_ANSI_P): "P", UInt32(kVK_ANSI_Q): "Q", UInt32(kVK_ANSI_R): "R",
+            UInt32(kVK_ANSI_S): "S", UInt32(kVK_ANSI_T): "T", UInt32(kVK_ANSI_U): "U",
+            UInt32(kVK_ANSI_V): "V", UInt32(kVK_ANSI_W): "W", UInt32(kVK_ANSI_X): "X",
+            UInt32(kVK_ANSI_Y): "Y", UInt32(kVK_ANSI_Z): "Z",
+            UInt32(kVK_ANSI_0): "0", UInt32(kVK_ANSI_1): "1", UInt32(kVK_ANSI_2): "2",
+            UInt32(kVK_ANSI_3): "3", UInt32(kVK_ANSI_4): "4", UInt32(kVK_ANSI_5): "5",
+            UInt32(kVK_ANSI_6): "6", UInt32(kVK_ANSI_7): "7", UInt32(kVK_ANSI_8): "8",
+            UInt32(kVK_ANSI_9): "9"
+        ]
+        return names[keyCode] ?? "Key \(keyCode)"
+    }
 }
 
 /// History retention window for the Stage 3.1 `conversions` table.
@@ -66,6 +109,26 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Stage 3.4 global-hotkey combo. `AppDelegate` observes this and live-reinstalls
+    /// `GlobalHotkey`; a failed OS-level registration (another app already owns the combo)
+    /// reverts this to the last-good value and surfaces `hotkeyStatusMessage`.
+    @Published var hotkeyCombo: HotkeyCombo {
+        didSet {
+            guard let data = try? JSONEncoder().encode(hotkeyCombo) else { return }
+            defaults.set(data, forKey: Keys.hotkeyCombo)
+        }
+    }
+
+    /// Transient (not persisted) feedback from the last hotkey registration attempt.
+    @Published var hotkeyStatusMessage: String?
+    @Published var hotkeyStatusIsError = false
+
+    /// Stage 3.4 — when true, skip the AX write tiers entirely and always paste via clipboard.
+    /// Useful for apps where AX writes are flaky or visibly glitch the field.
+    @Published var forceClipboardFallback: Bool {
+        didSet { defaults.set(forceClipboardFallback, forKey: Keys.forceClipboardFallback) }
+    }
+
     func recordCustomInstruction(_ instruction: String) {
         var list = recentCustomInstructions.filter { $0 != instruction }
         list.insert(instruction, at: 0)
@@ -93,6 +156,13 @@ final class SettingsStore: ObservableObject {
         } else {
             self.voiceProfile = VoiceProfile()
         }
+        if let data = defaults.data(forKey: Keys.hotkeyCombo),
+           let combo = try? JSONDecoder().decode(HotkeyCombo.self, from: data) {
+            self.hotkeyCombo = combo
+        } else {
+            self.hotkeyCombo = .default
+        }
+        self.forceClipboardFallback = defaults.bool(forKey: Keys.forceClipboardFallback)
 
         Task {
             await ConversionEventStore.shared.migrateLegacyLogIfNeeded()
@@ -107,5 +177,7 @@ final class SettingsStore: ObservableObject {
         static let recentCustomInstructions = "wf.recentCustomInstructions"
         static let historyRetention = "wf.historyRetention"
         static let voiceProfile = "wf.voiceProfile"
+        static let hotkeyCombo = "wf.hotkeyCombo"
+        static let forceClipboardFallback = "wf.forceClipboardFallback"
     }
 }
