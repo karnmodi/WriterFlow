@@ -359,6 +359,11 @@ final class OverlayController {
     // MARK: - FocusMonitor events
 
     func fieldDidFocus(_ field: FocusedField) {
+        guard !AppRuleStore.shared.isExcluded(bundleID: field.appBundleID) else {
+            currentField = nil
+            hideIcon()
+            return
+        }
         currentField = field
         guard iconMode == .alwaysOnFocus, hasValidFieldFrame(field) else { return }
         positionIcon(in: field)

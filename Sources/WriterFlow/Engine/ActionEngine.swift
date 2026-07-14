@@ -35,6 +35,21 @@ final class ActionEngine {
         self.client = AzureOpenAIClient(config: config)
     }
 
+    /// Resolves Stage 3.3 personalization for a given app/site — synchronous because
+    /// `ActionEngine`, `SettingsStore`, `MemoryStore`, and `AppRuleStore` all run on `@MainActor`.
+    private func personalizationContext(bundleID: String?, site: String?) -> PromptBuilder.PersonalizationContext {
+        let rule = AppRuleStore.shared.rule(forBundleID: bundleID, site: site)
+        let result = MemoryPromptBuilder.build(
+            profile: SettingsStore.shared.voiceProfile,
+            notes: MemoryStore.shared.notes,
+            appRule: rule
+        )
+        if result.excludedCount > 0 {
+            Log.engine.info("Memory prompt budget exceeded — excluded \(result.excludedCount, privacy: .public) oldest note(s)")
+        }
+        return PromptBuilder.PersonalizationContext(memoryBlock: result.block, toneOverride: rule?.tone)
+    }
+
     func cancel() {
         runningTask?.cancel()
         runningTask = nil
@@ -146,7 +161,8 @@ final class ActionEngine {
             action: action,
             snapshot: snapshot,
             conversationContext: conversationContext,
-            customInstruction: customInstruction
+            customInstruction: customInstruction,
+            personalization: personalizationContext(bundleID: field.appBundleID, site: site)
         )
         var event = ConversionEvent(
             appBundleID: field.appBundleID,
@@ -209,7 +225,8 @@ final class ActionEngine {
             snapshot: snapshot,
             conversationContext: conversationContext,
             customInstruction: customInstruction,
-            promptBuilderPhase: .analyze
+            promptBuilderPhase: .analyze,
+            personalization: personalizationContext(bundleID: field.appBundleID, site: site)
         )
 
         Log.engine.info(
@@ -287,7 +304,8 @@ final class ActionEngine {
             snapshot: session.snapshot,
             conversationContext: session.conversationContext,
             customInstruction: session.customInstruction,
-            promptBuilderPhase: .finalize(answers: answers)
+            promptBuilderPhase: .finalize(answers: answers),
+            personalization: personalizationContext(bundleID: session.field.appBundleID, site: session.site)
         )
 
         let inputText = session.snapshot.actionText

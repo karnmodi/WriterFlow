@@ -136,6 +136,44 @@ actor AzureOpenAIClient {
         return Self.parseAction(text)
     }
 
+    /// Stage 3.3's explicit "Analyze my writing style" button — one user-triggered pass over
+    /// recent accepted outputs. `samples` should already be capped by the caller (dashboard
+    /// UI); this just sends them and returns a proposed style-note string for approve/reject.
+    func analyzeWritingStyle(samples: [String]) async throws -> String {
+        guard !samples.isEmpty else { throw AzureOpenAIError.emptyResponse }
+        let slot = config.slots.grammar
+        let apiKey = try resolveAPIKey(for: slot)
+        let url = try resolveURL()
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "api-key")
+        request.timeoutInterval = 20
+
+        let joined = samples.enumerated().map { "Sample \($0.offset + 1):\n\($0.element)" }.joined(separator: "\n\n")
+        let input: [[String: Any]] = [
+            ["role": "system", "content": Prompts.styleAnalysisSystem],
+            ["role": "user", "content": joined]
+        ]
+        let body: [String: Any] = [
+            "model": slot.deployment,
+            "input": input,
+            "stream": false,
+            "max_output_tokens": 300
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: request)
+        try validateHTTP(response: response, data: data)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let text = Self.extractOutputText(from: json),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { throw AzureOpenAIError.emptyResponse }
+
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private static func extractOutputText(from json: [String: Any]) -> String? {
         if let text = json["output_text"] as? String, !text.isEmpty {
             return text

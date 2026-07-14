@@ -2,14 +2,20 @@ import SwiftUI
 
 struct DashboardView: View {
     @StateObject private var historyViewModel = HistoryViewModel()
+    @StateObject private var personalizationViewModel: PersonalizationViewModel
     let settingsWindow: SettingsWindowController
+
+    init(settingsWindow: SettingsWindowController, modelsConfig: AzureModelsConfig) {
+        self.settingsWindow = settingsWindow
+        _personalizationViewModel = StateObject(wrappedValue: PersonalizationViewModel(modelsConfig: modelsConfig))
+    }
 
     var body: some View {
         TabView {
             HistoryView(viewModel: historyViewModel)
                 .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
 
-            ComingSoonView(stage: "Stage 3.3", feature: "Personalization")
+            PersonalizationView(viewModel: personalizationViewModel)
                 .tabItem { Label("Personalization", systemImage: "person.text.rectangle") }
 
             SettingsTabView(settingsWindow: settingsWindow)

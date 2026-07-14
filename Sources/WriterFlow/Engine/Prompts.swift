@@ -248,6 +248,17 @@ enum Prompts {
     Never invent facts the user did not imply. Output the prompt/message, not the answer to the task.
     """
 
+    /// System prompt for Stage 3.3's explicit "Analyze my writing style" button — a
+    /// one-shot, user-triggered pass over recent accepted outputs (never automatic,
+    /// see CLAUDE.md Golden Rule #2 and the phase-3 doc's Stage 3.3 deviation note).
+    static let styleAnalysisSystem = """
+    You study a user's own writing samples and produce a short style profile another writing \
+    assistant can follow to sound like them. Output 2-5 sentences, plain prose, no headers, no bullet \
+    points, no preamble. Describe register (formal/casual), typical sentence length, favorite words or \
+    phrases, punctuation habits, and greeting/sign-off patterns if visible. Do NOT invent traits the \
+    samples don't support. Never use em dashes (—) or en dashes (–).
+    """
+
     /// System-prompt hint for the Recommendation Engine's classification call.
     static let recommendationSystem = """
     You classify which writing action best fits the user's current text field. \

@@ -114,6 +114,24 @@ actor ConversionEventStore {
         }
     }
 
+    /// Most recent accepted outputs, for Stage 3.3's explicit "Analyze my writing style" pass.
+    func recentAcceptedOutputs(limit: Int) async -> [String] {
+        do {
+            return try await db.read { db in
+                try ConversionEvent
+                    .filter(Column("accepted") == true)
+                    .order(Column("timestamp").desc)
+                    .limit(limit)
+                    .fetchAll(db)
+                    .map(\.output)
+                    .filter { !$0.isEmpty }
+            }
+        } catch {
+            Log.store.error("ConversionEvent recentAcceptedOutputs failed: \(String(describing: error), privacy: .public)")
+            return []
+        }
+    }
+
     func deleteAll() async {
         do {
             try await db.write { db in

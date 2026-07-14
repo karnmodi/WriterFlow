@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let permissions = PermissionsCoordinator()
     private lazy var onboarding = OnboardingWindowController(permissions: permissions)
     private lazy var settingsWindow = SettingsWindowController(modelsConfig: modelsConfig)
-    private lazy var dashboardWindow = DashboardWindowController(settingsWindow: settingsWindow)
+    private lazy var dashboardWindow = DashboardWindowController(settingsWindow: settingsWindow, modelsConfig: modelsConfig)
     private let focusMonitor = FocusMonitor()
     private let overlay = OverlayController()
     private let globalHotkey = GlobalHotkey()

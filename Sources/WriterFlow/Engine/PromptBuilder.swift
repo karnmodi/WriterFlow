@@ -11,12 +11,23 @@ enum PromptBuilder {
         let user: String
     }
 
+    /// Stage 3.3 personalization — resolved once per action in `ActionEngine` (it's
+    /// `@MainActor`, same as the stores) and threaded through so `PromptBuilder` itself
+    /// stays a pure function of its arguments.
+    struct PersonalizationContext: Sendable {
+        let memoryBlock: String
+        let toneOverride: String?
+
+        static let none = PersonalizationContext(memoryBlock: "", toneOverride: nil)
+    }
+
     static func build(
         action: WritingAction,
         snapshot: FieldSnapshot,
         conversationContext: String? = nil,
         customInstruction: String? = nil,
-        promptBuilderPhase: Phase = .analyze
+        promptBuilderPhase: Phase = .analyze,
+        personalization: PersonalizationContext = .none
     ) -> BuiltPrompt {
         let fieldText = snapshot.actionText
         let briefFromBox = customInstruction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -33,8 +44,7 @@ enum PromptBuilder {
             bundleID: snapshot.appBundleID,
             windowTitle: snapshot.windowTitle
         )
-        let toneBias = AppAdapterRegistry.adapter(for: snapshot.appBundleID).toneBias
-        let voicePlaceholder = "" // Phase 3 injects voice profile here.
+        let toneBias = personalization.toneOverride ?? AppAdapterRegistry.adapter(for: snapshot.appBundleID).toneBias
 
         var system: String
         switch action {
@@ -45,8 +55,8 @@ enum PromptBuilder {
         default:
             system = Prompts.systemPreamble
         }
-        if !voicePlaceholder.isEmpty {
-            system += "\nVoice profile: \(voicePlaceholder)"
+        if !personalization.memoryBlock.isEmpty {
+            system += "\nVoice profile & memory:\n\(personalization.memoryBlock)"
         }
         system += "\nApp context: \(toneBias)"
         system += "\nAction instruction: \(Prompts.instruction(for: action))"

@@ -5,9 +5,11 @@ import SwiftUI
 final class DashboardWindowController {
     private var window: NSWindow?
     private let settingsWindow: SettingsWindowController
+    private let modelsConfig: AzureModelsConfig
 
-    init(settingsWindow: SettingsWindowController) {
+    init(settingsWindow: SettingsWindowController, modelsConfig: AzureModelsConfig) {
         self.settingsWindow = settingsWindow
+        self.modelsConfig = modelsConfig
     }
 
     func show() {
@@ -17,7 +19,7 @@ final class DashboardWindowController {
             return
         }
 
-        let view = DashboardView(settingsWindow: settingsWindow)
+        let view = DashboardView(settingsWindow: settingsWindow, modelsConfig: modelsConfig)
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]

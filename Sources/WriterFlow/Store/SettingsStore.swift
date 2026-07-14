@@ -57,6 +57,15 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Stage 3.3 manual voice profile — injected into every system prompt via `MemoryPromptBuilder`.
+    @Published var voiceProfile: VoiceProfile {
+        didSet {
+            if let data = try? JSONEncoder().encode(voiceProfile) {
+                defaults.set(data, forKey: Keys.voiceProfile)
+            }
+        }
+    }
+
     func recordCustomInstruction(_ instruction: String) {
         var list = recentCustomInstructions.filter { $0 != instruction }
         list.insert(instruction, at: 0)
@@ -78,6 +87,12 @@ final class SettingsStore: ObservableObject {
         self.recentCustomInstructions = defaults.stringArray(forKey: Keys.recentCustomInstructions) ?? []
         let retentionRaw = defaults.object(forKey: Keys.historyRetention) as? Int
         self.historyRetention = retentionRaw.flatMap(RetentionPeriod.init(rawValue:)) ?? .days90
+        if let data = defaults.data(forKey: Keys.voiceProfile),
+           let profile = try? JSONDecoder().decode(VoiceProfile.self, from: data) {
+            self.voiceProfile = profile
+        } else {
+            self.voiceProfile = VoiceProfile()
+        }
 
         Task {
             await ConversionEventStore.shared.migrateLegacyLogIfNeeded()
@@ -91,5 +106,6 @@ final class SettingsStore: ObservableObject {
         static let launchAtLogin = "wf.launchAtLogin"
         static let recentCustomInstructions = "wf.recentCustomInstructions"
         static let historyRetention = "wf.historyRetention"
+        static let voiceProfile = "wf.voiceProfile"
     }
 }
