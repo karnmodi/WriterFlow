@@ -7,6 +7,12 @@ struct HistoryView: View {
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
+                Text("Every rewrite WriterFlow has run or you've accepted, newest first. Search looks at both the original and rewritten text.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
                 filterBar
                 Divider()
                 list

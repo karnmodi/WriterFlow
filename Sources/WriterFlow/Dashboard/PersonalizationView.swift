@@ -18,6 +18,12 @@ struct PersonalizationView: View {
 
     var body: some View {
         Form {
+            Section {
+                Text("Everything here gets woven into WriterFlow's system prompt on every action — it's how rewrites end up sounding like you instead of a generic assistant.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             voiceProfileSection
             styleAnalysisSection
             snippetsSection

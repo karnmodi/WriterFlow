@@ -14,7 +14,8 @@
 
 ## Stage 3.2 — Dashboard shell + History tab
 
-- [x] SwiftUI window from menu bar → tabs: History · Personalization · Settings · Usage (`Dashboard/DashboardView.swift`, `DashboardWindowController.swift`; wired to the existing "Open Dashboard" menu item, previously a stub). Personalization and Usage are placeholder tabs pending Stage 3.3/3.5; Settings tab is a placeholder linking to the existing Phase 1.5 API-key window pending Stage 3.4's full settings editor.
+- [x] SwiftUI window from menu bar → tabs: History · Personalization · Settings · Usage (`Dashboard/DashboardView.swift`, `DashboardWindowController.swift`; wired to the existing "Open Dashboard" menu item, previously a stub). All four tabs are now fully real as of Stage 3.4/3.5 below (Personalization/Settings/Usage started as placeholders, since replaced).
+- [x] **Launch-flow addendum (2026-07-14, user-requested, not in the original spec):** the Dashboard now opens by default on every launch/reopen, regardless of permission state — it's all local-data screens, no AX/Input Monitoring needed to browse history, edit personalization, change settings, or view usage. Missing permissions still surface the onboarding window on top (floating level), but onboarding is now non-blocking: it links straight back to the Dashboard ("Open Dashboard") instead of gating access to it. See `AppDelegate.applicationDidFinishLaunching`/`applicationShouldHandleReopen`, `OnboardingWindowController.onOpenDashboard`.
 - [x] History list: date-grouped rows — app icon (`AppIconResolver.swift`), action chip, before→after preview (`HistoryRowView.swift`); click → detail with side-by-side diff (reuses `WordDiff`), Copy input/output (`HistoryDetailView.swift`).
 - [x] Search (full text over input+output) + filters (app, action, accepted) — `HistoryViewModel.swift`.
 - [x] Everything reads reactively from GRDB (`ValueObservation.tracking(...).values(in:)` async stream, not the polling/callback API).
@@ -33,14 +34,21 @@
 
 ## Stage 3.4 — Settings tab
 
-- [ ] Hotkey recorder (validate collisions), icon behavior mode, model pickers per action class, API key management (masked, re-validate button), clipboard-fallback toggle, launch at login, retention.
-- [ ] All settings live-apply, no restart.
+- [x] **Hotkey recorder with real collision validation** — `Store/SettingsStore.swift`'s `HotkeyCombo` (Carbon keycode + modifier bitmask, default ⌃⌥Space unchanged), `Dashboard/HotkeyRecorderView.swift` (click, press combo, Esc to cancel; requires ≥1 modifier so it can't shadow normal typing), `GlobalHotkey.install(combo:)` (now takes any combo, not just the hardcoded default). Collision check is the real OS call (`RegisterEventHotKey`), not a static guess-list — `AppDelegate.applyHotkeyCombo` attempts registration immediately on change, reverts to the last-good combo and surfaces why (`settings.hotkeyStatusMessage`) if another app already owns it.
+- [x] **Icon behavior mode** — radio picker over `IconMode` (onTyping/alwaysOnFocus/hotkeyOnly) with a plain-language explanation of each that updates as you pick.
+- [x] **Model pickers per action class** — three deployment-name fields (Default/Grammar/Heavy) in `Dashboard/SettingsTabView.swift`, backed by `SettingsTabViewModel` which writes straight to `models.json` via `AzureModelsConfig.save()` on every edit. Live-apply: `AzureOpenAIClient` was changed to re-read `models.json` fresh on every request (`initialConfig` is now just the launch-time fallback) instead of caching the struct passed at init — so a model-name edit applies to the very next action, not just the next app launch.
+- [x] **API key management** — inline masked `SecureField` + Validate & Save (reuses `SettingsViewModel`'s existing 1-token ping + Keychain save, just embedded in the tab instead of a separate window). The standalone Phase 1.5 `SettingsWindowController`/`SettingsView` were retired — Dashboard is now the one settings surface (⌘, opens Dashboard).
+- [x] **Clipboard-fallback toggle** — `SettingsStore.forceClipboardFallback`; when on, `TextInserter.replace` skips the AX write tiers entirely and always pastes via clipboard.
+- [x] Launch at login toggle, retention picker — both already existed as settings/logic from Phase 0/Stage 3.1, this stage just added the UI controls for them.
+- [x] All settings live-apply, no restart — verified by construction (every control writes straight to a `@Published`/`didSet` or to disk, with no cached copies left stale) rather than by a runtime click-through in this sandbox.
 
 ## Stage 3.5 — Usage tab
 
-- [ ] Daily/weekly charts (Swift Charts): actions count by type, tokens, estimated cost (pricing table in the models config JSON so it's updatable).
-- [ ] Acceptance rate metric (accepted / total) — the product's north star.
+- [x] Daily/weekly stacked-bar charts (Swift Charts, `Dashboard/UsageView.swift` + `UsageViewModel.swift`): actions by type (fixed categorical color order matching `WritingAction.allCases`) and token volume (input/output), toggle between "Last 14 Days" and "Last 12 Weeks". Estimated cost pulls from the pricing table added to `AzureModelsConfig` (`$/1M tokens` per deployment, editable indirectly by editing `models.json`; UI editing of the pricing table itself is not yet exposed — only the deployment *name* fields are, in Stage 3.4's Settings tab).
+- [x] Acceptance rate metric (accepted / total) — shown as the largest, first stat tile, explicitly called out as the product's north star in the tab's intro copy. Shows "—" (not a misleading 0%) when there's no data yet.
+
+**Both stages' accept criteria — not yet visually verified**: code builds clean (`swift build`), but this sandbox has no Accessibility/Screen-Recording grant to click through the actual window, record a hotkey, or compare Usage numbers against a real OpenAI dashboard. Pending user confirmation.
 
 ## Exit criteria
 
-Dashboard opens < 500 ms; memory demonstrably changes output; usage numbers match OpenAI dashboard within ~10%.
+Dashboard opens < 500 ms; memory demonstrably changes output; usage numbers match OpenAI dashboard within ~10%. — Dashboard-opens-fast is now exercised on every launch (see the launch-flow addendum under Stage 3.2); the other two criteria are pending the user's live verification pass.
