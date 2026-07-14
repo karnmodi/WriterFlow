@@ -38,10 +38,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             permissions.startPolling()
         }
 
-        // Always surface setup when permissions are missing — dock icon + setup window.
+        // Dashboard is the default landing surface on every launch — history, personalization,
+        // settings, and usage all work without any permission grant (they're local-data screens).
+        onboarding.onOpenDashboard = { [weak self] in self?.dashboardWindow.show() }
+        dashboardWindow.show()
+
+        // Permissions gate only the floating icon/hotkey — surface that setup on top,
+        // non-blocking (the user can dismiss it and use the Dashboard immediately).
         if !permissions.allGranted {
-            Log.app.info("Permissions missing — showing onboarding")
-            NSApp.setActivationPolicy(.regular)
+            Log.app.info("Permissions missing — showing onboarding above the Dashboard")
             onboarding.show()
         }
 
@@ -138,10 +143,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        dashboardWindow.show()
         if !permissions.allGranted {
             onboarding.show()
-        } else {
-            showOnboarding()
         }
         return true
     }

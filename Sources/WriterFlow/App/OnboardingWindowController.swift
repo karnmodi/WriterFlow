@@ -5,6 +5,9 @@ import SwiftUI
 final class OnboardingWindowController {
     private var window: NSWindow?
     let permissions: PermissionsCoordinator
+    /// Lets the onboarding screen jump straight to the Dashboard without closing itself first —
+    /// the Dashboard is the default landing surface now, onboarding is just an overlay on top of it.
+    var onOpenDashboard: (() -> Void)?
 
     init(permissions: PermissionsCoordinator) {
         self.permissions = permissions
@@ -21,9 +24,11 @@ final class OnboardingWindowController {
             return
         }
 
-        let view = OnboardingView(permissions: permissions) { [weak self] in
-            self?.close()
-        }
+        let view = OnboardingView(
+            permissions: permissions,
+            onOpenDashboard: { [weak self] in self?.onOpenDashboard?() },
+            onDone: { [weak self] in self?.close() }
+        )
 
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)

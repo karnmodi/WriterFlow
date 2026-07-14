@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     @ObservedObject var permissions: PermissionsCoordinator
+    var onOpenDashboard: () -> Void
     var onDone: () -> Void
 
     var body: some View {
@@ -48,6 +49,8 @@ struct OnboardingView: View {
                         permissions.quitAndRestart()
                     }
                 }
+                Button("Open Dashboard") { onOpenDashboard() }
+                    .buttonStyle(.link)
                 Spacer()
                 Button(action: onDone) {
                     Text(permissions.allGranted ? "Get started" : "I'll do this later")
@@ -69,9 +72,13 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Welcome to WriterFlow")
                 .font(.title2).bold()
-            Text("Two quick permissions and you're set. WriterFlow only reads text on explicit action, and never for password fields.")
+            Text("Two quick permissions and the floating icon is fully live. The Dashboard (history, personalization, settings, usage) works right now regardless — open it any time with the link below.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("WriterFlow only reads text on explicit action, and never for password fields.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
     }
 }
