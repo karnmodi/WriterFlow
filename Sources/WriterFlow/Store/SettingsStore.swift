@@ -7,6 +7,24 @@ enum IconMode: String, CaseIterable, Sendable {
     case alwaysOnFocus
 }
 
+/// History retention window for the Stage 3.1 `conversions` table.
+/// `.forever` disables the purge — nothing is auto-deleted.
+enum RetentionPeriod: Int, CaseIterable, Sendable {
+    case days30 = 30
+    case days90 = 90
+    case forever = -1
+
+    var days: Int? { self == .forever ? nil : rawValue }
+
+    var label: String {
+        switch self {
+        case .days30: return "30 days"
+        case .days90: return "90 days"
+        case .forever: return "Forever"
+        }
+    }
+}
+
 @MainActor
 final class SettingsStore: ObservableObject {
     static let shared = SettingsStore()
@@ -30,6 +48,15 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(recentCustomInstructions, forKey: Keys.recentCustomInstructions) }
     }
 
+    /// Stage 3.1 history retention window; defaults to 90 days.
+    @Published var historyRetention: RetentionPeriod {
+        didSet {
+            defaults.set(historyRetention.rawValue, forKey: Keys.historyRetention)
+            let days = historyRetention.days
+            Task { await ConversionEventStore.shared.purgeExpired(retentionDays: days) }
+        }
+    }
+
     func recordCustomInstruction(_ instruction: String) {
         var list = recentCustomInstructions.filter { $0 != instruction }
         list.insert(instruction, at: 0)
@@ -49,6 +76,13 @@ final class SettingsStore: ObservableObject {
             self.launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         }
         self.recentCustomInstructions = defaults.stringArray(forKey: Keys.recentCustomInstructions) ?? []
+        let retentionRaw = defaults.object(forKey: Keys.historyRetention) as? Int
+        self.historyRetention = retentionRaw.flatMap(RetentionPeriod.init(rawValue:)) ?? .days90
+
+        Task {
+            await ConversionEventStore.shared.migrateLegacyLogIfNeeded()
+            await ConversionEventStore.shared.purgeExpired(retentionDays: self.historyRetention.days)
+        }
     }
 
     private enum Keys {
@@ -56,5 +90,6 @@ final class SettingsStore: ObservableObject {
         static let isPaused      = "wf.isPaused"
         static let launchAtLogin = "wf.launchAtLogin"
         static let recentCustomInstructions = "wf.recentCustomInstructions"
+        static let historyRetention = "wf.historyRetention"
     }
 }

@@ -4,13 +4,13 @@
 
 ## Stage 3.1 — Store
 
-- [ ] SQLite via GRDB at `~/Library/Application Support/WriterFlow/writerflow.db`.
-- [ ] Tables:
-  - `conversions(id, ts, app_bundle, site, action, input, output, accepted, model, tokens_in, tokens_out, latency_ms)`
-  - `memory_notes(id, kind[style|fact|snippet], text, enabled, updated_at)`
-  - `app_rules(bundle_or_site, tone, signature, custom_instruction, excluded)`
-- [ ] Migrate Phase 1's `ConversionEvent` logging into this store (backfill if a temp log exists).
-- [ ] Retention setting: keep 30/90/∞ days; "Clear history" button wipes table.
+- [x] SQLite via GRDB at `~/Library/Application Support/WriterFlow/writerflow.db` (`WriterFlowDatabase.swift`).
+- [x] Tables:
+  - `conversions(id, timestamp, appBundleID, site, action, input, output, accepted, model, tokensIn, tokensOut, latencyMs)` — camelCase to match the Swift `ConversionEvent` record directly (GRDB Codable derivation); same fields as the spec's snake_case names.
+  - `memory_notes(id, kind[style|fact|snippet], text, enabled, updatedAt)`
+  - `app_rules(bundleOrSite, tone, signature, customInstruction, excluded)`
+- [x] Migrate Phase 1's `ConversionEvent` logging into this store — `ConversionEventStore.migrateLegacyLogIfNeeded()` backfills `conversions.jsonl` (100 legacy rows verified end-to-end), then renames it to `conversions.jsonl.migrated`. Runs eagerly at launch (`SettingsStore.init`) and is idempotent/safe to also run lazily before the first `append()`.
+- [x] Retention setting: keep 30/90/∞ days (`SettingsStore.historyRetention`, `RetentionPeriod` enum) — default **90 days** (confirmed with user 2026-07-14, not specified in this doc). Purge runs at launch and immediately on setting change (live-apply). "Clear history" button itself is Stage 3.2 UI (`ConversionEventStore.deleteAll()` already exposed for it).
 
 ## Stage 3.2 — Dashboard shell + History tab
 
@@ -24,7 +24,7 @@
 ## Stage 3.3 — Personalization & memory
 
 - [ ] **Voice profile (manual):** editable free-text "About my writing style" + structured fields (name to sign as, role, company, preferred greeting/sign-off). Injected into every system prompt.
-- [ ] **Voice profile (learned):** background job — after every 20 accepted rewrites, run a cheap model pass over recent accepted outputs to propose style notes ("prefers short sentences", "signs off with 'Cheers, Karan'"). Proposals appear as suggestions the user approves/rejects — never silently applied.
+- [ ] **Voice profile (learned):** ~~background job — after every 20 accepted rewrites, run a cheap model pass~~ **deviation (confirmed with user 2026-07-14):** an automatic background job would violate CLAUDE.md Golden Rule #2 ("text is sent to OpenAI ONLY on explicit user action"). Implement instead as an explicit **"Analyze my writing style"** button in the Personalization tab — same model pass over recent accepted outputs, same propose/approve/reject flow, just user-triggered rather than silently automatic after N accepts.
 - [ ] **Snippets/facts:** list of facts the model may use (email, calendly link, company boilerplate). Enable/disable per item.
 - [ ] **Per-app rules editor:** table of app/site → tone, signature, extra instruction, exclude toggle. Seeded from Phase 2 defaults.
 - [ ] Prompt budget: memory content capped at ~600 tokens; over-budget → oldest-disabled-first warning.

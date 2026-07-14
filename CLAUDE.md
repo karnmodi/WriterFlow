@@ -8,7 +8,7 @@ WriterFlow is a native macOS menu bar app — an always-on, invisible writing as
 
 ## Current state
 
-**Phase 1 complete** — preview card (streaming, Replace/Copy/Retry/Discard, Fix Grammar diff hint, restore-original undo chip, `ConversionEvent.accepted` tracking) and the Settings pane (paste + validate + Keychain-store an Azure API key) are both done. The Phase 4 clipboard-fallback pipeline (`TextInserter`/`ClipboardWriter`) and field-detection hardening (`StrictFieldGate`/`CaretEstimator`/`FocusedElementResolver`) were pulled forward during Phase 1 as part of making text replacement reliable. Next: Phase 2 (context awareness, reply, custom prompt).
+**Phase 2 complete** — app compatibility layer (`AppAdapter`, Chrome/Electron/Safari quirks, `CompatibilityMap` persisted to `compatibility.json`), conversation context extraction (`ConversationExtractor`, 4k char cap, 10s cache, terminal-safe current-line-only mode via `TerminalApps`), Reply + Custom prompt actions, per-app tone defaults, and the async Recommendation Engine (`RecommendationEngine` + `AzureOpenAIClient.classifyAction`) are all implemented and committed. Phase 1's preview card and Settings pane remain in place; the Phase 4 clipboard-fallback pipeline and field-detection hardening pulled forward during Phase 1 are unchanged. Next: Phase 3 (dashboard, history, personalization/memory, settings & usage tabs).
 
 ### Build system deviation from original spec
 

@@ -18,6 +18,7 @@ final class ActionEngine {
         let snapshot: FieldSnapshot
         let conversationContext: String?
         let customInstruction: String?
+        let site: String?
     }
 
     private let client: AzureOpenAIClient
@@ -125,7 +126,8 @@ final class ActionEngine {
                 field: field,
                 snapshot: snapshot,
                 conversationContext: conversationContext,
-                customInstruction: customInstruction
+                customInstruction: customInstruction,
+                site: site
             )
             await executePromptBuilderAnalyze(
                 field: field,
@@ -134,7 +136,8 @@ final class ActionEngine {
                 customInstruction: customInstruction,
                 inputText: inputText,
                 trimmedInput: trimmedInput,
-                trimmedNote: trimmedNote
+                trimmedNote: trimmedNote,
+                site: site
             )
             return
         }
@@ -147,6 +150,7 @@ final class ActionEngine {
         )
         var event = ConversionEvent(
             appBundleID: field.appBundleID,
+            site: site,
             action: action,
             input: trimmedInput.isEmpty ? trimmedNote : inputText
         )
@@ -181,7 +185,12 @@ final class ActionEngine {
             "ActionEngine done action=\(action.title, privacy: .public) outChars=\(finalOutput.count, privacy: .public) ms=\(ms, privacy: .public)"
         )
 
+        let usage = await client.consumeLastUsage()
         event.output = finalOutput
+        event.model = usage?.model
+        event.tokensIn = usage?.tokensIn
+        event.tokensOut = usage?.tokensOut
+        event.latencyMs = ms
         onCompleted?(action, finalOutput, snapshot, event)
     }
 
@@ -192,7 +201,8 @@ final class ActionEngine {
         customInstruction: String?,
         inputText: String,
         trimmedInput: String,
-        trimmedNote: String
+        trimmedNote: String,
+        site: String?
     ) async {
         let prompt = PromptBuilder.build(
             action: .promptBuilder,
@@ -249,12 +259,18 @@ final class ActionEngine {
             Log.engine.info(
                 "ActionEngine done action=Prompt Builder outChars=\(finalOutput.count, privacy: .public) ms=\(ms, privacy: .public)"
             )
+            let usage = await client.consumeLastUsage()
             var event = ConversionEvent(
                 appBundleID: field.appBundleID,
+                site: site,
                 action: .promptBuilder,
                 input: trimmedInput.isEmpty ? trimmedNote : inputText
             )
             event.output = finalOutput
+            event.model = usage?.model
+            event.tokensIn = usage?.tokensIn
+            event.tokensOut = usage?.tokensOut
+            event.latencyMs = ms
             promptBuilderSession = nil
             onCompleted?(.promptBuilder, finalOutput, snapshot, event)
         }
@@ -320,12 +336,18 @@ final class ActionEngine {
             "ActionEngine done action=Prompt Builder finalize outChars=\(finalOutput.count, privacy: .public) ms=\(ms, privacy: .public)"
         )
 
+        let usage = await client.consumeLastUsage()
         var event = ConversionEvent(
             appBundleID: session.field.appBundleID,
+            site: session.site,
             action: .promptBuilder,
             input: trimmedInput.isEmpty ? trimmedNote : inputText
         )
         event.output = finalOutput
+        event.model = usage?.model
+        event.tokensIn = usage?.tokensIn
+        event.tokensOut = usage?.tokensOut
+        event.latencyMs = ms
         promptBuilderSession = nil
         onCompleted?(.promptBuilder, finalOutput, session.snapshot, event)
     }

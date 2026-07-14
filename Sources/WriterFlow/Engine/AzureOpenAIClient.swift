@@ -28,6 +28,15 @@ actor AzureOpenAIClient {
     private let session: URLSession
     private let env: [String: String]
 
+    /// Model + token usage from the most recently completed `stream()` call,
+    /// for Stage 3.1 conversion logging. Cleared once read.
+    private var lastUsage: (model: String, tokensIn: Int, tokensOut: Int)?
+
+    func consumeLastUsage() -> (model: String, tokensIn: Int, tokensOut: Int)? {
+        defer { lastUsage = nil }
+        return lastUsage
+    }
+
     init(config: AzureModelsConfig, session: URLSession = .shared) {
         self.config = config
         self.session = session
@@ -232,6 +241,13 @@ actor AzureOpenAIClient {
                    let delta = json["delta"] as? String, !delta.isEmpty {
                     gotDelta = true
                     continuation.yield(delta)
+                }
+                if let type = json["type"] as? String, type == "response.completed",
+                   let response = json["response"] as? [String: Any],
+                   let usage = response["usage"] as? [String: Any] {
+                    let tokensIn = usage["input_tokens"] as? Int ?? 0
+                    let tokensOut = usage["output_tokens"] as? Int ?? 0
+                    lastUsage = (model: deployment, tokensIn: tokensIn, tokensOut: tokensOut)
                 }
                 if let err = json["error"] as? [String: Any],
                    let message = err["message"] as? String {
