@@ -8,7 +8,9 @@ WriterFlow is a native macOS menu bar app — an always-on, invisible writing as
 
 ## Current state
 
-**Phase 2 complete** — app compatibility layer (`AppAdapter`, Chrome/Electron/Safari quirks, `CompatibilityMap` persisted to `compatibility.json`), conversation context extraction (`ConversationExtractor`, 4k char cap, 10s cache, terminal-safe current-line-only mode via `TerminalApps`), Reply + Custom prompt actions, per-app tone defaults, and the async Recommendation Engine (`RecommendationEngine` + `AzureOpenAIClient.classifyAction`) are all implemented and committed. Phase 1's preview card and Settings pane remain in place; the Phase 4 clipboard-fallback pipeline and field-detection hardening pulled forward during Phase 1 are unchanged. Next: Phase 3 (dashboard, history, personalization/memory, settings & usage tabs).
+**Phase 2 complete** — app compatibility layer (`AppAdapter`, Chrome/Electron/Safari quirks, `CompatibilityMap` persisted to `compatibility.json`), conversation context extraction (`ConversationExtractor`, 4k char cap, 10s cache, terminal-safe current-line-only mode via `TerminalApps`), Reply + Custom prompt actions, per-app tone defaults, and the async Recommendation Engine (`RecommendationEngine` + `AzureOpenAIClient.classifyAction`) are all implemented and committed. Phase 1's preview card and Settings pane remain in place; the Phase 4 clipboard-fallback pipeline and field-detection hardening pulled forward during Phase 1 are unchanged.
+
+**Phase 3 in progress** — Stage 3.1 (GRDB store: `conversions`/`memory_notes`/`app_rules` tables, legacy `conversions.jsonl` migration, retention purge) and Stage 3.2 (Dashboard shell + History tab: date-grouped searchable/filterable history with diff detail, reading reactively from GRDB) are implemented and committed. Stage 3.2 is not yet visually verified in a running app (no AX/Screen Recording grant in this sandbox). Next: Stage 3.3 (Personalization & memory — voice profile, snippets/facts, per-app rules editor).
 
 ### Build system deviation from original spec
 
