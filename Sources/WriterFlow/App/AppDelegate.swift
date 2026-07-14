@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let permissions = PermissionsCoordinator()
     private lazy var onboarding = OnboardingWindowController(permissions: permissions)
     private lazy var settingsWindow = SettingsWindowController(modelsConfig: modelsConfig)
+    private lazy var dashboardWindow = DashboardWindowController(settingsWindow: settingsWindow)
     private let focusMonitor = FocusMonitor()
     private let overlay = OverlayController()
     private let globalHotkey = GlobalHotkey()
@@ -266,8 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openDashboard() {
-        // Dashboard window ships in Phase 3
-        Log.app.info("Dashboard requested (stub)")
+        dashboardWindow.show()
     }
 
     @objc private func openSettings() {

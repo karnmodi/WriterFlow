@@ -14,12 +14,12 @@
 
 ## Stage 3.2 — Dashboard shell + History tab
 
-- [ ] SwiftUI window from menu bar → tabs: History · Personalization · Settings · Usage.
-- [ ] History list: date-grouped rows — app icon, action chip, before→after preview; click → detail with side-by-side diff, Copy input/output.
-- [ ] Search (full text over input+output) + filters (app, action, accepted).
-- [ ] Everything reads reactively from GRDB (ValueObservation).
+- [x] SwiftUI window from menu bar → tabs: History · Personalization · Settings · Usage (`Dashboard/DashboardView.swift`, `DashboardWindowController.swift`; wired to the existing "Open Dashboard" menu item, previously a stub). Personalization and Usage are placeholder tabs pending Stage 3.3/3.5; Settings tab is a placeholder linking to the existing Phase 1.5 API-key window pending Stage 3.4's full settings editor.
+- [x] History list: date-grouped rows — app icon (`AppIconResolver.swift`), action chip, before→after preview (`HistoryRowView.swift`); click → detail with side-by-side diff (reuses `WordDiff`), Copy input/output (`HistoryDetailView.swift`).
+- [x] Search (full text over input+output) + filters (app, action, accepted) — `HistoryViewModel.swift`.
+- [x] Everything reads reactively from GRDB (`ValueObservation.tracking(...).values(in:)` async stream, not the polling/callback API).
 
-**Accept:** Every action performed since Phase 1 shows up; search "deadline" finds the right conversion.
+**Accept:** Every action performed since Phase 1 shows up; search "deadline" finds the right conversion. — **Not yet visually verified.** Code compiles clean and the underlying store is confirmed working live (a real Custom action logged correctly to `writerflow.db` during this session), but this sandbox has no Accessibility/Screen-Recording grant to click through or screenshot the actual SwiftUI window. Pending user confirmation after opening Dashboard → History from the menu bar.
 
 ## Stage 3.3 — Personalization & memory
 
