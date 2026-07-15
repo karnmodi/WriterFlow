@@ -7,6 +7,7 @@ enum TextWriter {
         range: NSRange,
         with replacement: String,
         bundleID: String? = nil,
+        site: String? = nil,
         role: String? = nil
     ) async -> WriteResult {
         await TextInserter.replace(
@@ -14,6 +15,7 @@ enum TextWriter {
             range: range,
             with: replacement,
             bundleID: bundleID,
+            site: site,
             role: role
         )
     }

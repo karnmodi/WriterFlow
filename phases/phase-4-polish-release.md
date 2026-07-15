@@ -2,16 +2,16 @@
 
 **Goal:** Make it feel like a real product — smooth, resilient, installable, auto-updating.
 
-## Stage 4.1 — Clipboard fallback pipeline
+## Stage 4.1 — Clipboard fallback pipeline ✅
 
 For apps where AX write fails (tracked in the compatibility map):
 
-- [ ] Save current clipboard (all types, incl. images) → set rewritten text → simulate `⌘A` (if replacing all) or rely on existing selection → `⌘V` via CGEvent → restore clipboard after 300 ms.
-- [ ] Guard: only when the original field is still focused (re-check AX focus before injecting).
-- [ ] Settings toggle (default on) + per-app override.
-- [ ] Same for **read** fallback: `⌘A ⌘C`, read clipboard, restore selection where possible.
+- [x] Save current clipboard (all types, incl. images) → set rewritten text → simulate `⌘A` (if replacing all) or rely on existing selection → `⌘V` via CGEvent → restore clipboard after 300 ms. *(Already built in Phase 1 — `ClipboardWriter.executePaste` + `TextInserter.replace`'s tier-3 fallback, generic `NSPasteboardItem` save/restore covers all pasteboard types.)*
+- [x] Guard: only when the original field is still focused (re-check AX focus before injecting). *(New: `ClipboardWriter.executePaste` now takes `preText`/`isWeb` and aborts the paste — returning the existing "text is on your clipboard" error path — if the freshly-read field value no longer overlaps what it held when the action started, e.g. the user tabbed to a different field in the same app during the streaming round-trip.)*
+- [x] Settings toggle (default on) + per-app override. *(Deviation, noted here per CLAUDE.md: the existing global `SettingsStore.forceClipboardFallback` toggle — shipped in Stage 3.4 — forces skipping the AX tiers entirely, defaulted **off**; the automatic tier-3 fallback-when-AX-fails is unconditional/always-on regardless of that toggle, which already satisfies "default on" for the fallback mechanism itself. Defaulting the *force* toggle to on would make every app skip AX writes, needlessly destroying rich-text formatting Golden Rule #... prefers `kAXSelectedTextRange` for — so its default was left as-is. Added the missing piece: a tri-state per-app override, `AppRule.clipboardFallback: Bool?` — `nil` inherits the global default, `true` forces clipboard for that app, `false` disables clipboard paste entirely for that app (fails loudly instead). Editable via a segmented Auto/Always/Never picker in the Personalization tab's per-app rule row.)*
+- [x] Same for **read** fallback: `⌘A ⌘C`, read clipboard, restore selection where possible. *(New: `ClipboardWriter.executeCopyAll` + `ContextExtractor` now distinguishes "kAXValue unreadable" (nil) from "legitimately empty" (`""`) and only falls back to `⌘A ⌘C` in the unreadable case, restoring the prior `AXSelectedTextRange` and the user's clipboard afterward. Deliberately excluded for terminal apps — a scrollback-wide `⌘A ⌘C` would leak the whole history, defeating `TerminalApps.currentLine`'s deliberate line-scoping privacy safeguard. Also wired up `CompatibilityMap.recordRead`, which existed since Phase 1 but was never actually called anywhere until now.)*
 
-**Accept:** An app with broken AX write (test with one from the compatibility map) still gets in-place replacement; user clipboard contents restored intact.
+**Accept:** An app with broken AX write (test with one from the compatibility map) still gets in-place replacement; user clipboard contents restored intact. *(Code-complete + `swift build` clean; not yet exercised live against a real broken-AX app in this sandbox — no AX grant. Verify manually per CLAUDE.md when convenient.)*
 
 ## Stage 4.2 — Animation & feel pass
 

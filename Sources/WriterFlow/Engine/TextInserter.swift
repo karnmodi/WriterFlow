@@ -19,6 +19,7 @@ enum TextInserter {
         range: NSRange,
         with replacement: String,
         bundleID: String? = nil,
+        site: String? = nil,
         role: String? = nil
     ) async -> WriteResult {
         let context = await readContext(pid: pid, range: range, role: role, bundleID: bundleID)
@@ -28,8 +29,12 @@ enum TextInserter {
             return .failed("No focused element")
         }
 
-        let forceClipboard = await MainActor.run { SettingsStore.shared.forceClipboardFallback }
-        if !context.isWeb && !forceClipboard {
+        let clipboardMode = await MainActor.run {
+            AppRuleStore.shared.rule(forBundleID: bundleID, site: site)?.clipboardFallback
+                ?? (SettingsStore.shared.forceClipboardFallback ? true : nil)
+        }
+
+        if !context.isWeb && clipboardMode != true {
             if let result = await trySelectedTextReplace(context: context, replacement: replacement) {
                 recordWrite(context.bundleID, ok: true)
                 return result
@@ -40,13 +45,20 @@ enum TextInserter {
             }
         }
 
+        guard clipboardMode != false else {
+            recordWrite(context.bundleID, ok: false)
+            return .failed("AX write failed and clipboard paste is disabled for this app.")
+        }
+
         let injected = await MainActor.run {
             ClipboardWriter.executePaste(
                 pid: context.pid,
                 range: context.range,
                 replacement: replacement,
                 replacingAll: context.replacingAll,
-                role: context.role
+                role: context.role,
+                preText: context.preText,
+                isWeb: context.isWeb
             )
         }
 

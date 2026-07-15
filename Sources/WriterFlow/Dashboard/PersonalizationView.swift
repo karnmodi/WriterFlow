@@ -401,6 +401,26 @@ private struct AppRuleRow: View {
                 TextField("Custom instruction", text: binding(\.customInstruction))
                     .textFieldStyle(.roundedBorder)
             }
+            HStack(spacing: 6) {
+                Text("Clipboard paste")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("", selection: Binding(
+                    get: { rule.clipboardFallback },
+                    set: { newValue in
+                        var updated = rule
+                        updated.clipboardFallback = newValue
+                        Task { await appRuleStore.upsert(updated) }
+                    }
+                )) {
+                    Text("Auto").tag(Bool?.none)
+                    Text("Always").tag(Bool?.some(true))
+                    Text("Never").tag(Bool?.some(false))
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 220)
+            }
         }
         .padding(8)
         .background {

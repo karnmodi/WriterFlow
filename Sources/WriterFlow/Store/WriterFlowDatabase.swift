@@ -59,6 +59,12 @@ enum WriterFlowDatabase {
             }
         }
 
+        migrator.registerMigration("v2_clipboard_fallback_override") { db in
+            try db.alter(table: "app_rules") { t in
+                t.add(column: "clipboardFallback", .boolean)
+            }
+        }
+
         return migrator
     }
 }

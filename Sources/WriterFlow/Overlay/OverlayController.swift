@@ -49,6 +49,7 @@ final class OverlayController {
     private struct PendingUndo {
         let pid: pid_t
         let bundleID: String?
+        let site: String?
         let role: String
         let range: NSRange
         let originalText: String
@@ -740,6 +741,7 @@ final class OverlayController {
         }
         let pid = field.appPID
         let bundleID = field.appBundleID
+        let site = AppAdapterRegistry.siteLabel(bundleID: bundleID, windowTitle: snapshot.windowTitle)
         let role = snapshot.role
 
         // Derivative Custom output (a title/summary/etc., see `CustomOutputParser`) inserts at
@@ -770,6 +772,7 @@ final class OverlayController {
                 range: writeRange,
                 with: writeText,
                 bundleID: bundleID,
+                site: site,
                 role: role
             )
             await MainActor.run {
@@ -781,6 +784,7 @@ final class OverlayController {
                     pendingUndo = PendingUndo(
                         pid: pid,
                         bundleID: bundleID,
+                        site: site,
                         role: role,
                         range: postReplaceRange,
                         originalText: undoOriginalText
@@ -832,6 +836,7 @@ final class OverlayController {
                 range: undo.range,
                 with: undo.originalText,
                 bundleID: undo.bundleID,
+                site: undo.site,
                 role: undo.role
             )
         }

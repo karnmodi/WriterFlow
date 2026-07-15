@@ -5,32 +5,51 @@ enum ContextExtractor {
     /// Read the currently focused field of the given process.
     /// Runs off-main and returns `nil` if nothing focused / not text-editable.
     static func readFocusedField(pid: pid_t, bundleID: String?) async -> FieldSnapshot? {
-        if let snapshot = await readOnce(pid: pid, bundleID: bundleID) {
-            logSnapshot(snapshot)
-            if !snapshot.fullText.isEmpty || !snapshot.selectedText.isEmpty {
-                return snapshot
+        if let outcome = await readOnce(pid: pid, bundleID: bundleID) {
+            logSnapshot(outcome.snapshot)
+            if !outcome.snapshot.fullText.isEmpty || !outcome.snapshot.selectedText.isEmpty {
+                recordRead(bundleID, ok: true)
+                return outcome.snapshot
+            }
+            if outcome.valueUnreadable, let fallback = await copyAllFallback(pid: pid, base: outcome.snapshot) {
+                recordRead(bundleID, ok: true)
+                return fallback
             }
             // AX value can lag behind keystroke bootstrap — retry once.
             try? await Task.sleep(nanoseconds: 100_000_000)
             if let retry = await readOnce(pid: pid, bundleID: bundleID) {
-                logSnapshot(retry)
-                return retry
+                logSnapshot(retry.snapshot)
+                recordRead(bundleID, ok: true)
+                return retry.snapshot
             }
-            return snapshot
+            recordRead(bundleID, ok: false)
+            return outcome.snapshot
         }
+        recordRead(bundleID, ok: false)
         return nil
     }
 
-    private static func readOnce(pid: pid_t, bundleID: String?) async -> FieldSnapshot? {
+    private static func recordRead(_ bundleID: String?, ok: Bool) {
+        Task { await CompatibilityMap.shared.recordRead(bundleID: bundleID, ok: ok) }
+    }
+
+    private struct ReadOutcome {
+        let snapshot: FieldSnapshot
+        /// True when `kAXValue` itself couldn't be read at all (vs. legitimately empty) —
+        /// the case the Stage 4.1 clipboard read-fallback (⌘A ⌘C) exists for.
+        let valueUnreadable: Bool
+    }
+
+    private static func readOnce(pid: pid_t, bundleID: String?) async -> ReadOutcome? {
         await withCheckedContinuation { continuation in
             AXQueue.shared.async {
-                let snapshot = readSync(pid: pid, bundleID: bundleID)
-                continuation.resume(returning: snapshot)
+                let outcome = readSync(pid: pid, bundleID: bundleID)
+                continuation.resume(returning: outcome)
             }
         }
     }
 
-    private static func readSync(pid: pid_t, bundleID: String?) -> FieldSnapshot? {
+    private static func readSync(pid: pid_t, bundleID: String?) -> ReadOutcome? {
         let app = AXUIElementCreateApplication(pid)
         AXCall.armTimeout(app)
         guard let rawFocused = FocusedElementResolver.focusedElement(in: app),
@@ -38,15 +57,18 @@ enum ContextExtractor {
               let role = AXCall.string(focused, AXAttr.role)
         else { return nil }
 
-        let rawText = AXCall.string(focused, AXAttr.value) ?? ""
+        let rawValue = AXCall.string(focused, AXAttr.value)
+        let rawText = rawValue ?? ""
         let windowTitle = focusedWindowTitle(app: app)
         let isTerminal = TerminalApps.isTerminal(bundleID: bundleID)
 
         // Terminals expose the whole scrollback as one blob with no meaningful
-        // selection — reduce to just the current input line, no write-back.
+        // selection — reduce to just the current input line, no write-back. Never
+        // eligible for the clipboard read-fallback: a terminal-wide ⌘A ⌘C would leak
+        // the whole scrollback, defeating the current-line-only privacy safeguard.
         if isTerminal {
             let line = TerminalApps.currentLine(from: rawText)
-            return FieldSnapshot(
+            let snapshot = FieldSnapshot(
                 fullText: line,
                 selectedText: "",
                 selectedRange: NSRange(location: 0, length: (line as NSString).length),
@@ -55,19 +77,40 @@ enum ContextExtractor {
                 windowTitle: windowTitle,
                 supportsReplace: false
             )
+            return ReadOutcome(snapshot: snapshot, valueUnreadable: false)
         }
 
         let selectedText = AXCall.string(focused, AXAttr.selectedText) ?? ""
         let range = AXCall.range(focused, AXAttr.selectedTextRange)
             ?? NSRange(location: 0, length: (rawText as NSString).length)
 
-        return FieldSnapshot(
+        let snapshot = FieldSnapshot(
             fullText: rawText,
             selectedText: selectedText,
             selectedRange: range,
             role: role,
             appBundleID: bundleID,
             windowTitle: windowTitle
+        )
+        return ReadOutcome(snapshot: snapshot, valueUnreadable: rawValue == nil)
+    }
+
+    /// Stage 4.1 read fallback: ⌘A ⌘C via `ClipboardWriter`, restoring the prior selection
+    /// and the user's clipboard afterward. Only reached when `kAXValue` was structurally
+    /// unreadable (not merely empty) on a non-terminal field.
+    private static func copyAllFallback(pid: pid_t, base: FieldSnapshot) async -> FieldSnapshot? {
+        guard let copied = await MainActor.run(body: { ClipboardWriter.executeCopyAll(pid: pid) }),
+              !copied.isEmpty
+        else { return nil }
+        Log.engine.info("ContextExtractor: recovered \(copied.count, privacy: .public) chars via clipboard read-fallback")
+        return FieldSnapshot(
+            fullText: copied,
+            selectedText: "",
+            selectedRange: NSRange(location: 0, length: (copied as NSString).length),
+            role: base.role,
+            appBundleID: base.appBundleID,
+            windowTitle: base.windowTitle,
+            supportsReplace: base.supportsReplace
         )
     }
 
