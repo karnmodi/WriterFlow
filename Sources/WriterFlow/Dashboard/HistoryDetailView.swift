@@ -11,9 +11,15 @@ struct HistoryDetailView: View {
 
                 Divider()
 
-                HStack(alignment: .top, spacing: 20) {
-                    column(title: "Before", text: event.input)
-                    column(title: "After", text: event.output, diffAgainst: event.input)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 20) {
+                        column(title: "Before", text: event.input)
+                        column(title: "After", text: event.output, diffAgainst: event.input)
+                    }
+                    VStack(alignment: .leading, spacing: 16) {
+                        column(title: "Before", text: event.input)
+                        column(title: "After", text: event.output, diffAgainst: event.input)
+                    }
                 }
 
                 if event.model != nil || event.tokensIn != nil || event.latencyMs != nil {
@@ -21,8 +27,10 @@ struct HistoryDetailView: View {
                     metaRow
                 }
             }
-            .padding(24)
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var header: some View {
@@ -72,9 +80,11 @@ struct HistoryDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color.gray.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(16)
+        .background {
+            RoundedRectangle(cornerRadius: DashboardChrome.cardCornerRadius, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        }
     }
 
     private func diffText(new: String, old: String) -> some View {

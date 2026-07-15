@@ -16,11 +16,38 @@ struct HotkeyRecorderView: View {
         Button {
             isRecording ? stopRecording() : startRecording()
         } label: {
-            Text(isRecording ? "Press a key combo… (Esc to cancel)" : combo.displayString)
-                .frame(minWidth: 200)
-                .foregroundStyle(isRecording ? .secondary : .primary)
+            HStack(spacing: 10) {
+                Image(systemName: isRecording ? "keyboard.badge.ellipsis" : "command")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(isRecording ? Color.accentColor : .secondary)
+                Text(isRecording ? "Press a key combo…" : combo.displayString)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if isRecording {
+                    Text("Esc to cancel")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(minWidth: 240)
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(
+                                isRecording ? Color.accentColor : Color(nsColor: .separatorColor),
+                                lineWidth: isRecording ? 2 : 1
+                            )
+                    }
+            }
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.plain)
+        .accessibilityLabel(isRecording ? "Recording hotkey" : "Hotkey \(combo.displayString)")
+        .accessibilityHint("Click to change the global shortcut")
         .onDisappear { stopRecording() }
     }
 
@@ -38,8 +65,6 @@ struct HotkeyRecorderView: View {
             if event.modifierFlags.contains(.shift) { carbonModifiers |= UInt32(shiftKey) }
             if event.modifierFlags.contains(.command) { carbonModifiers |= UInt32(cmdKey) }
 
-            // Require at least one modifier — an unmodified key would break normal typing
-            // everywhere else in macOS the moment it's globally registered.
             guard carbonModifiers != 0 else { return nil }
 
             combo = HotkeyCombo(keyCode: UInt32(event.keyCode), modifiers: carbonModifiers)

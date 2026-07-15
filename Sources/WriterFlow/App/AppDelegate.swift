@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDelegate {
     private var statusItem: NSStatusItem?
     private var pauseMenuItem: NSMenuItem?
     private var statusMenuItem: NSMenuItem?
@@ -39,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Dashboard is the default landing surface on every launch — history, personalization,
         // settings, and usage all work without any permission grant (they're local-data screens).
+        dashboardWindow.visibilityDelegate = self
+        onboarding.visibilityDelegate = self
         onboarding.onOpenDashboard = { [weak self] in self?.dashboardWindow.show() }
         dashboardWindow.show()
 
@@ -54,7 +56,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         seedAzureCredentials()
 
         actionEngine.onStreamDelta = { [weak self] delta in
-            self?.overlay.appendPreview(delta)
+            self?.overlay.appendVariant(0, delta: delta)
+        }
+        actionEngine.onStreamVariantDelta = { [weak self] index, delta in
+            self?.overlay.appendVariant(index, delta: delta)
+        }
+        actionEngine.onVariantStreamCompleted = { [weak self] index in
+            self?.overlay.markVariantComplete(index)
         }
         actionEngine.onStreamPromptBuilder = { [weak self] prompt in
             self?.overlay.updatePromptBuilderPreview(prompt: prompt)
@@ -62,8 +70,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         actionEngine.onPromptBuilderClarify = { [weak self] questions in
             self?.overlay.showPromptBuilderClarify(questions: questions)
         }
-        actionEngine.onCompleted = { [weak self] _, output, snapshot, event in
-            self?.overlay.finishPreview(output: output, snapshot: snapshot, event: event)
+        actionEngine.onCompleted = { [weak self] _, variants, snapshot, event in
+            self?.overlay.finishPreview(variants: variants, snapshot: snapshot, event: event)
         }
         actionEngine.onFailed = { [weak self] message in
             self?.overlay.failPreview(message: message)
@@ -87,8 +95,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.onCancelRecommendation = { [weak self] in
             self?.recommendationEngine.cancel()
         }
+        overlay.onCheckCachedRecommendation = { [weak self] field in
+            self?.recommendationEngine.recommendation(for: field)
+        }
         recommendationEngine.onRecommendation = { [weak self] action, field in
             self?.overlay.applyRecommendation(action, for: field)
+        }
+        // Starts the classifier the moment the user begins typing anywhere (and refines it on
+        // every short pause), so by the time they open the popover a suggestion is usually
+        // already cached — see `FocusMonitor.onTypingActivity`.
+        focusMonitor.onTypingActivity = { [weak self] field in
+            self?.recommendationEngine.recommend(field: field)
         }
 
         globalHotkey.onTrigger = { [weak self] in
@@ -154,6 +171,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    func updateActivationPolicy() {
+        let needsRegular = dashboardWindow.isVisible || onboarding.isVisible
+        let policy: NSApplication.ActivationPolicy = needsRegular ? .regular : .accessory
+        if NSApp.activationPolicy() != policy {
+            NSApp.setActivationPolicy(policy)
+        }
+    }
+
     private func applyPermissionState() {
         let axNow = permissions.accessibility
         let imNow = permissions.inputMonitoring
@@ -173,8 +198,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if permissions.allGranted {
             Log.app.info("All permissions granted")
             permissions.stopPolling()
-            NSApp.setActivationPolicy(.accessory)
         }
+        updateActivationPolicy()
 
         // Event tap / AX observer only succeed when TCC is already granted at install time.
         if !settings.isPaused {

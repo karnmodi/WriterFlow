@@ -5,35 +5,13 @@ struct HistoryView: View {
     @State private var showClearConfirm = false
 
     var body: some View {
-        NavigationSplitView {
-            VStack(spacing: 0) {
-                Text("Every rewrite WriterFlow has run or you've accepted, newest first. Search looks at both the original and rewritten text.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-                filterBar
-                Divider()
-                list
-            }
-            .searchable(text: $viewModel.searchText, prompt: "Search input & output")
-            .navigationSplitViewColumnWidth(min: 320, ideal: 380)
-        } detail: {
-            if let id = viewModel.selectedEventID,
-               let event = viewModel.events.first(where: { $0.id == id }) {
-                HistoryDetailView(event: event)
-            } else {
-                ContentUnavailableFallback()
-            }
+        HSplitView {
+            listColumn
+                .frame(minWidth: 180, idealWidth: 260, maxWidth: 420)
+            detailColumn
+                .frame(minWidth: 200)
         }
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Button("Clear History", role: .destructive) {
-                    showClearConfirm = true
-                }
-            }
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .confirmationDialog(
             "Delete all conversion history? This can't be undone.",
             isPresented: $showClearConfirm,
@@ -46,28 +24,113 @@ struct HistoryView: View {
         }
     }
 
+    private var listColumn: some View {
+        VStack(spacing: 0) {
+            Text("Every rewrite WriterFlow has run or you've accepted, newest first. Search looks at both the original and rewritten text.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+                .fixedSize(horizontal: false, vertical: true)
+
+            historyControls
+            filterBar
+            Divider()
+            list
+        }
+    }
+
+    private var detailColumn: some View {
+        Group {
+            if let id = viewModel.selectedEventID,
+               let event = viewModel.events.first(where: { $0.id == id }) {
+                HistoryDetailView(event: event)
+            } else {
+                ContentUnavailableFallback()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var filterBar: some View {
-        HStack(spacing: 8) {
-            Picker("App", selection: $viewModel.appFilter) {
-                Text("All Apps").tag(String?.none)
-                ForEach(viewModel.availableApps, id: \.self) { app in
-                    Text(app).tag(String?.some(app))
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                appFilterPicker.frame(maxWidth: .infinity)
+                actionFilterPicker.frame(maxWidth: .infinity)
+                statusFilterPicker.frame(width: 120)
             }
-            Picker("Action", selection: $viewModel.actionFilter) {
-                Text("All Actions").tag(String?.none)
-                ForEach(viewModel.availableActions, id: \.self) { action in
-                    Text(action).tag(String?.some(action))
-                }
-            }
-            Picker("Status", selection: $viewModel.acceptedFilter) {
-                Text("All").tag(Bool?.none)
-                Text("Accepted").tag(Bool?.some(true))
-                Text("Discarded").tag(Bool?.some(false))
+            VStack(spacing: 8) {
+                appFilterPicker
+                actionFilterPicker
+                statusFilterPicker
             }
         }
         .labelsHidden()
-        .padding(8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private var historyControls: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search input & output", text: $viewModel.searchText)
+                    .textFieldStyle(.plain)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .background {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(.separator.opacity(0.35))
+                    }
+            }
+
+            Button(role: .destructive) {
+                showClearConfirm = true
+            } label: {
+                Image(systemName: "trash")
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .disabled(viewModel.events.isEmpty)
+            .help("Clear History")
+            .accessibilityLabel("Clear History")
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private var appFilterPicker: some View {
+        Picker("App", selection: $viewModel.appFilter) {
+            Text("All Apps").tag(String?.none)
+            ForEach(viewModel.availableApps, id: \.self) { app in
+                Text(app).tag(String?.some(app))
+            }
+        }
+    }
+
+    private var actionFilterPicker: some View {
+        Picker("Action", selection: $viewModel.actionFilter) {
+            Text("All Actions").tag(String?.none)
+            ForEach(viewModel.availableActions, id: \.self) { action in
+                Text(action).tag(String?.some(action))
+            }
+        }
+    }
+
+    private var statusFilterPicker: some View {
+        Picker("Status", selection: $viewModel.acceptedFilter) {
+            Text("All").tag(Bool?.none)
+            Text("Accepted").tag(Bool?.some(true))
+            Text("Discarded").tag(Bool?.some(false))
+        }
     }
 
     private var list: some View {
@@ -109,6 +172,7 @@ private struct ContentUnavailableFallback: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()

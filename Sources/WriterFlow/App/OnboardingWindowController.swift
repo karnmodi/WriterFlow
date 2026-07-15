@@ -2,25 +2,27 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class OnboardingWindowController {
+final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     let permissions: PermissionsCoordinator
+    private(set) var isVisible = false
+    weak var visibilityDelegate: AppWindowVisibilityDelegate?
     /// Lets the onboarding screen jump straight to the Dashboard without closing itself first —
     /// the Dashboard is the default landing surface now, onboarding is just an overlay on top of it.
     var onOpenDashboard: (() -> Void)?
 
     init(permissions: PermissionsCoordinator) {
         self.permissions = permissions
+        super.init()
     }
 
     func show() {
-        // Show dock icon while onboarding so the user can find the app.
-        NSApp.setActivationPolicy(.regular)
-
         if let window {
             window.level = .floating
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            isVisible = true
+            visibilityDelegate?.updateActivationPolicy()
             return
         }
 
@@ -31,18 +33,24 @@ final class OnboardingWindowController {
         )
 
         let hosting = NSHostingController(rootView: view)
+        hosting.sizingOptions = [.preferredContentSize, .intrinsicContentSize]
+
         let window = NSWindow(contentViewController: hosting)
-        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.delegate = self
+        window.styleMask = [.titled, .closable, .resizable]
         window.title = "WriterFlow — Setup"
-        window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.setContentSize(NSSize(width: 540, height: 640))
+        window.minSize = NSSize(width: 540, height: 520)
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
         self.window = window
+        isVisible = true
+        visibilityDelegate?.updateActivationPolicy()
 
         // Register with macOS TCC — do NOT open Settings yet (that prevents list registration).
         permissions.registerWithSystem()
@@ -51,9 +59,13 @@ final class OnboardingWindowController {
     func close() {
         window?.close()
         window = nil
-        // Return to invisible menu-bar-only mode once setup is done.
-        if permissions.allGranted {
-            NSApp.setActivationPolicy(.accessory)
-        }
+        isVisible = false
+        visibilityDelegate?.updateActivationPolicy()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        window = nil
+        isVisible = false
+        visibilityDelegate?.updateActivationPolicy()
     }
 }
