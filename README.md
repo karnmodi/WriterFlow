@@ -210,4 +210,53 @@ make install-run   # preferred daily loop
 
 Open `Package.swift` in Xcode if you have it installed — full Xcode is not required for build/run.
 
-Phase checklists live under `phases/`. Product requirements: `PRD.md`.
+Phase checklists live under `phases/`. Product requirements: `PRD.md`. Changes so far: `CHANGELOG.md`.
+
+---
+
+## Releasing
+
+WriterFlow ships as a notarized Developer ID app (no Mac App Store — the Accessibility
+APIs it depends on would fail App Store review).
+
+1. **Sign + notarize**: `make release` (wraps `scripts/release.sh`). Requires a paid
+   Apple Developer Program membership and these environment variables:
+
+   | Variable | Where to get it |
+   |---|---|
+   | `DEVELOPER_ID_APPLICATION` | Your `"Developer ID Application: Name (TEAMID)"` signing identity, e.g. from `security find-identity -v -p codesigning` |
+   | `APPLE_ID` | The Apple ID enrolled in the Developer Program |
+   | `APPLE_TEAM_ID` | 10-character Team ID (developer.apple.com → Membership) |
+   | `APPLE_APP_SPECIFIC_PASSWORD` | Generate at appleid.apple.com → Sign-In and Security → App-Specific Passwords |
+
+   The script fails fast with a clear message if any of these are missing — it never
+   silently skips signing or notarization. `WriterFlow.entitlements` (hardened runtime +
+   `com.apple.security.network.client`, the only capability needed since the app is
+   unsandboxed) is applied during signing.
+
+2. **Package**: `make dmg` (wraps `scripts/make-dmg.sh`) builds a drag-to-Applications
+   DMG from `build/WriterFlow.app` — an `Applications` symlink alongside the app, the
+   standard macOS install pattern. Run this after `make release` for a distributable
+   build, or straight after `make bundle` for a local-only test DMG (Gatekeeper will
+   still refuse an ad-hoc-signed build on another Mac).
+
+3. **First launch off a DMG**: if a user opens WriterFlow straight from the mounted
+   image instead of dragging it to Applications, `AppRelocator` detects the `/Volumes/`
+   path and offers to copy itself to `~/Applications` (clearing the inherited quarantine
+   flag) and relaunch from there.
+
+**Not yet wired up: Sparkle 2 auto-updates.** This needs a publicly hosted appcast
+(GitHub Pages/S3) and a generated EdDSA signing key before there's anything useful to
+integrate against — adding the Sparkle dependency now, pointed at a feed that doesn't
+exist, would be a checkbox that quietly does nothing. Get the appcast hosting decided
+first, then wire `SPUStandardUpdaterController` + an `SUFeedURL` in Info.plist.
+
+**Diagnostics, not automated crash reporting.** Settings → Reliability → "Share
+Diagnostics" writes a local text file (app/OS version, per-app AX success/fail counts,
+recent crash reports macOS already collected under `~/Library/Logs/DiagnosticReports/`)
+that the user explicitly saves and can choose to send — nothing is ever collected or
+uploaded automatically.
+
+**Versioning**: no `v1.0.0` tag exists yet. Cut one once a signed+notarized build has
+actually been through Phase 4's exit criteria and Phase 3's live-verification pass — see
+`CLAUDE.md`'s current-state note for what's still pending.

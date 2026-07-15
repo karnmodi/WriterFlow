@@ -241,6 +241,15 @@ struct SettingsTabView: View {
                         text: "WriterFlow automatically pauses itself for an app after 3 consecutive accessibility failures, rather than repeatedly failing silently. This resets on relaunch, or re-enable it above."
                     )
                 }
+
+                Divider()
+                Button("Share Diagnostics…") {
+                    DiagnosticsExporter.exportWithSavePanel()
+                }
+                .buttonStyle(.link)
+                DashboardSectionCaption(
+                    text: "Saves a local text file with your app/macOS version, per-app accessibility diagnostics (counts only, never field content), and any recent crash reports macOS collected. Nothing is uploaded automatically — you choose where to save it and whether to share it."
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

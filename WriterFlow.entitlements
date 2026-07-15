@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- WriterFlow ships outside the Mac App Store (Developer ID), unsandboxed, so this
+         list is short — hardened runtime's defaults already cover everything except the
+         one capability every build needs: talking to the Azure OpenAI endpoint. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>

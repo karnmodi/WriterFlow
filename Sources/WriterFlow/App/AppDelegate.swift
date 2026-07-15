@@ -23,6 +23,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+
+        // Stage 4.4: bail out early if we relocated to /Applications and are relaunching
+        // from there — nothing below should stand up against the DMG-mounted copy.
+        AppRelocator.relocateIfNeededFromDMG()
+
         installStatusItem()
         Log.app.info("WriterFlow launched")
 
