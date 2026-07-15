@@ -4,6 +4,7 @@ struct SettingsTabView: View {
     @StateObject private var viewModel: SettingsTabViewModel
     @StateObject private var apiKeyViewModel: SettingsViewModel
     @ObservedObject private var settings = SettingsStore.shared
+    @ObservedObject private var watchdog = AXWatchdog.shared
 
     init(modelsConfig: AzureModelsConfig) {
         _viewModel = StateObject(wrappedValue: SettingsTabViewModel(modelsConfig: modelsConfig))
@@ -219,6 +220,27 @@ struct SettingsTabView: View {
                 DashboardSectionCaption(
                     text: "WriterFlow normally writes the rewritten text directly into the field, falling back to a clipboard paste only if that fails. Turn this on to always use the clipboard paste — useful if direct writes visibly glitch in a particular app."
                 )
+
+                if !watchdog.disabledBundleIDs.isEmpty {
+                    Divider()
+                    Text("Paused this session")
+                        .font(.caption.bold())
+                    ForEach(Array(watchdog.disabledBundleIDs).sorted(), id: \.self) { bundleID in
+                        HStack {
+                            Text(AXWatchdog.displayName(forBundleID: bundleID))
+                                .font(.caption)
+                            Spacer()
+                            Button("Re-enable") {
+                                watchdog.reenable(bundleID: bundleID)
+                            }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                        }
+                    }
+                    DashboardSectionCaption(
+                        text: "WriterFlow automatically pauses itself for an app after 3 consecutive accessibility failures, rather than repeatedly failing silently. This resets on relaunch, or re-enable it above."
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

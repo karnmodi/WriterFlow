@@ -23,13 +23,13 @@ For apps where AX write fails (tracked in the compatibility map):
 
 **Accept:** 10-person "does this feel native?" gut-check — no jank reports; fullscreen Chrome + external monitor both correct. *(Code-complete + `swift build` clean; the actual gut-check needs a live multi-person pass the user will need to run outside this sandbox.)*
 
-## Stage 4.3 — Resilience & performance
+## Stage 4.3 — Resilience & performance ✅ (soak test excepted)
 
-- [ ] Kill-switch watchdog: if AX calls hang 3× in an app, auto-disable WriterFlow for that app for the session (toast + dashboard note).
-- [ ] Event tap auto-re-enable (taps get disabled by the OS under load — listen for `kCGEventTapDisabled*`).
-- [ ] Memory/CPU soak test: 8 h run, < 80 MB RSS, < 1% idle CPU.
-- [ ] Offline mode: clear error, actions queue is NOT kept (no surprise sends later).
-- [ ] Rate limiting: max 1 in-flight request; rapid re-invokes cancel the previous.
+- [x] Kill-switch watchdog: if AX calls hang 3× in an app, auto-disable WriterFlow for that app for the session (toast + dashboard note). *(New: `AXWatchdog` (`@MainActor ObservableObject`, session-only — deliberately not persisted, unlike `AppRule.excluded`) tracks consecutive AX read/write failures per bundle ID via the existing `recordRead`/`recordWrite` call sites in `ContextExtractor`/`TextInserter`. A success resets the streak; 3 in a row auto-disables the app for the rest of the launch, shows an `ErrorToast`, and gates the floating icon in `OverlayController.fieldDidFocus` alongside the existing `AppRuleStore.isExcluded` check. Dashboard note: Settings tab's Reliability card now lists any session-paused apps with a one-click "Re-enable" button.)*
+- [x] Event tap auto-re-enable (taps get disabled by the OS under load — listen for `kCGEventTapDisabled*`). *(Already built in Phase 0 — `EventTap` handles `.tapDisabledByTimeout`/`.tapDisabledByUserInput` and calls `CGEvent.tapEnable` again. No change needed.)*
+- [ ] Memory/CPU soak test: 8 h run, < 80 MB RSS, < 1% idle CPU. *(Not run — needs a live 8-hour session against the real AX/menu-bar app, which this sandbox can't do (no AX grant, and launching the dev build risks colliding with the user's actual running production instance per prior session notes). Left for the user to run outside this sandbox.)*
+- [x] Offline mode: clear error, actions queue is NOT kept (no surprise sends later). *(Audit + fix: there was never any retry/queue mechanism for failed actions — a failure just surfaces `onFailed`/`ErrorToast` and the attempt is gone, satisfying "no surprise sends later" already. Added a `ActionEngine.userFacingMessage(for:)` helper that special-cases `URLError` (`.notConnectedToInternet`/`.networkConnectionLost`/`.dataNotAllowed` → "You're offline — try again once you're connected.", `.timedOut` → "Request timed out — try again.") instead of surfacing a raw system error string, and replaced all 4 duplicated error-message call sites in `ActionEngine` with it.)*
+- [x] Rate limiting: max 1 in-flight request; rapid re-invokes cancel the previous. *(Already correct since Phase 1/2 — `ActionEngine.run()`/`finalizePromptBuilder()` both call `runningTask?.cancel()` before starting a new `Task`, `execute()`/`executeMultiVariant()` check `Task.isCancelled` at multiple points, the 3-variant path uses structured `withTaskGroup` so cancellation cascades to all children, and `AzureOpenAIClient`'s `session.bytes(for:)`/`.lines` async iteration is itself cancellation-aware, so an in-flight network request actually stops rather than just being ignored. No change needed.)*
 
 ## Stage 4.4 — Packaging & distribution
 

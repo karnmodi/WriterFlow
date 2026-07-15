@@ -31,6 +31,7 @@ enum ContextExtractor {
 
     private static func recordRead(_ bundleID: String?, ok: Bool) {
         Task { await CompatibilityMap.shared.recordRead(bundleID: bundleID, ok: ok) }
+        Task { @MainActor in AXWatchdog.shared.record(bundleID: bundleID, ok: ok) }
     }
 
     private struct ReadOutcome {

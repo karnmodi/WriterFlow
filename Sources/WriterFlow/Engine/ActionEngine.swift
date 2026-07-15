@@ -209,7 +209,7 @@ final class ActionEngine {
                 onStreamDelta?(clean)
             }
         } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            let message = Self.userFacingMessage(for: error)
             onFailed?(message)
             ErrorToast.show(message)
             Log.engine.error("ActionEngine failed: \(message, privacy: .public)")
@@ -323,8 +323,7 @@ final class ActionEngine {
             !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         if !hasOutput {
-            let message = (errors.first as? LocalizedError)?.errorDescription
-                ?? errors.first?.localizedDescription
+            let message = errors.first.map(Self.userFacingMessage(for:))
                 ?? "Couldn't generate variants. Try again."
             onFailed?(message)
             ErrorToast.show(message)
@@ -390,7 +389,7 @@ final class ActionEngine {
                 }
             }
         } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            let message = Self.userFacingMessage(for: error)
             onFailed?(message)
             ErrorToast.show(message)
             Log.engine.error("ActionEngine failed: \(message, privacy: .public)")
@@ -470,7 +469,7 @@ final class ActionEngine {
                 }
             }
         } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            let message = Self.userFacingMessage(for: error)
             onFailed?(message)
             ErrorToast.show(message)
             Log.engine.error("ActionEngine finalize failed: \(message, privacy: .public)")
@@ -506,5 +505,21 @@ final class ActionEngine {
         event.latencyMs = ms
         promptBuilderSession = nil
         onCompleted?(.promptBuilder, .single(finalOutput), session.snapshot, event)
+    }
+
+    /// Stage 4.3 offline-mode requirement: a clear, WriterFlow-specific message instead of
+    /// a raw `URLError` description — no queuing/retry-later, the failed action is just gone.
+    private static func userFacingMessage(for error: Error) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return "You're offline — try again once you're connected."
+            case .timedOut:
+                return "Request timed out — try again."
+            default:
+                break
+            }
+        }
+        return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 }
