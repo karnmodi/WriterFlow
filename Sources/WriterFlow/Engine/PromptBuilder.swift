@@ -27,7 +27,8 @@ enum PromptBuilder {
         conversationContext: String? = nil,
         customInstruction: String? = nil,
         promptBuilderPhase: Phase = .analyze,
-        personalization: PersonalizationContext = .none
+        personalization: PersonalizationContext = .none,
+        variantIndex: Int? = nil
     ) -> BuiltPrompt {
         let fieldText = snapshot.actionText
         let briefFromBox = customInstruction?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -63,6 +64,19 @@ enum PromptBuilder {
         if action == .fixGrammar {
             system += "\nStrict rule: change only clear errors in spelling, grammar, punctuation, or capitalization. Never rephrase."
         }
+        if let variantIndex {
+            system += "\n\(Prompts.variantInstruction(action: action, index: variantIndex))"
+        }
+
+        let contextual = Prompts.shouldApplyContextualTransform(
+            action: action,
+            conversationContext: conversationContext,
+            site: site
+        )
+        if contextual {
+            system += "\n\(Prompts.contextualTransformInstruction(site: site, action: action))"
+        }
+
         if action == .reply {
             system += "\nPlatform: \(site ?? "unknown")"
             system += "\n\(Prompts.replyInstruction(for: site))"
@@ -88,11 +102,6 @@ enum PromptBuilder {
 
             if hasConversation {
                 system += "\nCONVERSATION is prior chat above the compose field — the ---PROMPT--- block must read as the next message in that thread."
-            } else if AppAdapterRegistry.isLLMChatSite(site) {
-                let appHint = site == "cursor"
-                    ? "The user is in Cursor IDE chat — write ---PROMPT--- as the next message in the agent thread, referencing prior context from CONVERSATION when available. No system/developer persona setup."
-                    : "The user is in an LLM chat app — write ---PROMPT--- as the next user message, not a cold-start system prompt."
-                system += "\n\(appHint)"
             }
         }
 
@@ -114,8 +123,14 @@ enum PromptBuilder {
                     user += "\nQ: \(pair.question)\nA: \(pair.answer)"
                 }
             }
+        case .custom:
+            user += "\nDRAFT/NEXT MESSAGE:\n\(workingText)"
         default:
-            user += "\n\(workingText)"
+            if contextual {
+                user += "\nDRAFT/NEXT MESSAGE:\n\(workingText)"
+            } else {
+                user += "\n\(workingText)"
+            }
         }
         return BuiltPrompt(system: system, user: user)
     }

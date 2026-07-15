@@ -8,7 +8,8 @@ enum PromptBuilderPreviewPhase: Equatable {
 
 struct PreviewCardView: View {
     let actionTitle: String
-    let text: String
+    let variants: PreviewVariants
+    let usesMultiVariant: Bool
     let promptBuilderPhase: PromptBuilderPreviewPhase?
     let clarifyQuestions: [PromptBuilderOutputParser.ClarifyQuestion]
     let clarifySelections: [String: String]
@@ -16,12 +17,28 @@ struct PreviewCardView: View {
     let action: WritingAction?
     let isStreaming: Bool
     let canReplace: Bool
+    var onSelectVariant: (Int) -> Void
     var onSelectClarifyAnswer: (String, String) -> Void
     var onContinueClarify: () -> Void
     var onReplace: () -> Void
     var onCopy: () -> Void
     var onRetry: () -> Void
     var onDiscard: () -> Void
+
+    private var activeText: String {
+        // Custom can ask for a derivative artifact (title/summary/etc.) via the
+        // `---INSERT---` marker convention (see `CustomOutputParser`) — strip it from what's
+        // displayed. No other action's prompt ever produces this marker.
+        guard action == .custom else { return variants.selectedText }
+        return CustomOutputParser.parse(variants.selectedText).text
+    }
+
+    /// True once we know this Custom result is a derivative artifact that will be inserted
+    /// above the existing content rather than replacing it — used to relabel the Replace
+    /// button so the non-destructive behavior isn't a surprise.
+    private var isInsertMode: Bool {
+        action == .custom && CustomOutputParser.parse(variants.selectedText).mode == .insertBeforeContent
+    }
 
     private var showsDiff: Bool {
         !isStreaming && action == .fixGrammar && !originalText.isEmpty
@@ -48,8 +65,13 @@ struct PreviewCardView: View {
             return "Generating…"
         }
         if isClarifyMode { return "Clarify a few details" }
+        if usesMultiVariant { return "Pick a variant, then Replace" }
         if showsPromptBuilderLayout { return "Review before replacing" }
         return "Review before replacing"
+    }
+
+    private var cardWidth: CGFloat {
+        usesMultiVariant ? 380 : 300
     }
 
     var body: some View {
@@ -59,35 +81,27 @@ struct PreviewCardView: View {
             if showsPromptBuilderLayout {
                 promptBuilderContent
             } else {
-                contentArea
+                rewriteContent
             }
             Divider().opacity(0.35)
             toolbar
         }
-        .frame(width: 300)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.thinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(.white.opacity(0.12), lineWidth: 1)
-                )
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(width: cardWidth)
+        .overlayCardChrome()
     }
 
     private var header: some View {
         HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(actionTitle)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
                 Text(headerSubtitle)
-                    .font(.system(size: 10))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            if isStreaming {
+            if isStreaming, !usesMultiVariant {
                 ProgressView()
                     .controlSize(.small)
                     .scaleEffect(0.85)
@@ -101,8 +115,67 @@ struct PreviewCardView: View {
                 action: onDiscard
             )
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var rewriteContent: some View {
+        if usesMultiVariant {
+            variantPicker
+        }
+        ScrollView {
+            Group {
+                if activeText.isEmpty, isStreaming {
+                    Text("Thinking…")
+                        .foregroundStyle(.secondary)
+                } else if showsDiff {
+                    diffedText
+                } else if activeText.isEmpty {
+                    Text("Thinking…")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(activeText)
+                }
+            }
+            .font(.system(size: 13))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+        }
+        .frame(height: usesMultiVariant ? 168 : 118)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+
+    private var variantPicker: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<PreviewVariants.count, id: \.self) { index in
+                VariantTab(
+                    label: variantLabel(index),
+                    isSelected: variants.selectedIndex == index,
+                    isStreaming: isStreaming && !variants.completedIndices.contains(index),
+                    shortcut: "\(index + 1)",
+                    action: { onSelectVariant(index) }
+                )
+            }
+
+            Spacer(minLength: 8)
+
+            Label("← → to switch", systemImage: "arrow.left.arrow.right")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+    }
+
+    private func variantLabel(_ index: Int) -> String {
+        switch index {
+        case 0: return "Option A"
+        case 1: return "Option B"
+        default: return "Option C"
+        }
     }
 
     @ViewBuilder
@@ -137,7 +210,7 @@ struct PreviewCardView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 14)
             .padding(.vertical, 10)
         }
         .frame(height: 200)
@@ -145,20 +218,18 @@ struct PreviewCardView: View {
 
     private var promptContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Prompt")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
+            DashboardSectionCaption(text: "Prompt")
+                .padding(.horizontal, 14)
                 .padding(.top, 8)
                 .padding(.bottom, 4)
 
             ScrollView {
                 Group {
-                    if text.isEmpty {
+                    if activeText.isEmpty {
                         Text("Thinking…")
                             .foregroundStyle(.secondary)
                     } else {
-                        Text(text)
+                        Text(activeText)
                     }
                 }
                 .font(.system(size: 13))
@@ -166,30 +237,9 @@ struct PreviewCardView: View {
                 .textSelection(.enabled)
             }
             .frame(height: 180)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 14)
             .padding(.bottom, 8)
         }
-    }
-
-    private var contentArea: some View {
-        ScrollView {
-            Group {
-                if text.isEmpty {
-                    Text("Thinking…")
-                        .foregroundStyle(.secondary)
-                } else if showsDiff {
-                    diffedText
-                } else {
-                    Text(text)
-                }
-            }
-            .font(.system(size: 13))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .textSelection(.enabled)
-        }
-        .frame(height: 118)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 
     private var toolbar: some View {
@@ -214,15 +264,15 @@ struct PreviewCardView: View {
                     systemName: "doc.on.doc",
                     label: "Copy",
                     shortcut: "⌘C",
-                    enabled: canReplace && !text.isEmpty,
+                    enabled: canReplace && !activeText.isEmpty,
                     prominent: false,
                     action: onCopy
                 )
                 IconToolButton(
-                    systemName: "arrow.turn.down.left",
-                    label: "Replace",
+                    systemName: isInsertMode ? "text.insert" : "arrow.turn.down.left",
+                    label: isInsertMode ? "Insert" : "Replace",
                     shortcut: "↵",
-                    enabled: canReplace && !text.isEmpty,
+                    enabled: canReplace && !activeText.isEmpty,
                     prominent: true,
                     action: onReplace
                 )
@@ -233,7 +283,7 @@ struct PreviewCardView: View {
     }
 
     private var diffedText: Text {
-        WordDiff.segments(from: originalText, to: text).enumerated().reduce(Text("")) { partial, item in
+        WordDiff.segments(from: originalText, to: activeText).enumerated().reduce(Text("")) { partial, item in
             let (index, segment) = item
             let prefix = index == 0 ? "" : " "
             var word = Text(prefix + segment.text)
@@ -242,6 +292,68 @@ struct PreviewCardView: View {
             }
             return partial + word
         }
+    }
+}
+
+// MARK: - Overlay chrome (shared with Dashboard tokens)
+
+extension View {
+    func overlayCardChrome() -> some View {
+        background {
+            RoundedRectangle(cornerRadius: DashboardChrome.cardCornerRadius, style: .continuous)
+                .fill(.thinMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: DashboardChrome.cardCornerRadius, style: .continuous)
+                        .strokeBorder(.separator.opacity(0.35), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: DashboardChrome.cardCornerRadius, style: .continuous))
+    }
+}
+
+private struct VariantTab: View {
+    let label: String
+    let isSelected: Bool
+    let isStreaming: Bool
+    let shortcut: String
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                if isStreaming {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .scaleEffect(0.65)
+                }
+            }
+            .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(backgroundColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(borderColor, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help("\(label) (\(shortcut))")
+        .onHover { hovering = $0 }
+    }
+
+    private var backgroundColor: Color {
+        if isSelected { return Color.accentColor.opacity(0.14) }
+        if hovering { return Color.primary.opacity(0.06) }
+        return Color.primary.opacity(0.04)
+    }
+
+    private var borderColor: Color {
+        isSelected ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.1)
     }
 }
 

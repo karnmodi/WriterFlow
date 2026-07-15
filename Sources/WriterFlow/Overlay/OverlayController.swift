@@ -14,7 +14,8 @@ final class OverlayController {
     private var isPreviewVisible: Bool = false
     private var highlightedIndex: Int = 0
 
-    private var previewText: String = ""
+    private var previewVariants = PreviewVariants.empty()
+    private var previewUsesMultiVariant = false
     private var previewPromptBuilderPhase: PromptBuilderPreviewPhase?
     private var previewClarifyQuestions: [PromptBuilderOutputParser.ClarifyQuestion] = []
     private var previewClarifySelections: [String: String] = [:]
@@ -31,6 +32,14 @@ final class OverlayController {
     private var recommendedAction: WritingAction?
     private var userMovedHighlight = false
     private var isCustomInputActive = false
+    /// Reactivating the host app at the end of custom-instruction entry (see `endCustomInput`)
+    /// can trigger a delayed AX/app blur notification for the field we just left. That
+    /// notification arrives *after* `isCustomInputActive` has already gone back to false, so
+    /// without this it would race `fieldDidBlur()` into tearing down the popover/preview that's
+    /// opening right at that moment — the root cause of Custom submissions intermittently doing
+    /// nothing (preview opens, then silently gets torn down a beat later). Set right before
+    /// reactivating the host app; consumed (and ignored) by `fieldDidBlur()` until it expires.
+    private var suppressBlurUntil: Date?
     private var showCustomField = false
     private var customText = ""
     private var showPromptBuilderField = false
@@ -52,10 +61,14 @@ final class OverlayController {
     var onPromptBuilderAnswersSelected: (([(question: String, answer: String)], FocusedField) -> Void)?
     var onRequestRecommendation: ((FocusedField) -> Void)?
     var onCancelRecommendation: (() -> Void)?
+    /// Synchronous cache check — the classifier has been running in the background since the
+    /// user started typing (see `FocusMonitor.onTypingActivity`), so by the time the popover
+    /// opens there's usually already an answer ready with no wait.
+    var onCheckCachedRecommendation: ((FocusedField) -> WritingAction?)?
 
     private let iconSize = CGSize(width: 28, height: 28)
     private let popoverSize = CGSize(width: 230, height: 360)
-    private let previewSize = CGSize(width: 300, height: 220)
+    private let previewSize = CGSize(width: 380, height: 300)
     private let promptBuilderPreviewSize = CGSize(width: 300, height: 320)
     /// Fixed dock offset from the bottom of the visible screen (Whisperflow-style).
     private let iconBottomMargin: CGFloat = 36
@@ -146,7 +159,8 @@ final class OverlayController {
     private var previewRootView: PreviewCardView {
         PreviewCardView(
             actionTitle: previewActionTitle,
-            text: previewText,
+            variants: previewVariants,
+            usesMultiVariant: previewUsesMultiVariant,
             promptBuilderPhase: previewPromptBuilderPhase,
             clarifyQuestions: previewClarifyQuestions,
             clarifySelections: previewClarifySelections,
@@ -154,6 +168,7 @@ final class OverlayController {
             action: pendingAction,
             isStreaming: previewStreaming,
             canReplace: previewCanReplace,
+            onSelectVariant: { [weak self] index in self?.selectPreviewVariant(index) },
             onSelectClarifyAnswer: { [weak self] questionID, answer in
                 self?.selectClarifyAnswer(questionID: questionID, answer: answer)
             },
@@ -163,6 +178,21 @@ final class OverlayController {
             onRetry: { [weak self] in self?.retryPreview() },
             onDiscard: { [weak self] in self?.discardPreview() }
         )
+    }
+
+    private var activePreviewText: String {
+        previewVariants.selectedText
+    }
+
+    /// For Custom actions, splits the raw streamed/complete text into the clean text to
+    /// actually use plus whether it should be inserted above the existing content rather than
+    /// replacing it (see `CustomOutputParser` — the model opts into this via a marker when the
+    /// instruction asks for a derivative artifact like a title, not a rewrite). Every other
+    /// action always replaces, unchanged.
+    private var previewOutputText: (text: String, insertBeforeContent: Bool) {
+        guard pendingAction == .custom else { return (activePreviewText, false) }
+        let parsed = CustomOutputParser.parse(activePreviewText)
+        return (parsed.text, parsed.mode == .insertBeforeContent)
     }
 
     // MARK: - Public API
@@ -186,6 +216,15 @@ final class OverlayController {
         showPromptBuilderField = false
         promptBuilderText = ""
         pendingPopoverRefresh = false
+
+        // The classifier has likely already been running in the background since the user
+        // started typing (see `FocusMonitor.onTypingActivity`) — apply whatever's cached
+        // before the first render so the suggestion is there from the very first frame,
+        // not a beat later.
+        if let cached = onCheckCachedRecommendation?(field) {
+            applyRecommendedHighlight(cached)
+        }
+
         refreshPopoverContent()
         positionPanelAboveIcon(actionPanel, size: popoverSize, field: field)
         isPopoverVisible = true
@@ -200,8 +239,23 @@ final class OverlayController {
             Log.overlay.error("Failed to install popover key monitor")
         }
         keyMonitor.onKey = { [weak self] event in self?.handleKeyEvent(event) }
+        // Still kick off a fresh classification even on a cache hit — it can only be as
+        // current as the last typing pause, so this silently upgrades the suggestion via
+        // `applyRecommendation` below if the field has moved on since then.
         onRequestRecommendation?(field)
         Log.overlay.info("Action popover opened")
+    }
+
+    /// Shared "apply a recommendation to visible state" step — used both by an instant cache
+    /// hit at popover-open time and by the async result path (`applyRecommendation`) below.
+    private func applyRecommendedHighlight(_ action: WritingAction) {
+        recommendedAction = action
+        // Don't steal highlight while the user is typing an inline instruction
+        // or has already moved with arrows/hover intent.
+        if !userMovedHighlight, !isCustomInputActive,
+           let index = WritingAction.popoverOrder.firstIndex(of: action) {
+            highlightedIndex = index
+        }
     }
 
     /// Applies an async recommendation, ignoring it if the popover has since
@@ -215,14 +269,8 @@ final class OverlayController {
             Log.overlay.debug("Recommendation dropped — field identity changed")
             return
         }
-        recommendedAction = action
+        applyRecommendedHighlight(action)
         Log.overlay.info("Recommendation applied: \(action.title, privacy: .public)")
-        // Don't steal highlight while the user is typing an inline instruction
-        // or has already moved with arrows/hover intent.
-        if !userMovedHighlight, !isCustomInputActive,
-           let index = WritingAction.popoverOrder.firstIndex(of: action) {
-            highlightedIndex = index
-        }
         refreshPopoverContent()
     }
 
@@ -250,7 +298,8 @@ final class OverlayController {
 
     func beginPreview(action: WritingAction) {
         previewActionTitle = action.title
-        previewText = ""
+        previewVariants = .empty()
+        previewUsesMultiVariant = action.usesMultiVariantPreview
         previewPromptBuilderPhase = action == .promptBuilder ? .analyzing : nil
         previewClarifyQuestions = []
         previewClarifySelections = [:]
@@ -275,13 +324,18 @@ final class OverlayController {
         installPreviewKeyMonitor()
     }
 
-    func appendPreview(_ delta: String) {
-        previewText += delta
+    func appendVariant(_ index: Int, delta: String) {
+        previewVariants.append(to: index, delta: delta)
+        refreshPreviewContent()
+    }
+
+    func markVariantComplete(_ index: Int) {
+        previewVariants.markCompleted(index)
         refreshPreviewContent()
     }
 
     func updatePromptBuilderPreview(prompt: String) {
-        previewText = prompt
+        previewVariants.texts[0] = prompt
         previewPromptBuilderPhase = .prompt
         refreshPreviewContent()
     }
@@ -290,26 +344,32 @@ final class OverlayController {
         previewClarifyQuestions = questions
         previewClarifySelections = [:]
         previewPromptBuilderPhase = .clarify
-        previewText = ""
+        previewVariants = .empty()
         previewStreaming = false
         previewCanReplace = false
         refreshPreviewContent()
         installPreviewKeyMonitor()
     }
 
-    func finishPreview(output: String, snapshot: FieldSnapshot, event: ConversionEvent) {
-        previewText = output
+    func finishPreview(variants: PreviewVariants, snapshot: FieldSnapshot, event: ConversionEvent) {
+        previewVariants = variants
         previewPromptBuilderPhase = pendingAction == .promptBuilder ? .prompt : nil
         previewClarifyQuestions = []
         previewClarifySelections = [:]
         previewOriginalText = snapshot.actionText
         previewStreaming = false
+        let output = variants.selectedText
         previewCanReplace = !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && snapshot.supportsReplace
         pendingSnapshot = snapshot
         pendingEvent = event
         refreshPreviewContent()
         installPreviewKeyMonitor()
+    }
+
+    private func selectPreviewVariant(_ index: Int) {
+        previewVariants.select(index)
+        refreshPreviewContent()
     }
 
     private func selectClarifyAnswer(questionID: String, answer: String) {
@@ -329,7 +389,7 @@ final class OverlayController {
 
         previewStreaming = true
         previewPromptBuilderPhase = .prompt
-        previewText = ""
+        previewVariants = .empty()
         previewClarifyQuestions = []
         previewClarifySelections = [:]
         previewCanReplace = false
@@ -376,6 +436,14 @@ final class OverlayController {
         // tear down the popover or clear currentField while typing the prompt.
         if isCustomInputActive {
             return
+        }
+        // Also ignore the delayed blur notification from reactivating the host app right
+        // after custom input ends — see `suppressBlurUntil`'s doc comment.
+        if let until = suppressBlurUntil {
+            if Date() < until {
+                return
+            }
+            suppressBlurUntil = nil
         }
         currentField = nil
         dismissActionPopover()
@@ -510,7 +578,8 @@ final class OverlayController {
     private func dismissPreview() {
         guard isPreviewVisible else { return }
         isPreviewVisible = false
-        previewText = ""
+        previewVariants = .empty()
+        previewUsesMultiVariant = false
         previewPromptBuilderPhase = nil
         previewClarifyQuestions = []
         previewClarifySelections = [:]
@@ -640,6 +709,7 @@ final class OverlayController {
         actionPanel.allowsKeyWhenNeeded = false
         if let field = currentField {
             NSRunningApplication(processIdentifier: field.appPID)?.activate()
+            suppressBlurUntil = Date().addingTimeInterval(0.3)
         }
         if isPopoverVisible {
             if !keyMonitor.install() {
@@ -660,16 +730,36 @@ final class OverlayController {
             discardPreview()
             return
         }
-        guard previewCanReplace, !previewText.isEmpty, !isApplyingPreview else { return }
+        let (text, insertBeforeContent) = previewOutputText
+        guard previewCanReplace, !text.isEmpty, !isApplyingPreview else { return }
         isApplyingPreview = true
 
-        let text = previewText
+        if var event = pendingEvent {
+            event.output = text
+            pendingEvent = event
+        }
         let pid = field.appPID
         let bundleID = field.appBundleID
-        let range = snapshot.actionRange
         let role = snapshot.role
-        let originalText = snapshot.actionText
-        let postReplaceRange = NSRange(location: range.location, length: (text as NSString).length)
+
+        // Derivative Custom output (a title/summary/etc., see `CustomOutputParser`) inserts at
+        // the very start of the field instead of replacing the selection/whole field — the
+        // point is to generate something FROM the content without destroying it.
+        let writeRange: NSRange
+        let writeText: String
+        let postReplaceRange: NSRange
+        let undoOriginalText: String
+        if insertBeforeContent {
+            writeRange = NSRange(location: 0, length: 0)
+            writeText = text + "\n\n"
+            postReplaceRange = NSRange(location: 0, length: (writeText as NSString).length)
+            undoOriginalText = ""
+        } else {
+            writeRange = snapshot.actionRange
+            writeText = text
+            postReplaceRange = NSRange(location: writeRange.location, length: (text as NSString).length)
+            undoOriginalText = snapshot.actionText
+        }
 
         hidePanelsForReplace()
         keyMonitor.uninstall()
@@ -677,8 +767,8 @@ final class OverlayController {
         Task {
             let result = await TextWriter.replace(
                 pid: pid,
-                range: range,
-                with: text,
+                range: writeRange,
+                with: writeText,
                 bundleID: bundleID,
                 role: role
             )
@@ -693,9 +783,12 @@ final class OverlayController {
                         bundleID: bundleID,
                         role: role,
                         range: postReplaceRange,
-                        originalText: originalText
+                        originalText: undoOriginalText
                     )
-                    UndoToast.show(message: "Replaced ✓", belowIcon: dockIconAnchor()) { [weak self] in
+                    UndoToast.show(
+                        message: insertBeforeContent ? "Inserted ✓" : "Replaced ✓",
+                        belowIcon: dockIconAnchor()
+                    ) { [weak self] in
                         self?.restoreOriginal()
                     }
                 case .failed(let reason):
@@ -708,9 +801,14 @@ final class OverlayController {
     /// Copies the preview result to the clipboard and closes the card — an
     /// alternative to Replace when the user wants to paste it elsewhere.
     private func copyPreview() {
-        guard !previewText.isEmpty, (previewCanReplace || pendingSnapshot?.supportsReplace == false) else { return }
+        let (text, _) = previewOutputText
+        guard !text.isEmpty, (previewCanReplace || pendingSnapshot?.supportsReplace == false) else { return }
+        if var event = pendingEvent {
+            event.output = text
+            pendingEvent = event
+        }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(previewText, forType: .string)
+        NSPasteboard.general.setString(text, forType: .string)
         finalizeEvent(accepted: true)
         dismissPreview()
         ErrorToast.show("Copied to clipboard", duration: 2.0, belowIcon: dockIconAnchor(), style: .success)
@@ -762,13 +860,19 @@ final class OverlayController {
                 if previewClarifyQuestions.allSatisfy({ previewClarifySelections[$0.id] != nil }) {
                     continuePromptBuilderClarify()
                 }
-            } else if previewCanReplace, !previewText.isEmpty {
+            } else if previewCanReplace, !activePreviewText.isEmpty {
                 applyPreview()
             }
         case .copy:
             copyPreview()
         case .retry:
             retryPreview()
+        case .digit(let digit) where previewUsesMultiVariant && digit >= 1 && digit <= PreviewVariants.count:
+            selectPreviewVariant(digit - 1)
+        case .left where previewUsesMultiVariant:
+            selectPreviewVariant((previewVariants.selectedIndex - 1 + PreviewVariants.count) % PreviewVariants.count)
+        case .right where previewUsesMultiVariant:
+            selectPreviewVariant((previewVariants.selectedIndex + 1) % PreviewVariants.count)
         default:
             break
         }
@@ -784,6 +888,7 @@ final class OverlayController {
             }
         case .up: moveHighlight(by: -1)
         case .down: moveHighlight(by: 1)
+        case .left, .right: break
         case .escape: dismissActionPopover()
         case .returnKey:
             if isCustomHighlighted {

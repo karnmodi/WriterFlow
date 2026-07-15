@@ -9,6 +9,8 @@ final class PopoverKeyMonitor {
         case digit(Int)
         case up
         case down
+        case left
+        case right
         case escape
         case returnKey
         case copy
@@ -72,6 +74,8 @@ final class PopoverKeyMonitor {
         case kVK_ANSI_7: .digit(7)
         case kVK_UpArrow: .up
         case kVK_DownArrow: .down
+        case kVK_LeftArrow: .left
+        case kVK_RightArrow: .right
         case kVK_Escape: .escape
         case kVK_Return, kVK_ANSI_KeypadEnter: .returnKey
         case kVK_ANSI_C where cmdHeld: .copy

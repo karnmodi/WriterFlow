@@ -107,7 +107,11 @@ actor AzureOpenAIClient {
     /// Non-streaming classification call for the Recommendation Engine — one word
     /// out of elaborate/formal/casual/grammar/reply, or nil if it doesn't parse.
     func classifyAction(fieldText: String, hasVisibleThread: Bool, toneBias: String) async throws -> WritingAction? {
-        let slot = config.slots.grammar
+        // Uses the heavy/reasoning slot rather than the cheap grammar one — this call now runs
+        // in the background starting the moment the user begins typing (see
+        // `RecommendationEngine`/`FocusMonitor.onTypingActivity`), so its extra latency is
+        // hidden behind typing time instead of being paid when the user opens the popover.
+        let slot = config.slots.heavy
         let apiKey = try resolveAPIKey(for: slot)
         let url = try resolveURL()
 
@@ -115,7 +119,13 @@ actor AzureOpenAIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "api-key")
-        request.timeoutInterval = 8
+        // 8s (the old value) was sized for when this ran in the foreground at popover-open —
+        // too tight for a reasoning-capable "heavy" model, which was killing every attempt
+        // before it could finish, so no suggestion ever appeared no matter how long the user
+        // waited. This now runs in the background while the user types (see
+        // `RecommendationEngine`/`FocusMonitor.onTypingActivity`), so it's safe to give it
+        // much more room to actually complete.
+        request.timeoutInterval = 25
 
         let threadNote = hasVisibleThread ? "A conversation thread is visible above this field." : "No conversation thread is visible."
         let user = "App context: \(toneBias)\n\(threadNote)\nCurrent text:\n\(fieldText.isEmpty ? "(empty)" : fieldText)"
@@ -127,7 +137,11 @@ actor AzureOpenAIClient {
             "model": slot.deployment,
             "input": input,
             "stream": false,
-            "max_output_tokens": 5
+            // Deployments here are GPT-5-family reasoning models — a few output tokens get
+            // spent on hidden reasoning before the visible word. The heavy slot is a more
+            // deliberate model than the mini one this used to hit, so it may spend more of
+            // that hidden budget — 60 leaves headroom while staying a fast, cheap call.
+            "max_output_tokens": 60
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 

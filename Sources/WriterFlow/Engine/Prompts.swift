@@ -5,51 +5,57 @@ enum Prompts {
         switch action {
         case .elaborate:
             return """
-            Expand the text into fuller, clearer writing without changing its purpose.
+            Expand the draft into a complete, clearer next message without changing its purpose.
 
             Requirements:
-            - Preserve the original intent, tone, point of view, and language.
-            - Add useful clarifying detail, transitions, and structure that make the message easier to understand.
-            - Do NOT invent facts, names, numbers, dates, commitments, or reasons that are not present or clearly implied.
+            - Preserve the original intent, point of view, language, and every factual constraint.
+            - Infer the actual ask from the draft and thread when present; do NOT merely rephrase or synonym-swap.
+            - Add useful organization, transitions, and connective language that make the message easier to understand.
+            - For multi-part or technical requests, use adaptive structure: a concise intent lead, only necessary context, and a short requirements list when helpful.
+            - For a simple one-line request, keep the output compact and natural.
+            - Do NOT invent facts, names, numbers, dates, commitments, file paths, or requirements not present or clearly implied.
             - Do NOT change the core ask, decision, or stance.
-            - Keep roughly the same register (formal stay formal, casual stay casual).
-            - Prefer concrete, readable prose over fluff or filler.
-            - If the input is already polished and complete, make only light clarifying improvements.
-            - Output ONLY the expanded text.
+            - Keep roughly the same register unless the draft explicitly asks for a tone change.
+            - If the draft is already polished and complete, make only light clarifying improvements.
+            - Output ONLY the expanded message.
             """
         case .formal:
             return """
-            Rewrite the text in a professional, formal register suitable for email, workplace, or business communication.
+            Rewrite the draft in a professional, formal register suitable for email, workplace, or business communication.
 
             Requirements:
-            - Keep the exact meaning, asks, facts, and constraints.
+            - Keep the exact meaning, asks, facts, constraints, technical details, and requested outcomes.
+            - Change register only; do NOT shorten away requirements or turn the message into generic corporate prose.
             - Improve clarity, grammar, and polish; remove slang, filler, and overly casual phrasing.
             - Prefer precise vocabulary, complete sentences, and a respectful tone.
             - Do NOT add new commitments, apologies, flattery, or detail the author did not imply.
             - Do NOT make the text stiff, archaic, or overly verbose.
             - Preserve the input language.
-            - Output ONLY the rewritten text.
+            - Output ONLY the rewritten message.
             """
         case .casual:
             return """
-            Rewrite the text in a friendly, natural, casual register suitable for chat, messaging, or informal notes.
+            Rewrite the draft in a friendly, natural, casual register suitable for chat, messaging, or informal notes.
 
             Requirements:
-            - Keep the exact meaning and key details.
+            - Keep the exact meaning, asks, constraints, technical details, and requested outcomes.
+            - Change register only; do NOT remove important details for the sake of brevity.
             - Prefer short, human phrasing; contractions are fine.
             - Remove corporate jargon and stiff formality without becoming sloppy or unclear.
-            - Stay concise — do not pad with small talk unless the input already has it.
+            - Stay concise — do not pad with small talk unless the draft already has it.
             - Do NOT invent emoji, slang the author would not use, or extra content.
             - Preserve the input language.
-            - Output ONLY the rewritten text.
+            - Output ONLY the rewritten message.
             """
         case .fixGrammar:
             return """
             Fix grammar, spelling, punctuation, and capitalization ONLY.
 
             Strict requirements:
+            - Use CONVERSATION only to protect technical terms, identifiers, file paths, and intended references.
             - Do NOT rephrase, reorder clauses, or change word choice except to correct a clear spelling/typo error.
             - Do NOT add or remove words, sentences, emphasis, or formatting unless required to correct an unmistakable error.
+            - Do NOT expand, restructure, or change tone.
             - Preserve the author's exact vocabulary, sentence structure, rhythm, and voice.
             - Preserve intentional fragments, shorthand, and informal style when they are not errors.
             - If the text has no errors, return it unchanged.
@@ -63,8 +69,10 @@ enum Prompts {
             Requirements:
             - Ground the reply in CONVERSATION: reference specific names, companies, topics, dates, decisions, or asks from prior messages when relevant.
             - Do NOT merely rephrase or polish MY DRAFT/INTENT. Express the user's intent using contextual details from CONVERSATION, not synonyms of the draft.
+            - Preserve the requested outcome and all factual meaning from the thread and draft.
             - If MY DRAFT/INTENT is empty, write a full reply purely from CONVERSATION (acknowledge the latest relevant message and respond appropriately).
             - If MY DRAFT/INTENT is a rough note (e.g. "say I can't make Friday"), expand it into a complete reply using CONVERSATION context.
+            - For complex threads, use adaptive structure; for simple replies, keep the message short and natural.
             - Resolve ambiguous references (they/that/Friday) from the thread when possible; do not invent missing facts.
             - Match the conversation's language and approximate length/formality of similar replies in the thread.
             - Do NOT invent commitments, availability, or personal details the user did not imply.
@@ -90,7 +98,11 @@ enum Prompts {
             - If both source text and CONVERSATION are present, transform the source text; use CONVERSATION only when the instruction requires contextual awareness (e.g. "reply more firmly", "answer their question").
             - If the source text is empty and INSTRUCTION asks to generate content (including reply-like asks), generate from INSTRUCTION + CONVERSATION.
             - Match the input language unless INSTRUCTION requests otherwise.
-            - Output ONLY the resulting text — no preamble, no restating the instruction, no quotes, labels, explanations, or markdown fences unless INSTRUCTION explicitly asks for a marked-up format.
+
+            Output mode (mandatory check before writing anything):
+            - If INSTRUCTION asks you to GENERATE A NEW, DISTINCT, SHORTER piece of text FROM the source text — a title, headline, subject line, summary, TL;DR, caption, or similar — where the source text itself should be kept, not replaced, prefix your entire response with the exact marker "---INSERT---" on its own line, then the generated text on the next line. Nothing before the marker, nothing else on the marker's line.
+            - Otherwise (INSTRUCTION asks you to rewrite, edit, translate, restructure, trim, or otherwise transform the source text itself) — no marker. Output the transformed text directly, exactly as before.
+            - Output ONLY the resulting text (with the marker line first, when it applies) — no preamble, no restating the instruction, no quotes, labels, explanations, or markdown fences unless INSTRUCTION explicitly asks for a marked-up format.
             """
         case .promptBuilder:
             return """
@@ -98,11 +110,167 @@ enum Prompts {
 
             Shared requirements:
             - Output the prompt/message itself when emitting ---PROMPT--- — never answer the underlying task.
+            - Do NOT merely rephrase or polish BRIEF; capture the actual intent and preserve technical context from CONVERSATION.
             - Do NOT use placeholders: no [PASTE …], [REPLACE …], {brackets}, "fill in", "attach your file", or "substitute X with Y".
             - Preserve every intent, audience, tone, domain, and constraint from BRIEF and CONVERSATION (if present).
+            - For complex requests, use adaptive structure (intent lead, necessary context, requirements, delivery constraint); keep simple requests concise.
             - Do NOT invent facts, product names, or requirements the user did not imply.
             - Match the BRIEF's language unless it explicitly asks for another language.
             - Never use em dashes (—) or en dashes (–) inside any block.
+            """
+        }
+    }
+
+    /// Whether an action should attempt conversation extraction for a given site.
+    static func shouldExtractConversation(for action: WritingAction, site: String?) -> Bool {
+        switch action {
+        case .reply, .custom, .promptBuilder:
+            return true
+        case .elaborate, .formal, .casual, .fixGrammar:
+            return AppAdapterRegistry.isLLMChatSite(site)
+        }
+    }
+
+    /// Whether contextual-transform rules apply when building the prompt.
+    static func shouldApplyContextualTransform(
+        action: WritingAction,
+        conversationContext: String?,
+        site: String?
+    ) -> Bool {
+        let hasConversation = !(conversationContext?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        if hasConversation { return true }
+        return AppAdapterRegistry.isLLMChatSite(site)
+    }
+
+    /// Diversity hint for one of several parallel variant generations. Each variant gets a
+    /// concrete, mutually-exclusive production strategy (not a vague adjective) so the model
+    /// reliably produces genuinely different text — no sampling-parameter (temperature/seed)
+    /// help is used here since these deployments are reasoning models that may reject those
+    /// parameters outright, so prompt-level differentiation has to carry the whole job.
+    static func variantInstruction(action: WritingAction, index: Int, total: Int = PreviewVariants.count) -> String {
+        let option = index + 1
+        // Fix Grammar's own instruction is a strict "change only clear errors, never rephrase"
+        // rule — there's supposed to be one correct fix, not 3 tonal takes. Vary conservatism
+        // level instead of register/structure so every variant stays inside that rule.
+        let strategy: String
+        if action == .fixGrammar {
+            switch index {
+            case 0:
+                strategy = "Most conservative: fix only unambiguous spelling, grammar, and punctuation errors. Leave every other word-order or wording choice untouched, even if it reads a little awkward."
+            case 1:
+                strategy = "Also smooth clearly-awkward punctuation or word order that isn't a strict error, but still change nothing else."
+            default:
+                strategy = "Also tidy any clearly-inconsistent capitalization or spacing, on top of the fixes above."
+            }
+        } else {
+            switch index {
+            case 0:
+                strategy = "Concise & direct: the shortest viable version. Cut to the essential ask or point — no throat-clearing, no extra qualifiers, no restating context the reader already has."
+            case 1:
+                strategy = "Natural & conversational: fuller connective phrasing and a more relational, human tone, while still matching the action's requested register (e.g. still Formal if the action is Formal)."
+            default:
+                strategy = "Thorough & structured: the most complete version — cover relevant nuance and organize it clearly (logical ordering, clear transitions), while still matching the action's requested register."
+            }
+        }
+        return """
+        Variant generation (\(option) of \(total)):
+
+        Requirements:
+        - Produce ONE distinct rewrite option — this is variant \(option), not a combined answer.
+        - Strategy for this variant: \(strategy)
+        - This variant must read as clearly different from the other \(total - 1) variants, not a light rewording of the same sentence.
+        - Keep the same factual meaning, constraints, and requested outcome as the other variants would.
+        - Do NOT reference other variants or explain your approach.
+        - Output ONLY the rewritten message for this variant.
+        """
+    }
+
+    /// Shared policy for transforming a draft into the next message using thread context.
+    static func contextualTransformInstruction(site: String?, action: WritingAction) -> String {
+        var lines = """
+        Contextual transform (ongoing thread or LLM chat):
+
+        Requirements:
+        - Treat DRAFT/NEXT MESSAGE as the user's intended next message, not isolated prose to paraphrase.
+        - Infer the actual ask from the draft plus CONVERSATION, but never invent a new goal.
+        - Preserve relevant thread specifics: file paths, identifiers, commands, errors, decisions, rejected approaches, constraints, and current implementation state.
+        - Include only context needed to make the next instruction unambiguous; do not repeat background the recipient already knows.
+        - Preserve the requested outcome and all factual meaning.
+        - Output only the send-ready next message, not commentary about how it was improved.
+        - Do NOT add system, developer, or persona framing unless the user explicitly asks for it.
+        """
+
+        switch action {
+        case .fixGrammar:
+            lines += """
+
+            Grammar-only override:
+            - Use context only to protect technical terms and references.
+            - Do NOT expand, restructure, or change tone because of context.
+            """
+        case .formal, .casual:
+            lines += """
+
+            Tone override:
+            - The selected action's tone wins over thread register.
+            - Still preserve every constraint, ask, and technical detail.
+            """
+        case .elaborate:
+            lines += """
+
+            Elaboration override:
+            - You may complete and organize the draft, but do NOT add new requirements or facts.
+            """
+        case .reply, .custom, .promptBuilder:
+            break
+        }
+
+        lines += """
+
+        Adaptive structure:
+        - For a simple sentence or narrow correction, keep compact natural prose.
+        - For a multi-part or technical request, prefer:
+          1. a concise intent/outcome lead,
+          2. only the necessary thread context,
+          3. a short requirements or constraints list,
+          4. a final delivery or verification instruction when supplied or clearly implied.
+        - Do NOT force headings or bullets when they make the message less natural.
+        """
+
+        lines += "\n\(continuationSiteInstruction(for: site))"
+        return lines
+    }
+
+    /// Site-specific continuation guidance for LLM chats and contextual transforms.
+    static func continuationSiteInstruction(for site: String?) -> String {
+        switch site {
+        case "cursor":
+            return """
+            Platform: Cursor IDE agent chat.
+            - Write the next user message in the agent thread.
+            - Preserve repo paths, symbols, stack traces, prior decisions, and implementation state from CONVERSATION.
+            - Use a technical register unless the draft asks for casual language.
+            - Bullets are welcome for multi-step coding requests.
+            """
+        case "chatgpt", "claude", "gemini", "copilot", "perplexity", "poe":
+            return """
+            Platform: LLM chat.
+            - Write the next user turn, not a cold-start system prompt.
+            - Preserve quoted context and technical nouns from CONVERSATION.
+            - Avoid persona boilerplate the thread already establishes.
+            """
+        default:
+            if AppAdapterRegistry.isLLMChatSite(site) {
+                return """
+                Platform: LLM chat.
+                - Write the next user message in the thread.
+                - Preserve relevant technical context from CONVERSATION.
+                """
+            }
+            return """
+            Platform: contextual compose field.
+            - Use CONVERSATION to ground the transformed draft.
+            - Match the medium's natural form and register unless the action changes tone.
             """
         }
     }
@@ -118,6 +286,7 @@ enum Prompts {
             - Do NOT add Role sections, "You are…", persona setup, or developer/system framing the thread already establishes.
             - Weave in specifics from CONVERSATION when relevant; do not restate the whole thread.
             - Assume the model already has prior context from the chat.
+            - Use adaptive structure for complex requests; keep simple requests concise.
             - Keep the message natural for sending as-is in the compose field.
             """
         }
@@ -144,7 +313,7 @@ enum Prompts {
     - ...
 
     Clarify rules:
-    - Ask only about gaps that would materially change the prompt (audience, tone, scope, format, constraints).
+    - Ask only about gaps that would materially change the prompt (audience, tone, scope, format, constraints, depth).
     - 1–4 questions max; each question gets 2–4 short suggested answers derived from the user's text, not generic filler.
     - Suggestions must be plausible choices the user might mean — grounded in BRIEF and CONVERSATION.
     - Never ask the user to edit or replace text in a prompt; these are choices for the user to pick.
@@ -168,6 +337,7 @@ enum Prompts {
     - Incorporate every ANSWER into the prompt; do not ignore chosen options.
     - Do NOT re-ask questions or emit ---CLARIFY---.
     - Do NOT invent facts beyond BRIEF, CONVERSATION, and ANSWERS.
+    - Use adaptive structure when the request is complex; keep simple prompts concise.
     - Output the prompt/message only — never answer the underlying task.
     """
 

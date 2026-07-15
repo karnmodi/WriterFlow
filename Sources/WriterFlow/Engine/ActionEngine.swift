@@ -4,11 +4,13 @@ import Foundation
 @MainActor
 final class ActionEngine {
     typealias StreamHandler = (String) -> Void
+    typealias VariantStreamHandler = (_ index: Int, _ delta: String) -> Void
+    typealias VariantCompletedHandler = (_ index: Int) -> Void
     typealias PromptBuilderStreamHandler = (_ prompt: String) -> Void
     typealias PromptBuilderClarifyHandler = (_ questions: [PromptBuilderOutputParser.ClarifyQuestion]) -> Void
     typealias CompletedHandler = (
         _ action: WritingAction,
-        _ output: String,
+        _ variants: PreviewVariants,
         _ snapshot: FieldSnapshot,
         _ event: ConversionEvent
     ) -> Void
@@ -26,6 +28,8 @@ final class ActionEngine {
     private var promptBuilderSession: PromptBuilderSession?
 
     var onStreamDelta: StreamHandler?
+    var onStreamVariantDelta: VariantStreamHandler?
+    var onVariantStreamCompleted: VariantCompletedHandler?
     var onStreamPromptBuilder: PromptBuilderStreamHandler?
     var onPromptBuilderClarify: PromptBuilderClarifyHandler?
     var onCompleted: CompletedHandler?
@@ -119,21 +123,21 @@ final class ActionEngine {
         }
 
         var conversationContext: String?
-        if action == .reply || action == .custom || action == .promptBuilder {
-            conversationContext = await ConversationExtractor.extractConversation(
-                pid: field.appPID,
-                excludingDraft: snapshot.actionText
-            )
-            await CompatibilityMap.shared.recordContext(bundleID: field.appBundleID, ok: conversationContext != nil)
-        }
 
         let site = AppAdapterRegistry.siteLabel(
             bundleID: snapshot.appBundleID,
             windowTitle: snapshot.windowTitle
         )
-        if action == .reply || action == .custom || action == .promptBuilder {
+
+        if Prompts.shouldExtractConversation(for: action, site: site) {
+            conversationContext = await ConversationExtractor.extractConversation(
+                pid: field.appPID,
+                excludingDraft: snapshot.actionText
+            )
+            await CompatibilityMap.shared.recordContext(bundleID: field.appBundleID, ok: conversationContext != nil)
             await CompatibilityMap.shared.recordIdentity(bundleID: field.appBundleID, site: site)
         }
+
         guard !Task.isCancelled else { return }
 
         if action == .promptBuilder {
@@ -157,12 +161,30 @@ final class ActionEngine {
             return
         }
 
+        let personalization = personalizationContext(bundleID: field.appBundleID, site: site)
+
+        if action.usesMultiVariantPreview {
+            await executeMultiVariant(
+                action: action,
+                field: field,
+                snapshot: snapshot,
+                conversationContext: conversationContext,
+                customInstruction: customInstruction,
+                inputText: inputText,
+                trimmedInput: trimmedInput,
+                trimmedNote: trimmedNote,
+                site: site,
+                personalization: personalization
+            )
+            return
+        }
+
         let prompt = PromptBuilder.build(
             action: action,
             snapshot: snapshot,
             conversationContext: conversationContext,
             customInstruction: customInstruction,
-            personalization: personalizationContext(bundleID: field.appBundleID, site: site)
+            personalization: personalization
         )
         var event = ConversionEvent(
             appBundleID: field.appBundleID,
@@ -207,7 +229,123 @@ final class ActionEngine {
         event.tokensIn = usage?.tokensIn
         event.tokensOut = usage?.tokensOut
         event.latencyMs = ms
-        onCompleted?(action, finalOutput, snapshot, event)
+        onCompleted?(action, .single(finalOutput), snapshot, event)
+    }
+
+    private func executeMultiVariant(
+        action: WritingAction,
+        field: FocusedField,
+        snapshot: FieldSnapshot,
+        conversationContext: String?,
+        customInstruction: String?,
+        inputText: String,
+        trimmedInput: String,
+        trimmedNote: String,
+        site: String?,
+        personalization: PromptBuilder.PersonalizationContext
+    ) async {
+        var event = ConversionEvent(
+            appBundleID: field.appBundleID,
+            site: site,
+            action: action,
+            input: trimmedInput.isEmpty ? trimmedNote : inputText
+        )
+
+        Log.engine.info(
+            "ActionEngine start action=\(action.title, privacy: .public) variants=\(PreviewVariants.count, privacy: .public) chars=\(inputText.count, privacy: .public) contextChars=\(conversationContext?.count ?? 0, privacy: .public)"
+        )
+
+        var texts = Array(repeating: "", count: PreviewVariants.count)
+        var completed = Set<Int>()
+        var errors: [Error] = []
+        var totalTokensIn = 0
+        var totalTokensOut = 0
+        var modelName: String?
+        let started = ContinuousClock.now
+
+        await withTaskGroup(of: (Int, Result<(String, (model: String, tokensIn: Int, tokensOut: Int)?), Error>).self) { group in
+            for index in 0..<PreviewVariants.count {
+                group.addTask {
+                    let prompt = PromptBuilder.build(
+                        action: action,
+                        snapshot: snapshot,
+                        conversationContext: conversationContext,
+                        customInstruction: customInstruction,
+                        personalization: personalization,
+                        variantIndex: index
+                    )
+                    var rawOutput = ""
+                    do {
+                        let stream = await self.client.stream(action: action, prompt: prompt)
+                        for try await delta in stream {
+                            if Task.isCancelled { return (index, .failure(CancellationError())) }
+                            let clean = OutputSanitizer.sanitize(delta)
+                            rawOutput += clean
+                            await MainActor.run {
+                                self.onStreamVariantDelta?(index, clean)
+                            }
+                        }
+                        let finalOutput = OutputSanitizer.sanitize(rawOutput)
+                        let usage = await self.client.consumeLastUsage()
+                        await MainActor.run {
+                            self.onVariantStreamCompleted?(index)
+                        }
+                        return (index, .success((finalOutput, usage)))
+                    } catch {
+                        Log.engine.error(
+                            "ActionEngine variant \(index, privacy: .public) failed: \(error.localizedDescription, privacy: .public)"
+                        )
+                        return (index, .failure(error))
+                    }
+                }
+            }
+
+            for await (index, result) in group {
+                switch result {
+                case .success(let payload):
+                    texts[index] = payload.0
+                    completed.insert(index)
+                    if let usage = payload.1 {
+                        totalTokensIn += usage.tokensIn
+                        totalTokensOut += usage.tokensOut
+                        modelName = usage.model
+                    }
+                case .failure(let error):
+                    if error is CancellationError { continue }
+                    errors.append(error)
+                }
+            }
+        }
+
+        guard !Task.isCancelled else { return }
+
+        let hasOutput = texts.contains {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if !hasOutput {
+            let message = (errors.first as? LocalizedError)?.errorDescription
+                ?? errors.first?.localizedDescription
+                ?? "Couldn't generate variants. Try again."
+            onFailed?(message)
+            ErrorToast.show(message)
+            return
+        }
+
+        let elapsed = started.duration(to: .now)
+        let ms = Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
+        let variants = PreviewVariants(texts: texts, selectedIndex: 0, completedIndices: completed)
+        let selectedOutput = variants.selectedText
+
+        Log.engine.info(
+            "ActionEngine done action=\(action.title, privacy: .public) variants=\(completed.count, privacy: .public)/\(PreviewVariants.count, privacy: .public) outChars=\(selectedOutput.count, privacy: .public) ms=\(ms, privacy: .public)"
+        )
+
+        event.output = selectedOutput
+        event.model = modelName
+        event.tokensIn = totalTokensIn > 0 ? totalTokensIn : nil
+        event.tokensOut = totalTokensOut > 0 ? totalTokensOut : nil
+        event.latencyMs = ms
+        onCompleted?(action, variants, snapshot, event)
     }
 
     private func executePromptBuilderAnalyze(
@@ -289,7 +427,7 @@ final class ActionEngine {
             event.tokensOut = usage?.tokensOut
             event.latencyMs = ms
             promptBuilderSession = nil
-            onCompleted?(.promptBuilder, finalOutput, snapshot, event)
+            onCompleted?(.promptBuilder, .single(finalOutput), snapshot, event)
         }
     }
 
@@ -367,6 +505,6 @@ final class ActionEngine {
         event.tokensOut = usage?.tokensOut
         event.latencyMs = ms
         promptBuilderSession = nil
-        onCompleted?(.promptBuilder, finalOutput, session.snapshot, event)
+        onCompleted?(.promptBuilder, .single(finalOutput), session.snapshot, event)
     }
 }
