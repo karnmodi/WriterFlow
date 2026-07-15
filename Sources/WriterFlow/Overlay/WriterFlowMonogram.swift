@@ -38,6 +38,7 @@ struct WaveLinesIconView: View {
     var animated: Bool = true
 
     @State private var wavePhase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let fillColor = Color(white: 0.82)
     private static let borderColor = Color.black
@@ -50,7 +51,8 @@ struct WaveLinesIconView: View {
         }
         .frame(width: size, height: size)
         .onAppear {
-            guard animated else { return }
+            // Static (but still gently curved) wave when the system asks for reduced motion.
+            guard animated, !reduceMotion else { return }
             withAnimation(.linear(duration: 2.2).repeatForever(autoreverses: false)) {
                 wavePhase = .pi * 2
             }

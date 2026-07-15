@@ -19,7 +19,9 @@ final class OverlayController {
     private var previewPromptBuilderPhase: PromptBuilderPreviewPhase?
     private var previewClarifyQuestions: [PromptBuilderOutputParser.ClarifyQuestion] = []
     private var previewClarifySelections: [String: String] = [:]
-    private var previewStreaming: Bool = false
+    private var previewStreaming: Bool = false {
+        didSet { iconState.isBusy = previewStreaming }
+    }
     private var previewCanReplace: Bool = false
     private var previewActionTitle: String = ""
     private var previewOriginalText: String = ""
@@ -73,6 +75,8 @@ final class OverlayController {
     private let promptBuilderPreviewSize = CGSize(width: 300, height: 320)
     /// Fixed dock offset from the bottom of the visible screen (Whisperflow-style).
     private let iconBottomMargin: CGFloat = 36
+    /// Drives the floating icon's busy-spinner morph while an action is streaming.
+    private let iconState = IconState()
 
     init() {
         self.panel = FloatingPanel(size: iconSize, level: .popUpMenu)
@@ -87,7 +91,7 @@ final class OverlayController {
     }
 
     private func rewireIconHosting() {
-        let hosting = NSHostingView(rootView: FloatingIconView { [weak self] in
+        let hosting = NSHostingView(rootView: FloatingIconView(state: iconState) { [weak self] in
             self?.handleIconClick()
         })
         hosting.frame = NSRect(origin: .zero, size: iconSize)
@@ -232,7 +236,7 @@ final class OverlayController {
 
         actionPanel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.12
+            ctx.duration = animDuration(0.12)
             actionPanel.animator().alphaValue = 1.0
         }
 
@@ -290,7 +294,7 @@ final class OverlayController {
         }
 
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.10
+            ctx.duration = animDuration(0.10)
             actionPanel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             Task { @MainActor in self?.actionPanel.orderOut(nil) }
@@ -319,7 +323,7 @@ final class OverlayController {
         isPreviewVisible = true
         previewPanel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.12
+            ctx.duration = animDuration(0.12)
             previewPanel.animator().alphaValue = 1.0
         }
         installPreviewKeyMonitor()
@@ -553,15 +557,40 @@ final class OverlayController {
         return CGRect(origin: origin, size: iconSize)
     }
 
+    // MARK: - Animation
+
+    /// Stage 4.2: collapse every fade/slide to instant when the system asks for
+    /// reduced motion, instead of hand-checking the flag at each call site.
+    private func animDuration(_ base: TimeInterval) -> TimeInterval {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : base
+    }
+
     // MARK: - Icon show/hide
 
     private func showIcon() {
         guard !isIconVisible else { return }
         isIconVisible = true
+        let targetFrame = panel.frame
+
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            panel.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = animDuration(0.12)
+                panel.animator().alphaValue = 1.0
+            }
+            return
+        }
+
+        // Spring fade/scale-in: start a touch smaller and centered on the same spot,
+        // then animate up to full size alongside the fade.
+        let startFrame = targetFrame.insetBy(dx: targetFrame.width * 0.12, dy: targetFrame.height * 0.12)
+        panel.setFrame(startFrame, display: false)
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.12
+            ctx.duration = animDuration(0.15)
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1.0
+            panel.animator().setFrame(targetFrame, display: true)
         }
     }
 
@@ -569,7 +598,7 @@ final class OverlayController {
         guard isIconVisible else { return }
         isIconVisible = false
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.15
+            ctx.duration = animDuration(0.15)
             panel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             Task { @MainActor in self?.panel.orderOut(nil) }
@@ -592,7 +621,7 @@ final class OverlayController {
         keyMonitor.uninstall()
 
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.10
+            ctx.duration = animDuration(0.10)
             previewPanel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             Task { @MainActor in self?.previewPanel.orderOut(nil) }
@@ -781,6 +810,12 @@ final class OverlayController {
                 dismissPreview()
                 switch result {
                 case .selectedTextReplaced, .fullValueReplaced, .clipboardPasted:
+                    // Sound-free by default; a subtle haptic instead — silently a no-op on
+                    // trackpads/Macs without the Taptic Engine.
+                    NSHapticFeedbackManager.defaultPerformer.perform(
+                        .generic,
+                        performanceTime: .now
+                    )
                     pendingUndo = PendingUndo(
                         pid: pid,
                         bundleID: bundleID,

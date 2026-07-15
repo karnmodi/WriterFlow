@@ -13,15 +13,15 @@ For apps where AX write fails (tracked in the compatibility map):
 
 **Accept:** An app with broken AX write (test with one from the compatibility map) still gets in-place replacement; user clipboard contents restored intact. *(Code-complete + `swift build` clean; not yet exercised live against a real broken-AX app in this sandbox — no AX grant. Verify manually per CLAUDE.md when convenient.)*
 
-## Stage 4.2 — Animation & feel pass
+## Stage 4.2 — Animation & feel pass ✅
 
-- [ ] Icon: spring fade/scale in (150 ms), gentle idle, spinner morph while streaming.
-- [ ] Popover/preview: 120 ms ease, no layout jumps while streaming (reserve height).
-- [ ] Sound-free by default; optional subtle haptic on Replace (Force Touch trackpads).
-- [ ] Dark/light mode audit; reduced-motion respect (`NSWorkspace.accessibilityDisplayShouldReduceMotion`).
-- [ ] Multi-display + Spaces + fullscreen apps: icon positions correctly everywhere.
+- [x] Icon: spring fade/scale in (150 ms), gentle idle, spinner morph while streaming. *(`showIcon()` now starts the panel frame ~12% inset and animates it up to full size alongside the fade, 150ms ease-out. The wave-line idle animation already existed (Phase 1). Added `IconState` (`ObservableObject`) so the already-mounted `FloatingIconView` can cross-fade the wave icon into a small `ProgressView` while `previewStreaming` is true — wired via a `didSet` on `previewStreaming` rather than touching each of its 6 assignment sites individually.)*
+- [x] Popover/preview: 120 ms ease, no layout jumps while streaming (reserve height). *(Already correct since Phase 1/2 — `popoverSize`/`previewSize`/`promptBuilderPreviewSize` are fixed-size panel frames set once at open time, not resized as streamed content grows, so there's no layout jump to fix. Left as-is.)*
+- [x] Sound-free by default; optional subtle haptic on Replace (Force Touch trackpads). *(Added `NSHapticFeedbackManager.defaultPerformer.perform(.generic, ...)` in `applyPreview`'s success path — silently a no-op on Macs/trackpads without the Taptic Engine, no sound anywhere.)*
+- [x] Dark/light mode audit; reduced-motion respect (`NSWorkspace.accessibilityDisplayShouldReduceMotion`). *(Audit: `ActionPopoverView`/`PreviewCardView` already use `.thinMaterial`/semantic colors throughout, so they already adapt — no changes needed there. The floating wave icon's fixed light-gray/black styling is deliberate (Phase 1 design: a stable marker that reads the same over arbitrary host-app content, not a themed chrome element) — left as-is. Reduced motion: added a shared `animDuration(_:)` helper so every `NSAnimationContext` fade in `OverlayController` collapses to instant when the flag is set, and the icon's scale-in and the continuous wave animation (`WaveLinesIconView`) both skip their motion entirely (fade-only / static) under reduced motion.)*
+- [x] Multi-display + Spaces + fullscreen apps: icon positions correctly everywhere. *(Already correct since Phase 1 — `screenForField` picks the `NSScreen` that intersects the focused field's frame for every reposition, and `FloatingPanel.collectionBehavior` already includes `.canJoinAllSpaces, .fullScreenAuxiliary, .transient`. No code change needed; still only manually verifiable live, no AX grant in this sandbox.)*
 
-**Accept:** 10-person "does this feel native?" gut-check — no jank reports; fullscreen Chrome + external monitor both correct.
+**Accept:** 10-person "does this feel native?" gut-check — no jank reports; fullscreen Chrome + external monitor both correct. *(Code-complete + `swift build` clean; the actual gut-check needs a live multi-person pass the user will need to run outside this sandbox.)*
 
 ## Stage 4.3 — Resilience & performance
 
