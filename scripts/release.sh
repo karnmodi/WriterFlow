@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# Sign, notarize, and staple a Release build of WriterFlow.app.
+# V2 ONLY: Sign, notarize, and staple a Release build of WriterFlow.app.
 #
-# Requires a real paid Apple Developer Program membership + Developer ID Application
-# certificate — there is no way around that, and this script deliberately fails fast
-# with a clear message instead of silently skipping steps if the environment isn't set
-# up for it. See README.md's "Releasing" section before running this.
+# This is retained as future Developer ID infrastructure. It is not the v1 production
+# path and Apple Developer Program membership is not a v1 release requirement. The v1
+# runbook calls for a manually verified DMG containing an ad-hoc-signed app, checksum,
+# manual Gatekeeper approval, and manual updates; the current scripts do not automate
+# every verification.
+# See RELEASE.md before running any release command.
+#
+# When v2 trusted distribution is started, this requires a paid Apple Developer Program
+# membership + Developer ID Application certificate and deliberately fails fast rather
+# than silently skipping a security step.
 #
 # Required environment variables:
 #   DEVELOPER_ID_APPLICATION     e.g. "Developer ID Application: Jane Doe (ABCDE12345)"
@@ -16,7 +22,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-: "${DEVELOPER_ID_APPLICATION:?Set DEVELOPER_ID_APPLICATION to your \"Developer ID Application: Name (TEAMID)\" signing identity — see README.md}"
+: "${DEVELOPER_ID_APPLICATION:?Set DEVELOPER_ID_APPLICATION to your \"Developer ID Application: Name (TEAMID)\" signing identity — see the v2 section of RELEASE.md}"
 : "${APPLE_ID:?Set APPLE_ID to the Apple ID used for notarization}"
 : "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID to your 10-character Team ID}"
 : "${APPLE_APP_SPECIFIC_PASSWORD:?Set APPLE_APP_SPECIFIC_PASSWORD — generate one at appleid.apple.com}"

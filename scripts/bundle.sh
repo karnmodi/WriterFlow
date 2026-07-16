@@ -28,7 +28,9 @@ if [[ -d "$BUNDLE" ]]; then
     cp -R "$BUNDLE" "$APP/Contents/Resources/"
 fi
 
-# Ad-hoc sign so macOS lets us launch the bundle locally.
+# Attempt an ad-hoc signature for local development and the current v1 packaging path. Public v1 still
+# requires the validation/checksum/Gatekeeper procedure in RELEASE.md; Developer ID is
+# deferred to v2.
 codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1 || true
 
 echo "▸ built $APP"

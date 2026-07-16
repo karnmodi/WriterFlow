@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Install WriterFlow to a stable path so macOS permissions persist across rebuilds.
+# LOCAL DEVELOPMENT ONLY: install WriterFlow to a stable path so macOS permissions
+# persist across rebuilds. This script copies `.env` credentials into a plaintext
+# Application Support fallback and must never be used to prepare a public v1 artifact.
 set -euo pipefail
 
 CONFIG="${1:-debug}"

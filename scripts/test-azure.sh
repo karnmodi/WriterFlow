@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Quick smoke test for Azure OpenAI Responses API using project .env.
+# LOCAL DEVELOPMENT ONLY: smoke-test Azure OpenAI Responses API using project `.env`.
+# Never use a maintainer/shared key from this path in a public build; see RELEASE.md.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
