@@ -17,7 +17,7 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>1.0.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSApplicationCategoryType</key>
@@ -34,21 +34,6 @@
     <false/>
     <key>NSSupportsSuddenTermination</key>
     <false/>
-    <key>NSAppTransportSecurity</key>
-    <dict>
-        <key>NSAllowsArbitraryLoads</key>
-        <false/>
-        <key>NSExceptionDomains</key>
-        <dict>
-            <key>cognitiveservices.azure.com</key>
-            <dict>
-                <key>NSIncludesSubdomains</key>
-                <true/>
-                <key>NSExceptionRequiresForwardSecrecy</key>
-                <false/>
-            </dict>
-        </dict>
-    </dict>
     <key>NSAccessibilityUsageDescription</key>
     <string>WriterFlow needs Accessibility permission so it can read the text field you're typing in and (only when you ask it to) rewrite that text in place. It never reads password fields.</string>
     <key>NSInputMonitoringUsageDescription</key>

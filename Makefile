@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 CONFIG ?= debug
 
-.PHONY: help build test lint bundle run clean stop relaunch install install-run dmg release xcodeproj
+.PHONY: help build test lint bundle run clean stop relaunch install install-run dmg verify-release release xcodeproj
 
 help:
 	@echo "WriterFlow build targets:"
@@ -19,6 +19,7 @@ help:
 	@echo "  make clean       — remove .build and build/"
 	@echo "  make release     — V2 ONLY: Developer ID sign + notarize + staple (not a v1 requirement)"
 	@echo "  make dmg         — package the existing build/WriterFlow.app into a DMG; see RELEASE.md before public use"
+	@echo "  make verify-release — single-command v1: clean + release bundle + verify identity/secrets + DMG + checksum"
 
 xcodeproj:
 	@if command -v xcodegen >/dev/null; then \
@@ -84,6 +85,9 @@ release:
 
 dmg:
 	scripts/make-dmg.sh
+
+verify-release:
+	scripts/release-v1.sh
 
 clean:
 	rm -rf .build build
