@@ -43,3 +43,22 @@ Within a phase, stages (x.1, x.2, …) are also ordered; stages inside a phase m
 - Focus must never leave the user's text field (non-activating panels only).
 - No text leaves the machine except on explicit user action.
 - Secure fields are invisible to the app, always.
+
+## v1.1 backlog (seeded during Stage 4.5, not started)
+
+Carried over from `PRD.md` §9 (Risks & Mitigations) and §10 (Open Questions) —
+deliberately not attempted during v1:
+
+- **Multi-language Reply polish** — detect Hindi/Hinglish (and other non-English) input
+  and reply in the same language/register. PRD's guess is this is cheap to add via
+  prompt changes alone once someone dogfoods it in a non-English conversation.
+- **Offline grammar via Apple Foundation Models** — a local on-device fallback for Fix
+  Grammar when there's no network, instead of just the "you're offline" error Stage 4.3
+  added. Needs macOS's on-device Foundation Models framework; scope and quality bar
+  undecided.
+- **Windows feasibility spike** — WriterFlow's whole architecture (AX API, CGEventTap,
+  NSPanel) is macOS-only. A Windows port would be a from-scratch rebuild on UI
+  Automation + a different overlay mechanism, not a port — worth a spike to size before
+  committing, not before.
+- **Licensing/team model** — out of scope for v1 per the PRD; revisit only if this
+  becomes more than a personal tool.

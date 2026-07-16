@@ -29,6 +29,7 @@ final class AppRuleStore: ObservableObject {
             }
         }
         Task { await Self.seedDefaultsIfNeeded(db: self.db) }
+        Task { await Self.seedDefaultExclusionsIfNeeded(db: self.db) }
     }
 
     deinit {
@@ -102,6 +103,40 @@ final class AppRuleStore: ObservableObject {
             UserDefaults.standard.set(true, forKey: defaultsKey)
         } catch {
             Log.store.error("AppRule seed failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Stage 4.5 launch checklist: excluded-by-default list for password managers — WriterFlow
+    /// stays inert (no icon, no reads) inside these regardless of individual fields' AX role,
+    /// since even non-secure-marked fields in a password manager (search, notes, item titles)
+    /// can be sensitive. Not exhaustive — bundle IDs for the handful of most common macOS
+    /// password managers; users can exclude any other app the same way from the Personalization
+    /// tab. Banking is deliberately not app-listed here: it's almost entirely browser-based, so
+    /// there's no fixed bundle ID to seed, and login/PIN fields there are already covered by the
+    /// existing secure-field detection (Golden Rule #3) regardless of site.
+    private static func seedDefaultExclusionsIfNeeded(db: DatabaseQueue) async {
+        let defaultsKey = "wf.appRuleExclusionsSeeded"
+        guard !UserDefaults.standard.bool(forKey: defaultsKey) else { return }
+        do {
+            let passwordManagerBundleIDs = [
+                "com.1password.1password",
+                "com.agilebits.onepassword7",
+                "com.bitwarden.desktop",
+                "com.lastpass.lastpassmacdesktop",
+                "com.dashlane.dashlanephonefinal",
+                "com.callpod.keeper-password-manager",
+                "com.apple.Passwords",
+                "com.apple.keychainaccess"
+            ]
+            try await db.write { db in
+                for bundleID in passwordManagerBundleIDs {
+                    let rule = AppRule(bundleOrSite: bundleID, excluded: true)
+                    try rule.insert(db, onConflict: .ignore)
+                }
+            }
+            UserDefaults.standard.set(true, forKey: defaultsKey)
+        } catch {
+            Log.store.error("AppRule exclusion seed failed: \(String(describing: error), privacy: .public)")
         }
     }
 }

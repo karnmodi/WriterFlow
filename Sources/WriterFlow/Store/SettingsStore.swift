@@ -129,6 +129,13 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(forceClipboardFallback, forKey: Keys.forceClipboardFallback) }
     }
 
+    /// Stage 4.5 — optional URL for `RemoteConfigFetcher` to check on launch for maintainer-
+    /// published pricing/fallback-deployment updates. Empty (the default) disables the fetch
+    /// entirely — nothing is ever contacted unless the user opts in.
+    @Published var remoteConfigURL: String {
+        didSet { defaults.set(remoteConfigURL, forKey: Keys.remoteConfigURL) }
+    }
+
     func recordCustomInstruction(_ instruction: String) {
         var list = recentCustomInstructions.filter { $0 != instruction }
         list.insert(instruction, at: 0)
@@ -163,6 +170,7 @@ final class SettingsStore: ObservableObject {
             self.hotkeyCombo = .default
         }
         self.forceClipboardFallback = defaults.bool(forKey: Keys.forceClipboardFallback)
+        self.remoteConfigURL = defaults.string(forKey: Keys.remoteConfigURL) ?? ""
 
         Task {
             await ConversionEventStore.shared.migrateLegacyLogIfNeeded()
@@ -179,5 +187,6 @@ final class SettingsStore: ObservableObject {
         static let voiceProfile = "wf.voiceProfile"
         static let hotkeyCombo = "wf.hotkeyCombo"
         static let forceClipboardFallback = "wf.forceClipboardFallback"
+        static let remoteConfigURL = "wf.remoteConfigURL"
     }
 }

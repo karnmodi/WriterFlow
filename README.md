@@ -34,6 +34,8 @@ You Replace / Copy / Retry / Discard
 - Input Monitoring is used only as a local “you are typing” signal. Key contents are never buffered, logged, or sent.
 - Secure fields (`AXSecureTextField` / secure input) make WriterFlow completely inert — no icon, no reads.
 - Overlay panels are **non-activating**: keyboard focus stays in the app you are typing in.
+- If a field's contents can't be read directly (some Electron/web fields), WriterFlow falls back to a brief select-all-and-copy — still only as part of an action you explicitly triggered — and restores your prior selection and clipboard contents immediately afterward.
+- A handful of password managers are excluded by default (no icon, no reads at all); add any other app the same way from **Dashboard → Personalization**.
 
 **Architecture (source layout)**
 

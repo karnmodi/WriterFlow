@@ -1,5 +1,11 @@
 import Foundation
 
+private extension Duration {
+    var milliseconds: Int {
+        Int(components.seconds * 1000 + components.attoseconds / 1_000_000_000_000_000)
+    }
+}
+
 /// Orchestrates AX read → Azure OpenAI stream → ConversionEvent logging.
 @MainActor
 final class ActionEngine {
@@ -199,11 +205,18 @@ final class ActionEngine {
 
         var rawOutput = ""
         let started = ContinuousClock.now
+        var firstTokenLogged = false
 
         do {
             let stream = await client.stream(action: action, prompt: prompt)
             for try await delta in stream {
                 if Task.isCancelled { return }
+                if !firstTokenLogged {
+                    firstTokenLogged = true
+                    // PRD §8 success metric: first streamed token < 800ms.
+                    let firstTokenMs = started.duration(to: .now).milliseconds
+                    Log.engine.info("ActionEngine firstTokenMs=\(firstTokenMs, privacy: .public)")
+                }
                 let clean = OutputSanitizer.sanitize(delta)
                 rawOutput += clean
                 onStreamDelta?(clean)
@@ -217,7 +230,7 @@ final class ActionEngine {
         }
 
         let elapsed = started.duration(to: .now)
-        let ms = Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
+        let ms = elapsed.milliseconds
         let finalOutput = OutputSanitizer.sanitize(rawOutput)
         Log.engine.info(
             "ActionEngine done action=\(action.title, privacy: .public) outChars=\(finalOutput.count, privacy: .public) ms=\(ms, privacy: .public)"
@@ -331,7 +344,7 @@ final class ActionEngine {
         }
 
         let elapsed = started.duration(to: .now)
-        let ms = Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
+        let ms = elapsed.milliseconds
         let variants = PreviewVariants(texts: texts, selectedIndex: 0, completedIndices: completed)
         let selectedOutput = variants.selectedText
 
@@ -398,7 +411,7 @@ final class ActionEngine {
         }
 
         let elapsed = started.duration(to: .now)
-        let ms = Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
+        let ms = elapsed.milliseconds
         let parsed = PromptBuilderOutputParser.parse(rawOutput)
 
         switch parsed {
@@ -477,7 +490,7 @@ final class ActionEngine {
         }
 
         let elapsed = started.duration(to: .now)
-        let ms = Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
+        let ms = elapsed.milliseconds
         let parsed = PromptBuilderOutputParser.parse(rawOutput)
         let finalOutput: String
         switch parsed {

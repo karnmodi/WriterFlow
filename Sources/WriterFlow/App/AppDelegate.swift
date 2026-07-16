@@ -60,6 +60,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
 
         seedAzureCredentials()
 
+        // Stage 4.5: non-blocking — only ever updates the cache used by *next* launch's
+        // bootstrap, never anything in this running session. No-ops entirely when
+        // remoteConfigURL is unset (the default).
+        let remoteConfigURL = settings.remoteConfigURL
+        Task.detached(priority: .background) {
+            await RemoteConfigFetcher.refreshInBackground(urlString: remoteConfigURL)
+        }
+
         actionEngine.onStreamDelta = { [weak self] delta in
             self?.overlay.appendVariant(0, delta: delta)
         }

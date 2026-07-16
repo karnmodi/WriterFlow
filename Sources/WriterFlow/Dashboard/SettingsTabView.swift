@@ -5,6 +5,7 @@ struct SettingsTabView: View {
     @StateObject private var apiKeyViewModel: SettingsViewModel
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var watchdog = AXWatchdog.shared
+    @State private var compatibilitySnapshot: [String: CompatibilityMap.Entry] = [:]
 
     init(modelsConfig: AzureModelsConfig) {
         _viewModel = StateObject(wrappedValue: SettingsTabViewModel(modelsConfig: modelsConfig))
@@ -34,6 +35,7 @@ struct SettingsTabView: View {
                 modelsCard
             }
         }
+        .task { compatibilitySnapshot = await CompatibilityMap.shared.snapshot() }
     }
 
     // MARK: - Hotkey
@@ -161,6 +163,13 @@ struct SettingsTabView: View {
                 DashboardSectionCaption(
                     text: "Changes save to models.json immediately and apply to the very next action — no restart needed. Pricing feeds the Usage tab's estimated cost."
                 )
+
+                Divider()
+                TextField("Remote config URL (optional)", text: $settings.remoteConfigURL)
+                    .textFieldStyle(.roundedBorder)
+                DashboardSectionCaption(
+                    text: "Advanced, optional. If set, WriterFlow checks this URL once per launch for maintainer-published fallback deployment names and pricing — never your own configured deployments or API keys. Only affects a brand-new install's defaults, or a deployment with no pricing entry yet. Leave blank to disable (the default)."
+                )
             }
         }
     }
@@ -242,17 +251,58 @@ struct SettingsTabView: View {
                     )
                 }
 
+                if !compatibilitySnapshot.isEmpty {
+                    Divider()
+                    Text("Per-app reliability")
+                        .font(.caption.bold())
+                    ForEach(topCompatibilityRows, id: \.bundleID) { row in
+                        HStack {
+                            Text(AXWatchdog.displayName(forBundleID: row.bundleID))
+                                .font(.caption)
+                            Spacer()
+                            Text("\(row.percent)% (\(row.total))")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(row.percent >= 90 ? .secondary : Color.orange)
+                        }
+                    }
+                    DashboardSectionCaption(
+                        text: "Read/write success rate per app since install (PRD target: ≥90%). Below 90% is highlighted — the clipboard fallback still covers most failures, but consider filing what's glitching."
+                    )
+                }
+
                 Divider()
                 Button("Share Diagnostics…") {
                     DiagnosticsExporter.exportWithSavePanel()
                 }
                 .buttonStyle(.link)
                 DashboardSectionCaption(
-                    text: "Saves a local text file with your app/macOS version, per-app accessibility diagnostics (counts only, never field content), and any recent crash reports macOS collected. Nothing is uploaded automatically — you choose where to save it and whether to share it."
+                    text: "Saves a local text file with your app/macOS version, per-app accessibility diagnostics (success/fail counts only, never field content), and any recent WriterFlow crash reports macOS already collected in its standard format. Nothing is uploaded automatically — you choose where to save it and whether to share it."
                 )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private struct CompatibilityRow {
+        let bundleID: String
+        let percent: Int
+        let total: Int
+    }
+
+    /// Top 5 apps by activity, most-recently-relevant first — enough to spot-check the
+    /// PRD §8 "≥90% AX success" target without turning this into a full diagnostics screen.
+    private var topCompatibilityRows: [CompatibilityRow] {
+        compatibilitySnapshot
+            .map { bundleID, entry -> CompatibilityRow in
+                let ok = entry.readOK + entry.writeOK
+                let total = ok + entry.readFail + entry.writeFail
+                let percent = total > 0 ? Int((Double(ok) / Double(total) * 100).rounded()) : 100
+                return CompatibilityRow(bundleID: bundleID, percent: percent, total: total)
+            }
+            .filter { $0.total > 0 }
+            .sorted { $0.total > $1.total }
+            .prefix(5)
+            .map { $0 }
     }
 
     // MARK: - General

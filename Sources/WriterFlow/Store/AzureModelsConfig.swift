@@ -101,8 +101,15 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
             env[key] ?? fallback
         }
 
-        let miniDeployment = deployment("AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Mini", fallback: "gpt-5.4-mini")
-        let proDeployment = deployment("AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Pro", fallback: "gpt-5.4-pro")
+        // Stage 4.5: prefer a maintainer-published remote fallback over the hardcoded
+        // literal here, if one was cached by a previous launch's RemoteConfigFetcher —
+        // keeps a brand-new install's bootstrap defaults from going stale after a model
+        // retirement, without ever touching an existing user's already-configured slots.
+        let remote = RemoteConfigFetcher.cached()
+        let miniFallback = remote?.recommendedMiniDeployment ?? "gpt-5.4-mini"
+        let proFallback = remote?.recommendedProDeployment ?? "gpt-5.4-pro"
+        let miniDeployment = deployment("AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Mini", fallback: miniFallback)
+        let proDeployment = deployment("AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Pro", fallback: proFallback)
 
         return AzureModelsConfig(
             responsesURL: responsesURL,
@@ -118,9 +125,12 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
             // Rough placeholder rates so the Usage tab shows a plausible estimate out of the
             // box — editable per-deployment from the Settings tab (Stage 3.4/3.5), and this
             // is explicitly labeled an estimate in the UI, not a billing-accurate figure.
+            // Prefer a cached remote rate (see RemoteConfigFetcher) when one exists.
             pricing: [
-                miniDeployment: Pricing(inputPerMillion: 0.15, outputPerMillion: 0.60),
-                proDeployment: Pricing(inputPerMillion: 2.00, outputPerMillion: 8.00)
+                miniDeployment: remote?.pricing?[miniDeployment]
+                    ?? Pricing(inputPerMillion: 0.15, outputPerMillion: 0.60),
+                proDeployment: remote?.pricing?[proDeployment]
+                    ?? Pricing(inputPerMillion: 2.00, outputPerMillion: 8.00)
             ]
         )
     }
