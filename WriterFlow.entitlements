@@ -2,9 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- WriterFlow ships outside the Mac App Store (Developer ID), unsandboxed, so this
-         list is short — hardened runtime's defaults already cover everything except the
-         one capability every build needs: talking to the Azure OpenAI endpoint. -->
+    <!-- V2 release-workflow Developer ID/notarization scaffolding (generated local
+         Xcode projects may also reference this file). V1 SPM packaging uses a DMG
+         containing an ad-hoc-signed app and needs no Apple membership. Re-audit the
+         final transport and entitlements before enabling the v2 signed workflow. -->
     <key>com.apple.security.network.client</key>
     <true/>
 </dict>

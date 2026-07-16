@@ -2,10 +2,11 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 CONFIG ?= debug
 
-.PHONY: help build test lint bundle run clean stop relaunch install install-run dmg release
+.PHONY: help build test lint bundle run clean stop relaunch install install-run dmg release xcodeproj
 
 help:
 	@echo "WriterFlow build targets:"
+	@echo "  make xcodeproj   — (re)generate WriterFlow.xcodeproj from project.yml (needs 'brew install xcodegen')"
 	@echo "  make build       — swift build (CONFIG=debug|release)"
 	@echo "  make test        — swift test"
 	@echo "  make lint        — swiftlint (requires 'brew install swiftlint')"
@@ -16,8 +17,17 @@ help:
 	@echo "  make stop        — quit all running WriterFlow instances"
 	@echo "  make relaunch    — clean + bundle + launch (fresh build)"
 	@echo "  make clean       — remove .build and build/"
-	@echo "  make release     — sign + notarize + staple a Release build (needs real Apple Developer ID credentials)"
-	@echo "  make dmg         — package build/WriterFlow.app into a drag-to-Applications DMG"
+	@echo "  make release     — V2 ONLY: Developer ID sign + notarize + staple (not a v1 requirement)"
+	@echo "  make dmg         — package the existing build/WriterFlow.app into a DMG; see RELEASE.md before public use"
+
+xcodeproj:
+	@if command -v xcodegen >/dev/null; then \
+		xcodegen generate ; \
+		echo "Generated WriterFlow.xcodeproj — open it in Xcode for Signing & Capabilities." ; \
+	else \
+		echo "xcodegen not installed — run: brew install xcodegen" ; \
+		exit 1 ; \
+	fi
 
 build:
 	swift build -c $(CONFIG)
