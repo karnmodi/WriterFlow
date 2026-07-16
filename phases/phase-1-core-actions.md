@@ -1,6 +1,8 @@
 # Phase 1 — Core Actions & AI Engine
 
-**Goal:** Click the icon (or press `⌥ Space`) → pick Elaborate / Formal / Casual / Fix Grammar → streamed result → one-key replace in place.
+> **Production supersession (v1.0):** This file records the completed direct-Azure development implementation. Its `.env`/Keychain/shared-key transport is not approved for the public v1 build. `RELEASE.md` now requires a provider-managed transport with no distributed long-lived secret, explicit-action-only network behavior, and no custom WriterFlow API. Preserve this checklist as implementation history; follow `RELEASE.md` for production.
+
+**Goal:** Click the icon (or press `⌃⌥ Space`) → pick Elaborate / Formal / Casual / Fix Grammar → streamed result → one-key replace in place.
 
 ## Stage 1.1 — Text read/write via AX
 
@@ -17,11 +19,11 @@
 ## Stage 1.2 — Action popover UI
 
 - [x] Non-activating panel anchored to the icon: 6 buttons — Elaborate, Formal, Casual, Fix Grammar, Reply (disabled until Phase 2), Custom (disabled until Phase 2).
-- [x] Keyboard-first: open with `⌥ Space` (Carbon `RegisterEventHotKey`), navigate with arrows/1–4, Esc closes.
+- [x] Keyboard-first: open with `⌃⌥ Space` (Carbon `RegisterEventHotKey`), navigate with arrows/1–4, Esc closes.
 - [x] Global hotkey works even when icon is hidden (acts on currently focused field).
 - [x] Popover never takes key focus away from the text field; buttons respond to first click.
 
-**Accept:** Full flow without mouse: type → `⌥ Space` → `2` → result. Caret never leaves Gmail compose.
+**Accept:** Full flow without mouse: type → `⌃⌥ Space` → `2` → result. Caret never leaves Gmail compose.
 
 ## Stage 1.3 — Azure OpenAI ActionEngine
 
@@ -51,7 +53,7 @@
 - [x] After Replace: card shows a 5 s "Restore original" undo chip (uses saved original text). Implemented as `UndoToast.swift`, a dedicated toast rather than extending `ErrorToast` (kept one responsibility per component).
 - [x] Mark `ConversionEvent.accepted = true` on Replace/Copy. Deviation: `ActionEngine` no longer appends the event itself — it hands the unpersisted `ConversionEvent` to `OverlayController`, which appends exactly once at each terminal outcome (Replace/Copy → accepted, Discard/Retry/blur → not) via `finalizeEvent(accepted:)`.
 
-**Accept:** Type rough sentence in WhatsApp Desktop → `⌥ Space` → Casual → Enter → text replaced, chat still focused, send with Enter works immediately after.
+**Accept:** Type rough sentence in WhatsApp Desktop → `⌃⌥ Space` → Casual → Enter → text replaced, chat still focused, send with Enter works immediately after.
 
 ## Stage 1.5 — Keychain & first-run API key
 

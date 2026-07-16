@@ -19,13 +19,20 @@ what's still gating a 1.0.0 tag.
   note and one-click re-enable), and clearer offline/timeout error messages. Confirmed
   event-tap auto-re-enable and in-flight request cancellation were already correct from
   earlier phases.
-- **4.4 Packaging (in progress)**: `scripts/make-dmg.sh` (drag-to-Applications DMG),
-  `scripts/release.sh` (Developer ID signing + notarization, needs real Apple credentials
-  this dev environment doesn't have), `AppRelocator` (offers to copy itself out of a
-  mounted DMG to `~/Applications` and clears the quarantine flag), and a local-only
-  "Share Diagnostics" export (crash reports + compatibility counters, opt-in, never
-  auto-uploaded). Sparkle 2 auto-updates deliberately **not** wired up yet — it needs a
-  publicly hosted appcast + an EdDSA signing key that don't exist yet; see README.
+- **4.4 Packaging (production checks reopened)**: `scripts/make-dmg.sh` provides the
+  drag-to-Applications layout and a local-only "Share Diagnostics" export remains
+  opt-in/never uploaded. The v1 production path is now a public DMG containing an
+  ad-hoc-signed app, with a published SHA-256 checksum, documented Gatekeeper **Open
+  Anyway** flow, and manual
+  updates — no Apple Developer Program membership required. Developer ID signing,
+  notarization/stapling, and Sparkle are explicitly v2-only. `RELEASE.md` records the
+  exact packaging steps and the checks the current scripts still need before release.
+- **V1 production-policy revision**: WriterFlow is public/free with no WriterFlow
+  account, membership, payment, remote user database, or custom WriterFlow API. AI must
+  use a to-be-selected provider-managed transport and no publisher-owned/shared
+  reusable service credential may enter the public client. The direct Azure key transport,
+  plaintext `secrets.env` fallback, and pre-action network recommendation are now
+  documented development/production blockers rather than approved release behavior.
 
 ## Phase 3 — Dashboard & memory
 

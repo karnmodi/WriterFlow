@@ -1,5 +1,7 @@
 # Phase 3 — Dashboard, History & Memory
 
+> **Production supersession (v1.0):** This file records the completed direct-Azure development UI and local data implementation. Local GRDB/SQLite history, memory, snippets, and app rules remain v1. Direct provider key/endpoint/model controls and cost-pricing UI are development-only until the provider-managed production transport in `RELEASE.md` is integrated. Remote user/membership databases remain v2-only.
+
 **Goal:** A dashboard window for history of conversions, personalization/voice memory, per-app rules, settings, and usage stats. Everything local.
 
 ## Stage 3.1 — Store

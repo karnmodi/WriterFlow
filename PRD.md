@@ -1,7 +1,8 @@
 # WriterFlow — Product Requirements Document
 
-**Version:** 1.0 · **Date:** July 13, 2026 · **Owner:** Karan
-**One-liner:** A Whisperflow-style, always-on macOS writing assistant. Invisible until you type — then a small floating icon appears near your cursor with one-tap AI actions (Elaborate, Formal, Casual, Fix Grammar, Reply, Custom) powered by OpenAI. Works in any app: Gmail, WhatsApp, Slack, Notion, anywhere text is typed.
+**Version:** 1.0 · **Date:** July 16, 2026 · **Owner:** Karan
+
+**One-liner:** A Whisperflow-style, always-on macOS writing assistant. Invisible until you type — then a small floating icon appears near your cursor with one-tap AI actions (Elaborate, Formal, Casual, Fix Grammar, Reply, Custom) powered by provider-managed AI processing. Works in any app: Gmail, WhatsApp, Slack, Notion, anywhere text is typed.
 
 ---
 
@@ -14,17 +15,22 @@ Rewriting text with AI today means copy → open ChatGPT → paste → prompt �
 - Context-aware: reads the input field content and visible conversation context via macOS Accessibility API.
 - Invisible-first: no windows, no dock icon. Only a tiny floating icon while typing, plus a menu bar glyph.
 - Smooth: <150 ms icon appearance, streamed AI output, native-feel animations.
+- Public and free for v1: no WriterFlow/provider account or sign-in, membership, subscription, payment, remote user database, user-supplied provider key, or separate provider payment for the core AI actions.
+- Secret-safe: no maintainer-owned AI API key or other long-lived service credential is released in the Mac app or DMG.
 
 **Non-goals (v1)**
 - Voice dictation (that's Whisperflow's job — we're the typing counterpart).
 - Windows/Linux support.
-- Mac App Store distribution (Accessibility APIs used here fail App Store review — distribute as notarized direct download).
+- Mac App Store distribution (Accessibility APIs used here fail App Store review).
+- Apple Developer Program membership, Developer ID signing, notarization, stapling, or Sparkle. These are v2 distribution improvements; v1 is a public DMG containing an ad-hoc-signed app, with a documented Gatekeeper override and manual updates.
+- Remote accounts, membership/entitlement storage, billing, licensing, teams, or cross-device user-data sync. Any remote user or membership database is v2-only.
+- A bespoke WriterFlow HTTP/REST/GraphQL API. V1 may use only a to-be-selected provider's supported client transport; static downloads, checksums, docs, and non-secret config files are not APIs.
 
 ---
 
 ## 2. Target User
 
-Primary: Karan (and later, professionals writing emails/messages all day who want confidence in their English phrasing and speed). Persona traits: technically capable, writes across Gmail, WhatsApp Web/Desktop, Slack, LinkedIn; wants natural, native-sounding output; values speed over configurability.
+Primary: macOS users writing emails/messages all day who want confidence in their English phrasing and speed, including Karan's own daily workflow. Persona traits: writes across Gmail, WhatsApp Web/Desktop, Slack, LinkedIn; wants natural, native-sounding output; values speed over configurability. V1 is publicly downloadable and does not require a WriterFlow account or paid membership.
 
 ---
 
@@ -36,7 +42,7 @@ Primary: Karan (and later, professionals writing emails/messages all day who wan
 |---|---|
 | Idle | Nothing except a small menu bar icon. App runs in background, launches at login. |
 | Typing detected | A ~28 px floating pill icon fades in near the caret / focused field (bottom-right corner of the field). Disappears 4 s after typing stops or on field blur. |
-| Icon clicked OR hotkey (default `⌥ Space`) | Action popover opens: Elaborate · Formal · Casual · Fix Grammar · Reply · Custom prompt box. Rendered as a compact non-activating panel so focus never leaves the text field. |
+| Icon clicked OR hotkey (default `⌃⌥ Space`) | Action popover opens: Elaborate · Formal · Casual · Fix Grammar · Reply · Custom prompt box. Rendered as a compact non-activating panel so focus never leaves the text field. |
 | Action running | Icon shows a subtle spinner; result streams into a preview card. |
 | Preview | Shows rewritten text with **Replace** (Enter), **Copy**, **Retry**, **Discard** (Esc). One keypress to accept. |
 
@@ -77,8 +83,8 @@ A regular window opened from the menu bar icon (`Open Dashboard`). Tabs:
    - **Voice profile:** learned from accepted rewrites (preferred greetings, sign-offs, sentence length, formality bias). Editable as plain-text "About my writing style" notes that get injected into prompts.
    - **Per-app rules:** e.g., "Gmail → always formal, sign as Karan", "WhatsApp → casual, no sign-off".
    - **Snippets/facts:** name, role, company, common phrases the model may use.
-3. **Settings** — hotkey, icon behavior (always/on-typing/hotkey-only), model selection, OpenAI API key (stored in macOS Keychain), excluded apps list, clipboard-fallback toggle, launch at login.
-4. **Usage** — tokens/cost estimate per day, action counts.
+3. **Settings** — hotkey, icon behavior (always/on-typing/hotkey-only), production AI-service status, excluded apps list, clipboard-fallback toggle, launch at login. Public builds do not expose shared provider keys or a user-editable service endpoint.
+4. **Usage** — action counts, acceptance rate, and token-volume diagnostics. WriterFlow itself is free; this is not a billing surface.
 
 ---
 
@@ -91,13 +97,13 @@ A regular window opened from the menu bar icon (`Open Dashboard`). Tabs:
 │                                                                                           │
 │  FocusMonitor          OverlayController          ActionEngine            Dashboard        │
 │  (AXObserver on        (NSPanel, non-activating,  (prompt builder +       (SwiftUI window) │
-│  focus/typing events)   .floating level, fades     OpenAI client,                          │
+│  focus/typing events)   .floating level, fades     managed AI transport,                   │
 │         │               near caret)                streaming)                  │           │
 │         ▼                    │                         │                       │           │
 │  ContextExtractor ───────────┴────► PreviewCard ◄──────┘                       │           │
 │  (AX tree walk, app rules)          (replace/copy/retry)                       │           │
 │                                                                                │           │
-│  Store: SQLite (history, memory) · Keychain (API key) · UserDefaults (settings)┘           │
+│  Store: local SQLite (history, memory) · UserDefaults (settings); no remote user DB ┘       │
 └───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -105,9 +111,9 @@ A regular window opened from the menu bar icon (`Open Dashboard`). Tabs:
 
 - **FocusMonitor:** `AXObserver` for `kAXFocusedUIElementChangedNotification` + a passive CGEventTap (listen-only) to detect keystrokes → drives icon show/hide. Debounced; <1% CPU idle.
 - **OverlayController:** non-activating `NSPanel` (`.nonactivatingPanel`, window level `.floating`, ignores mouse until hover) positioned from the focused element's AX frame. This is what makes it "smooth" — focus never leaves the user's field.
-- **ActionEngine:** builds prompt = system prompt (voice profile + per-app rule) + context block + user text + action instruction. Calls OpenAI Responses API with streaming; first token target <800 ms.
-- **Model:** `gpt-5.4-mini` default (fast/cheap production default, ~2x faster and ~70% cheaper than the flagship), `gpt-5.4-nano` for Fix Grammar, flagship optional in settings for Custom/Reply. Model names configurable — pin exact strings in a config so retirements don't break the app.
-- **Global hotkey:** `⌥ Space` via Carbon `RegisterEventHotKey` (configurable).
+- **ActionEngine:** builds prompt = system prompt (voice profile + per-app rule) + context block + user text + action instruction. The production target is a to-be-selected provider-managed transport with streaming; first token target <800 ms. Provider/model routing will be controlled by that platform, not by a shipped shared key or arbitrary production endpoint.
+- **Model:** the provider-managed production configuration chooses the appropriate fast/default/heavy model classes. Exact model strings may change without exposing credentials or a custom WriterFlow API in the client.
+- **Global hotkey:** `⌃⌥ Space` via Carbon `RegisterEventHotKey` (configurable).
 
 **Permissions required:** Accessibility (System Settings → Privacy & Security → Accessibility) and Input Monitoring. Onboarding flow walks through granting both, with live status checks.
 
@@ -115,26 +121,29 @@ A regular window opened from the menu bar icon (`Open Dashboard`). Tabs:
 
 ## 6. Privacy & Security
 
-- API key in Keychain; never logged.
-- All history/memory stored locally (SQLite in `~/Library/Application Support/WriterFlow`). No WriterFlow server; the only network call is to OpenAI.
+- No maintainer-owned Azure/OpenAI/provider API key, backend bearer secret, signing credential, `.env`, or `secrets.env` may be included in or persisted by the public app. Keychain does not make a shared key safe to distribute.
+- All history/memory remains local (SQLite in `~/Library/Application Support/WriterFlow`). V1 has no remote user, account, membership, entitlement, billing, or sync database.
+- V1 exposes no custom WriterFlow API. AI inference must run through a to-be-selected provider-managed transport whose anonymous public-client authentication, rate limits, abuse controls, spend ceiling, and data-retention terms are verified before release.
 - Per-app exclusion list (e.g., 1Password, banking apps) — AX reads never occur there.
 - Secure input fields always ignored.
 - One-click "pause WriterFlow" from the menu bar.
-- Data sent to OpenAI: only on explicit user action (never passive keystroke streaming). Keystroke monitoring is used solely as a local "is typing" signal — key contents are not buffered or stored.
+- Data sent for AI processing: only on explicit user action (never passive keystroke streaming). The payload may include the selected/field text, visible conversation context, the user's custom instruction, and enabled local personalization. The explicit **Analyze My Writing Style** action may send up to 20 accepted outputs for that one analysis. Keystroke monitoring is used solely as a local "is typing" signal — key contents are not buffered, stored, or sent.
+
+The current direct Azure key client, plaintext `secrets.env` development fallback, and networked background recommendation classifier are not approved production behavior. They must be replaced or gated out before the public v1 build; see `RELEASE.md`.
 
 ---
 
 ## 7. Milestones
 
-Development is AI-assisted (Claude Code / Cursor) — phases are ordered by dependency, not calendar time. Detailed breakdowns live in `phases/`. See `ROADMAP.md` for sequencing and `CLAUDE.md` for AI-development context.
+Development is AI-assisted (Claude Code / Cursor) — phases are ordered by dependency, not calendar time. Detailed breakdowns live in `phases/`. See `ROADMAP.md` for sequencing, `RELEASE.md` for production, and the mirrored `CLAUDE.md` / `AGENTS.md` files for tool context.
 
 | Phase | Scope | Detail file |
 |---|---|---|
 | **P0 — Skeleton** | Menu bar app, permissions onboarding, FocusMonitor, floating icon shows/hides on typing | `phases/phase-0-foundation.md` |
-| **P1 — Core actions** | AX read/replace, popover with Core 4 actions, OpenAI streaming, preview card, hotkey | `phases/phase-1-core-actions.md` |
+| **P1 — Core actions** | AX read/replace, popover with Core 4 actions, streaming AI preview (direct Azure development transport originally), hotkey | `phases/phase-1-core-actions.md` |
 | **P2 — Context & Reply** | AX tree context extraction, per-app tone defaults, Reply + Custom actions, Chrome/Electron fallbacks | `phases/phase-2-context-reply.md` |
 | **P3 — Dashboard & memory** | History, voice profile, per-app rules, usage stats, settings | `phases/phase-3-dashboard-memory.md` |
-| **P4 — Polish** | Animations, clipboard fallback, excluded apps, notarized DMG, login item | `phases/phase-4-polish-release.md` |
+| **P4 — Polish** | Animations, clipboard fallback, excluded apps, public DMG containing an ad-hoc-signed app, manual Gatekeeper install flow, login item | `phases/phase-4-polish-release.md` |
 
 ---
 
@@ -152,8 +161,10 @@ Development is AI-assisted (Claude Code / Cursor) — phases are ordered by depe
 | Risk | Mitigation |
 |---|---|
 | AX API blocked/flaky in some apps (esp. web views) | Chrome/Electron AX flags + clipboard fallback; per-app compatibility table maintained in-app |
-| Mac App Store rejection (private AX usage) | Direct distribution, notarized; Sparkle for auto-updates |
-| OpenAI model retirements (e.g., GPT-4.1 retired Apr 2026) | Model strings in remote-updatable config; settings override |
+| Mac App Store rejection (private AX usage) | V1 direct DMG distribution with published checksum and documented **Open Anyway** flow; Developer ID/notarization/Sparkle deferred to v2 |
+| Unidentified/unnotarized v1 build creates install friction | State the limitation plainly, test on a clean unmanaged Mac, never ask users to disable Gatekeeper; managed Macs may be unsupported |
+| Provider credential extraction or anonymous AI abuse | No shared key in the client; require provider-managed public-client auth, platform-side rate limits, abuse controls, and a hard spend ceiling before launch |
+| AI model retirements | Provider/platform-side routing; a static non-secret client config may supply safe fallbacks, but never credentials or an arbitrary service contract |
 | Latency spikes ruin "smooth" feel | Streaming UI, optimistic spinner, nano model for grammar, request timeout + retry |
 | Privacy concerns from keystroke monitoring | Listen-only local signal, clear onboarding copy, open pause control |
 
@@ -163,4 +174,4 @@ Development is AI-assisted (Claude Code / Cursor) — phases are ordered by depe
 
 1. Should Reply mode support multi-language (detect Hindi/Hinglish input, reply in same language)? — likely yes, cheap to add via prompt.
 2. Local model fallback (Apple Foundation Models) for offline grammar fixes? — post-v1.
-3. Team/licensing model if this becomes a side-venture product? — out of scope for v1.
+3. V2 commercial/team/licensing model if this becomes a side-venture product? — explicitly deferred, along with remote membership and billing storage.

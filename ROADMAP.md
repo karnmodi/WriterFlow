@@ -6,14 +6,15 @@ Master index for all planning docs. Read `PRD.md` first for product context.
 
 | File | What's inside |
 |---|---|
-| `CLAUDE.md` | Context file for AI-assisted development (Claude Code / Cursor) — read automatically |
+| `CLAUDE.md` / `AGENTS.md` | Intentional tool-specific mirrors for AI-assisted development; update together |
 | `PRD.md` | Product requirements — the *what* and *why* |
 | `ROADMAP.md` | This file — phase order, timeline, dependencies |
+| `RELEASE.md` | Canonical v1 production gates, packaging runbook, and v1/v2 infrastructure split |
 | `phases/phase-0-foundation.md` | Project setup, permissions, focus monitoring, floating icon |
-| `phases/phase-1-core-actions.md` | AX read/replace, action popover, OpenAI streaming, preview card |
+| `phases/phase-1-core-actions.md` | AX read/replace, action popover, streaming AI preview (original direct Azure development transport) |
 | `phases/phase-2-context-reply.md` | Conversation context extraction, Reply + Custom, app fallbacks |
 | `phases/phase-3-dashboard-memory.md` | Dashboard window, history, voice profile, per-app rules |
-| `phases/phase-4-polish-release.md` | Animations, fallbacks, packaging, notarized release |
+| `phases/phase-4-polish-release.md` | Animations, fallbacks, public v1 packaging, manual-install distribution |
 
 ## Execution order
 
@@ -30,6 +31,44 @@ Within a phase, stages (x.1, x.2, …) are also ordered; stages inside a phase m
 - Phase 3 needs Phase 1's history events being emitted (log from day one).
 - Phase 4 needs everything feature-complete.
 
+## v1.0 production path
+
+`RELEASE.md` is the canonical release runbook. The v1 product and infrastructure
+boundary is:
+
+- public and free, with no WriterFlow account, membership, subscription, payment,
+  licensing flow, user-supplied provider key, or separate provider payment for core AI
+  actions;
+- local GRDB/SQLite and UserDefaults storage only — no remote user, membership,
+  entitlement, billing, or sync database and no AI service credential in public v1;
+- no bespoke WriterFlow API;
+- AI inference through a to-be-selected provider-managed transport with no
+  publisher-owned/shared reusable service credential in the public Mac app;
+- release-mode DMG containing an ad-hoc-signed app, plus SHA-256 checksum, manual
+  Gatekeeper **Open Anyway** approval, and manual updates;
+- no Apple Developer Program membership requirement for v1.
+
+The current direct Azure key path is development-only under this plan. V1 production
+remains blocked until the provider-managed transport is selected and integrated, the
+pre-action network recommendation is removed or moved behind explicit action, file
+credential fallbacks are removed from production, and the artifact passes the release
+checks in `RELEASE.md`. Signing/notarization is not a v1 tag gate.
+
+## v1.0 release definition of done
+
+In addition to the phase criteria below:
+
+1. Anyone on a supported unmanaged Mac can download the app without a WriterFlow
+   account or payment and follow the documented Gatekeeper override.
+2. No remote user/membership database and no custom WriterFlow API are present.
+3. The production AI transport has provider-side authentication, abuse controls,
+   rate limits, and a hard spend ceiling without a distributed shared key.
+4. Text and context leave the Mac only after explicit user action.
+5. The app and mounted DMG contain no `.env`, `secrets.env`, API key, bearer token,
+   private endpoint, or signing credential.
+6. The published DMG version and CPU support match the release notes, and its SHA-256
+   checksum is published and verified on a clean Mac.
+
 ## Definition of done (every phase)
 
 1. All acceptance criteria in the phase file pass.
@@ -44,7 +83,7 @@ Within a phase, stages (x.1, x.2, …) are also ordered; stages inside a phase m
 - No text leaves the machine except on explicit user action.
 - Secure fields are invisible to the app, always.
 
-## v1.1 backlog (seeded during Stage 4.5, not started)
+## v1.1 product backlog (not started)
 
 Carried over from `PRD.md` §9 (Risks & Mitigations) and §10 (Open Questions) —
 deliberately not attempted during v1:
@@ -54,11 +93,23 @@ deliberately not attempted during v1:
   prompt changes alone once someone dogfoods it in a non-English conversation.
 - **Offline grammar via Apple Foundation Models** — a local on-device fallback for Fix
   Grammar when there's no network, instead of just the "you're offline" error Stage 4.3
-  added. Needs macOS's on-device Foundation Models framework; scope and quality bar
-  undecided.
+  added. This would change the current provider-side-only AI policy and therefore needs
+  an explicit product-policy decision before implementation, in addition to scope and
+  quality evaluation.
 - **Windows feasibility spike** — WriterFlow's whole architecture (AX API, CGEventTap,
   NSPanel) is macOS-only. A Windows port would be a from-scratch rebuild on UI
   Automation + a different overlay mechanism, not a port — worth a spike to size before
   committing, not before.
-- **Licensing/team model** — out of scope for v1 per the PRD; revisit only if this
-  becomes more than a personal tool.
+
+## v2.0 infrastructure deferred from v1
+
+These items are intentionally not v1 blockers:
+
+- Apple Developer Program membership, Developer ID Application signing,
+  notarization workflow, ticket stapling, and trusted Gatekeeper identity.
+- Sparkle, public appcast hosting, EdDSA update signing, and automatic updates.
+- Remote accounts, membership/entitlement records, user-data sync, billing,
+  subscriptions, commercial licensing, and team administration.
+- A new WriterFlow-operated backend exposed through a bespoke app-facing API. V1 uses
+  the provider-platform branch because no existing non-custom WriterFlow transport is
+  documented. The no-custom-API rule continues into v2 unless explicitly changed.
