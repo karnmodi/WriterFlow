@@ -19,20 +19,17 @@ what's still gating a 1.0.0 tag.
   note and one-click re-enable), and clearer offline/timeout error messages. Confirmed
   event-tap auto-re-enable and in-flight request cancellation were already correct from
   earlier phases.
-- **4.4 Packaging (production checks reopened)**: `scripts/make-dmg.sh` provides the
-  drag-to-Applications layout and a local-only "Share Diagnostics" export remains
-  opt-in/never uploaded. The v1 production path is now a public DMG containing an
-  ad-hoc-signed app, with a published SHA-256 checksum, documented Gatekeeper **Open
-  Anyway** flow, and manual
-  updates — no Apple Developer Program membership required. Developer ID signing,
-  notarization/stapling, and Sparkle are explicitly v2-only. `RELEASE.md` records the
-  exact packaging steps and the checks the current scripts still need before release.
-- **V1 production-policy revision**: WriterFlow is public/free with no WriterFlow
-  account, membership, payment, remote user database, or custom WriterFlow API. AI must
-  use a to-be-selected provider-managed transport and no publisher-owned/shared
-  reusable service credential may enter the public client. The direct Azure key transport,
-  plaintext `secrets.env` fallback, and pre-action network recommendation are now
-  documented development/production blockers rather than approved release behavior.
+- **4.4 Packaging hardening**: clean ARM64 Release build, hardened-runtime ad-hoc
+  signing, version/architecture/signature verification, mounted-DMG secret scanning,
+  bundled third-party notices, SHA-256 generation/verification, and the documented
+  Gatekeeper **Open Anyway** flow. Manual updates require no Apple membership;
+  Developer ID/notarization/Sparkle remain v2.
+- **V1 production policy**: WriterFlow is a free BYO-key download with no WriterFlow
+  account, membership, payment, remote user database, shared publisher credential, or
+  custom WriterFlow API. Release builds use the user's Azure endpoint/key/deployments,
+  compile out local `.env` / `secrets.env` credential paths, enforce allowlisted HTTPS
+  Azure Responses endpoints, sanitize upstream errors, make one provider request per
+  action, and never send field text from passive typing.
 
 ## Phase 3 — Dashboard & memory
 

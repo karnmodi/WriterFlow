@@ -24,7 +24,7 @@ Rewriting text with AI today means copy → open ChatGPT → paste → prompt �
 - Mac App Store distribution (Accessibility APIs used here fail App Store review).
 - Apple Developer Program membership, Developer ID signing, notarization, stapling, or Sparkle. These are v2 distribution improvements; v1 is a public DMG containing an ad-hoc-signed app, with a documented Gatekeeper override and manual updates.
 - Remote accounts, membership/entitlement storage, billing, licensing, teams, or cross-device user-data sync. Any remote user or membership database is v2-only.
-- A bespoke WriterFlow HTTP/REST/GraphQL API. V1 may use only a to-be-selected provider's supported client transport; static downloads, checksums, docs, and non-secret config files are not APIs.
+- A bespoke WriterFlow HTTP/REST/GraphQL API. V1 calls the user's Azure OpenAI resource directly with their own Keychain-stored key; static downloads, checksums, and docs are not APIs.
 
 ---
 
@@ -111,8 +111,8 @@ A regular window opened from the menu bar icon (`Open Dashboard`). Tabs:
 
 - **FocusMonitor:** `AXObserver` for `kAXFocusedUIElementChangedNotification` + a passive CGEventTap (listen-only) to detect keystrokes → drives icon show/hide. Debounced; <1% CPU idle.
 - **OverlayController:** non-activating `NSPanel` (`.nonactivatingPanel`, window level `.floating`, ignores mouse until hover) positioned from the focused element's AX frame. This is what makes it "smooth" — focus never leaves the user's field.
-- **ActionEngine:** builds prompt = system prompt (voice profile + per-app rule) + context block + user text + action instruction. The production target is a to-be-selected provider-managed transport with streaming; first token target <800 ms. Provider/model routing will be controlled by that platform, not by a shipped shared key or arbitrary production endpoint.
-- **Model:** the provider-managed production configuration chooses the appropriate fast/default/heavy model classes. Exact model strings may change without exposing credentials or a custom WriterFlow API in the client.
+- **ActionEngine:** builds prompt = system prompt (voice profile + per-app rule) + context block + user text + action instruction, then streams from the user's Azure OpenAI resource; first token target <800 ms.
+- **Model:** the user configures exact Azure deployment names for default/grammar/heavy classes in Setup or Settings. Public v1 makes one provider request per explicit action.
 - **Global hotkey:** `⌃⌥ Space` via Carbon `RegisterEventHotKey` (configurable).
 
 **Permissions required:** Accessibility (System Settings → Privacy & Security → Accessibility) and Input Monitoring. Onboarding flow walks through granting both, with live status checks.
@@ -123,13 +123,13 @@ A regular window opened from the menu bar icon (`Open Dashboard`). Tabs:
 
 - No maintainer-owned Azure/OpenAI/provider API key, backend bearer secret, signing credential, `.env`, or `secrets.env` may be included in or persisted by the public app. Keychain does not make a shared key safe to distribute.
 - All history/memory remains local (SQLite in `~/Library/Application Support/WriterFlow`). V1 has no remote user, account, membership, entitlement, billing, or sync database.
-- V1 exposes no custom WriterFlow API. AI inference must run through a to-be-selected provider-managed transport whose anonymous public-client authentication, rate limits, abuse controls, spend ceiling, and data-retention terms are verified before release.
+- V1 exposes no custom WriterFlow API. AI inference uses the user's own Azure OpenAI endpoint, API key (Keychain only), deployments, quota, and billing.
 - Per-app exclusion list (e.g., 1Password, banking apps) — AX reads never occur there.
 - Secure input fields always ignored.
 - One-click "pause WriterFlow" from the menu bar.
 - Data sent for AI processing: only on explicit user action (never passive keystroke streaming). The payload may include the selected/field text, visible conversation context, the user's custom instruction, and enabled local personalization. The explicit **Analyze My Writing Style** action may send up to 20 accepted outputs for that one analysis. Keystroke monitoring is used solely as a local "is typing" signal — key contents are not buffered, stored, or sent.
 
-The current direct Azure key client, plaintext `secrets.env` development fallback, and networked background recommendation classifier are not approved production behavior. They must be replaced or gated out before the public v1 build; see `RELEASE.md`.
+Release builds compile out `.env` / `secrets.env` credential fallback, allow only HTTPS Azure Responses endpoints, and never start recommendation inference from passive typing. See `RELEASE.md`.
 
 ---
 

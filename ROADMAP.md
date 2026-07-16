@@ -36,23 +36,22 @@ Within a phase, stages (x.1, x.2, …) are also ordered; stages inside a phase m
 `RELEASE.md` is the canonical release runbook. The v1 product and infrastructure
 boundary is:
 
-- public and free, with no WriterFlow account, membership, subscription, payment,
-  licensing flow, user-supplied provider key, or separate provider payment for core AI
-  actions;
+- public and free to download, with no WriterFlow account, membership, subscription,
+  payment, or licensing flow; core AI actions require the user's own Azure OpenAI key
+  and may incur charges on that user's Azure account;
 - local GRDB/SQLite and UserDefaults storage only — no remote user, membership,
   entitlement, billing, or sync database and no AI service credential in public v1;
 - no bespoke WriterFlow API;
-- AI inference through a to-be-selected provider-managed transport with no
+- direct AI inference through the user's Azure OpenAI Responses endpoint, with no
   publisher-owned/shared reusable service credential in the public Mac app;
 - release-mode DMG containing an ad-hoc-signed app, plus SHA-256 checksum, manual
   Gatekeeper **Open Anyway** approval, and manual updates;
 - no Apple Developer Program membership requirement for v1.
 
-The current direct Azure key path is development-only under this plan. V1 production
-remains blocked until the provider-managed transport is selected and integrated, the
-pre-action network recommendation is removed or moved behind explicit action, file
-credential fallbacks are removed from production, and the artifact passes the release
-checks in `RELEASE.md`. Signing/notarization is not a v1 tag gate.
+The BYO Azure path is the approved v1 transport. Passive typing no longer starts
+inference, release builds compile out file credential fallbacks, and the release
+verifier checks the app and mounted DMG. Live UI/Accessibility validation, the soak,
+and clean-Mac Gatekeeper installation evidence remain tag gates.
 
 ## v1.0 release definition of done
 
@@ -61,8 +60,8 @@ In addition to the phase criteria below:
 1. Anyone on a supported unmanaged Mac can download the app without a WriterFlow
    account or payment and follow the documented Gatekeeper override.
 2. No remote user/membership database and no custom WriterFlow API are present.
-3. The production AI transport has provider-side authentication, abuse controls,
-   rate limits, and a hard spend ceiling without a distributed shared key.
+3. AI uses the user's own Azure endpoint, key, quota, rate limits, and billing without
+   any distributed publisher/shared key.
 4. Text and context leave the Mac only after explicit user action.
 5. The app and mounted DMG contain no `.env`, `secrets.env`, API key, bearer token,
    private endpoint, or signing credential.

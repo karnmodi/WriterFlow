@@ -2,7 +2,7 @@
 
 Native macOS menu-bar writing assistant. While you type in any app (Gmail, WhatsApp, Slack, Notes, …), a small floating icon appears. Click it — or press **⌃⌥ Space** — to rewrite, reply, or follow a custom instruction in place. Think Whisperflow, but for typing instead of voice.
 
-Requires **macOS 14+**. Not distributed via the Mac App Store (Accessibility APIs used here fail App Store review). The current development artifact is ARM64-only; do not claim Intel support until a universal build is produced and tested.
+Requires **macOS 14+ on Apple Silicon (ARM64)**. Intel Macs are not supported by the v1 artifact. Not distributed via the Mac App Store (Accessibility APIs used here fail App Store review).
 
 The v1 goal is a public, free download (**bring-your-own-key**): AI actions use the user’s Azure OpenAI endpoint and API key. No WriterFlow account, membership, or shared publisher key. See [`RELEASE.md`](RELEASE.md) for production/security gates and the v1/v2 split.
 
@@ -41,7 +41,7 @@ You Replace / Copy / Retry / Discard
 - V1 keeps history, memory, snippets, and app rules in local GRDB/SQLite only. There is no remote user, membership, entitlement, billing, or sync database and no custom WriterFlow API.
 - A public build must contain no maintainer-owned provider key, `.env`, `secrets.env`, bearer token, private endpoint, or signing credential. Each user pastes **their own** key in Setup / Settings; it stays in that user’s Keychain only.
 
-**Production status:** BYO Azure is the approved public AI path (Setup + Settings). Remaining release blockers in [`RELEASE.md`](RELEASE.md) include the Recommendation Engine still sending field text while typing, DMG secret-scanning / Gatekeeper soak, and related packaging gates — do not tag `v1.0.0` until those pass.
+**Production status:** BYO Azure is the approved public AI path (Setup + Settings). Passive typing does not perform network inference; opening the action menu explicitly authorizes recommendation classification. Automated packaging/security checks are available through the v1 release workflow; live UI, soak, and clean-Mac Gatekeeper checks must still be evidenced before tagging.
 
 **Architecture (source layout)**
 
@@ -188,8 +188,8 @@ Created automatically; none of this is in git:
 | Path | Contents |
 |---|---|
 | `~/Applications/WriterFlow.app` | Installed app (stable TCC identity) |
-| `~/Library/Application Support/WriterFlow/models.json` | Deployment routing (bootstrapped from `.env`) |
-| `~/Library/Application Support/WriterFlow/secrets.env` | Current development-only plaintext credential fallback; prohibited in public v1 and scheduled for removal/gating |
+| `~/Library/Application Support/WriterFlow/models.json` | User-configured Azure endpoint, deployment routing, and non-secret pricing estimates |
+| `~/Library/Application Support/WriterFlow/secrets.env` | Debug/contributor builds only; release builds compile this credential fallback out |
 | `~/Library/Application Support/WriterFlow/compatibility.json` | Per-app AX / context diagnostics |
 | Keychain | Current development transport's user/developer-owned API key (`KeychainStore`); no shared production key allowed |
 
@@ -232,13 +232,10 @@ Phase checklists live under `phases/`. Product requirements: `PRD.md`. Changes s
 
 1. Complete every production AI, privacy, credential, version, architecture, license,
    UI, soak, and artifact gate in `RELEASE.md`.
-2. Build a clean Release bundle and public DMG, then publish a SHA-256 checksum:
+2. Run the single-command release builder/verifier, then publish its DMG and checksum:
 
    ```bash
-   make clean
-   CONFIG=release make bundle
-   make dmg
-   (cd build && shasum -a 256 WriterFlow-1.0.0.dmg > WriterFlow-1.0.0.dmg.sha256)
+   make verify-release
    ```
 
 3. Test on a clean, unmanaged Mac. The user drags WriterFlow to Applications, tries to
