@@ -1,4 +1,4 @@
-# CLAUDE.md — WriterFlow
+# AGENTS.md — WriterFlow
 
 Context file for AI-assisted development. Read this first; it tells you what the project is, where the specs live, and how to work.
 
@@ -77,7 +77,7 @@ WriterFlow/
 ├── Dashboard/      # SwiftUI dashboard window (history/memory/settings/usage)
 ├── Adapters/       # per-app compatibility (Chrome, Electron, Safari…) — Phase 2
 ├── phases/         # planning docs (this repo's specs)
-├── PRD.md · ROADMAP.md · RELEASE.md · CLAUDE.md
+├── PRD.md · ROADMAP.md · RELEASE.md · AGENTS.md
 ```
 
 ## Golden rules (non-negotiable)

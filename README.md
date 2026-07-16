@@ -2,7 +2,9 @@
 
 Native macOS menu-bar writing assistant. While you type in any app (Gmail, WhatsApp, Slack, Notes, …), a small floating icon appears. Click it — or press **⌃⌥ Space** — to rewrite, reply, or follow a custom instruction in place. Think Whisperflow, but for typing instead of voice.
 
-Requires **macOS 14+**. Not distributed via the Mac App Store (Accessibility APIs used here fail App Store review).
+Requires **macOS 14+**. Not distributed via the Mac App Store (Accessibility APIs used here fail App Store review). The current development artifact is ARM64-only; do not claim Intel support until a universal build is produced and tested.
+
+The v1 goal is a public, free download (**bring-your-own-key**): AI actions use the user’s Azure OpenAI endpoint and API key. No WriterFlow account, membership, or shared publisher key. See [`RELEASE.md`](RELEASE.md) for production/security gates and the v1/v2 split.
 
 ---
 
@@ -20,7 +22,7 @@ You pick an action (popover or hotkey)
         ↓
 ActionEngine
   · reads field text (+ conversation context for Reply / Custom / Prompt Builder)
-  · streams Azure OpenAI Responses API (SSE)
+  · streams through the user’s Azure OpenAI resource (BYO key + endpoint)
   · shows result in a preview card
         ↓
 You Replace / Copy / Retry / Discard
@@ -30,34 +32,40 @@ You Replace / Copy / Retry / Discard
 
 **Privacy notes**
 
-- Text is sent to Azure OpenAI **only when you pick an action** — never while idle or while typing.
+- Production rule: text may leave the Mac **only when you pick an action** — never while idle or while typing. The payload may include selected/field text, visible conversation context, a custom instruction, and enabled local personalization. The explicit **Analyze My Writing Style** action may send up to 20 accepted outputs for that one analysis.
 - Input Monitoring is used only as a local “you are typing” signal. Key contents are never buffered, logged, or sent.
 - Secure fields (`AXSecureTextField` / secure input) make WriterFlow completely inert — no icon, no reads.
 - Overlay panels are **non-activating**: keyboard focus stays in the app you are typing in.
 - If a field's contents can't be read directly (some Electron/web fields), WriterFlow falls back to a brief select-all-and-copy — still only as part of an action you explicitly triggered — and restores your prior selection and clipboard contents immediately afterward.
 - A handful of password managers are excluded by default (no icon, no reads at all); add any other app the same way from **Dashboard → Personalization**.
+- V1 keeps history, memory, snippets, and app rules in local GRDB/SQLite only. There is no remote user, membership, entitlement, billing, or sync database and no custom WriterFlow API.
+- A public build must contain no maintainer-owned provider key, `.env`, `secrets.env`, bearer token, private endpoint, or signing credential. Each user pastes **their own** key in Setup / Settings; it stays in that user’s Keychain only.
+
+**Production status:** BYO Azure is the approved public AI path (Setup + Settings). Remaining release blockers in [`RELEASE.md`](RELEASE.md) include the Recommendation Engine still sending field text while typing, DMG secret-scanning / Gatekeeper soak, and related packaging gates — do not tag `v1.0.0` until those pass.
 
 **Architecture (source layout)**
 
 | Folder | Role |
 |---|---|
-| `Sources/WriterFlow/App/` | Menu bar, onboarding, settings, hotkey |
+| `Sources/WriterFlow/App/` | Menu bar, onboarding (permissions + BYO Azure), settings, hotkey |
 | `Sources/WriterFlow/FocusMonitor/` | AX focus + typing detection, app adapters |
 | `Sources/WriterFlow/Overlay/` | Floating icon, action popover, preview card, toasts |
-| `Sources/WriterFlow/Engine/` | Azure client, prompts, replace / clipboard pipeline |
-| `Sources/WriterFlow/Store/` | Settings, Keychain, `.env` / `models.json` |
+| `Sources/WriterFlow/Engine/` | Azure OpenAI client, prompts, replace / clipboard pipeline |
+| `Sources/WriterFlow/Store/` | Local settings/data; user Keychain key + `models.json` endpoint/deployments |
 
-Planning docs: `PRD.md`, `ROADMAP.md`, `phases/`, `CLAUDE.md`.
+Planning docs: `PRD.md`, `ROADMAP.md`, `RELEASE.md`, `phases/`, plus mirrored `CLAUDE.md` / `AGENTS.md` tool context.
 
 ---
 
-## New Mac setup
+## Local development setup
+
+This section is for contributors running the current direct Azure development transport. It is **not** the public v1 install flow and its credentials must never be copied into a release artifact.
 
 ### 1. System requirements
 
 - macOS **14 Sonoma** or newer
-- Apple Silicon or Intel Mac
-- Network access to your Azure OpenAI endpoint
+- Apple Silicon Mac for the currently verified build (Intel/universal output is a production decision still to be completed)
+- Network access to a developer-owned Azure OpenAI endpoint
 
 ### 2. Install toolchain
 
@@ -89,9 +97,9 @@ git clone <your-repo-url> WriterFlow
 cd WriterFlow
 ```
 
-### 4. Create `.env` (Azure credentials)
+### 4. Create `.env` (development credentials only)
 
-`.env` is **gitignored**. On a new machine, create one from the template:
+`.env` is **gitignored** and is only for local development. On a new contributor machine, create one from the template:
 
 ```bash
 cp .env.example .env
@@ -102,7 +110,7 @@ Edit `.env` and set at least:
 | Variable | Purpose |
 |---|---|
 | `TARGET_URI` | Full Azure OpenAI **Responses** API URL, including `api-version` |
-| `API_KEY_GPT_5-4_Pro` | API key (bootstrapped into Keychain on first launch) |
+| `API_KEY_GPT_5-4_Pro` | Developer-owned API key used by the current local transport; never for a public artifact |
 | `AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Mini` | Default / grammar deployment name |
 | `AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Pro` | Heavy / Pro deployment name |
 
@@ -115,7 +123,7 @@ AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Mini=gpt-5.4-mini
 AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Pro=gpt-5.4-pro
 ```
 
-**Smoke-test the endpoint** (optional but recommended before launching the app):
+**Smoke-test the development endpoint** (optional but recommended before launching the app):
 
 ```bash
 chmod +x scripts/test-azure.sh
@@ -123,7 +131,7 @@ chmod +x scripts/test-azure.sh
 # expect: OK: <some streamed text>
 ```
 
-You can also paste/validate a key later from **WriterFlow → Settings** (stored in Keychain only).
+The current development UI can also paste/validate a user-owned key. Do not use this path to distribute a maintainer/shared key; the production transport and UI must not expose one.
 
 ### 5. Build and install
 
@@ -181,9 +189,9 @@ Created automatically; none of this is in git:
 |---|---|
 | `~/Applications/WriterFlow.app` | Installed app (stable TCC identity) |
 | `~/Library/Application Support/WriterFlow/models.json` | Deployment routing (bootstrapped from `.env`) |
-| `~/Library/Application Support/WriterFlow/secrets.env` | Synced non-Keychain credential fallback |
+| `~/Library/Application Support/WriterFlow/secrets.env` | Current development-only plaintext credential fallback; prohibited in public v1 and scheduled for removal/gating |
 | `~/Library/Application Support/WriterFlow/compatibility.json` | Per-app AX / context diagnostics |
-| Keychain | API key (`KeychainStore`) |
+| Keychain | Current development transport's user/developer-owned API key (`KeychainStore`); no shared production key allowed |
 
 To start clean on a machine: quit WriterFlow, delete the Application Support folder above, and remove Keychain items for WriterFlow if you want a full reset.
 
@@ -196,7 +204,7 @@ To start clean on a machine: quit WriterFlow, delete the Application Support fol
 | No floating icon | Check Accessibility is ON for `~/Applications/WriterFlow.app`; ensure the field isn’t secure; app not paused from the menu bar |
 | Hotkey does nothing | Confirm **⌃⌥ Space** (Control + Option + Space); check Input Monitoring is ON |
 | “Nothing to rewrite” | Type or select text first (Reply can run on empty field using conversation context) |
-| Azure / stream errors | Re-check `TARGET_URI` + deployment names; run `./scripts/test-azure.sh`; or paste a new key in Settings |
+| Azure / stream errors in local development | Re-check `TARGET_URI` + deployment names; run `./scripts/test-azure.sh`; or use a developer-owned key in Settings |
 | Permissions break after `make run` / clean build | Use `make install-run` and re-pair Accessibility to `~/Applications/WriterFlow.app` |
 | Build fails | `xcode-select -p` should point at CLT or Xcode; `swift --version` ≥ 5.9; macOS 14 SDK |
 
@@ -218,40 +226,39 @@ Phase checklists live under `phases/`. Product requirements: `PRD.md`. Changes s
 
 ## Releasing
 
-WriterFlow ships as a notarized Developer ID app (no Mac App Store — the Accessibility
-APIs it depends on would fail App Store review).
+[`RELEASE.md`](RELEASE.md) is the canonical runbook. The short version is:
 
-1. **Sign + notarize**: `make release` (wraps `scripts/release.sh`). Requires a paid
-   Apple Developer Program membership and these environment variables:
+### V1.0 — current path, no Apple membership
 
-   | Variable | Where to get it |
-   |---|---|
-   | `DEVELOPER_ID_APPLICATION` | Your `"Developer ID Application: Name (TEAMID)"` signing identity, e.g. from `security find-identity -v -p codesigning` |
-   | `APPLE_ID` | The Apple ID enrolled in the Developer Program |
-   | `APPLE_TEAM_ID` | 10-character Team ID (developer.apple.com → Membership) |
-   | `APPLE_APP_SPECIFIC_PASSWORD` | Generate at appleid.apple.com → Sign-In and Security → App-Specific Passwords |
+1. Complete every production AI, privacy, credential, version, architecture, license,
+   UI, soak, and artifact gate in `RELEASE.md`.
+2. Build a clean Release bundle and public DMG, then publish a SHA-256 checksum:
 
-   The script fails fast with a clear message if any of these are missing — it never
-   silently skips signing or notarization. `WriterFlow.entitlements` (hardened runtime +
-   `com.apple.security.network.client`, the only capability needed since the app is
-   unsandboxed) is applied during signing.
+   ```bash
+   make clean
+   CONFIG=release make bundle
+   make dmg
+   (cd build && shasum -a 256 WriterFlow-1.0.0.dmg > WriterFlow-1.0.0.dmg.sha256)
+   ```
 
-2. **Package**: `make dmg` (wraps `scripts/make-dmg.sh`) builds a drag-to-Applications
-   DMG from `build/WriterFlow.app` — an `Applications` symlink alongside the app, the
-   standard macOS install pattern. Run this after `make release` for a distributable
-   build, or straight after `make bundle` for a local-only test DMG (Gatekeeper will
-   still refuse an ad-hoc-signed build on another Mac).
+3. Test on a clean, unmanaged Mac. The user drags WriterFlow to Applications, tries to
+   open it once, then uses **System Settings → Privacy & Security → Open Anyway** and
+   confirms **Open**. Never ask users to disable Gatekeeper or run `xattr`.
+4. Publish the DMG, checksum, release notes, privacy disclosure, and exact macOS/CPU
+   support together. Updates are manual in v1 and may require Accessibility/Input
+   Monitoring approval again.
 
-3. **First launch off a DMG**: if a user opens WriterFlow straight from the mounted
-   image instead of dragging it to Applications, `AppRelocator` detects the `/Volumes/`
-   path and offers to copy itself to `~/Applications` (clearing the inherited quarantine
-   flag) and relaunch from there.
+The v1 app is ad-hoc signed and unnotarized. It is publicly downloadable, but
+organization-managed Macs may prohibit unidentified apps. `AppRelocator` cannot bypass the initial
+Gatekeeper decision because the app cannot run before the user approves it.
 
-**Not yet wired up: Sparkle 2 auto-updates.** This needs a publicly hosted appcast
-(GitHub Pages/S3) and a generated EdDSA signing key before there's anything useful to
-integrate against — adding the Sparkle dependency now, pointed at a feed that doesn't
-exist, would be a checkbox that quietly does nothing. Get the appcast hosting decided
-first, then wire `SPUStandardUpdaterController` + an `SUFeedURL` in Info.plist.
+### V2.0 — deferred
+
+Apple Developer Program membership, Developer ID trust/notarization submission, ticket
+stapling, Sparkle/appcast/EdDSA auto-updates, remote user or
+membership databases, billing/licensing, accounts, and teams are v2-only. The existing
+`make release` / `scripts/release.sh` and `WriterFlow.entitlements` are retained as v2
+Developer ID scaffolding; do not use them for the v1 path.
 
 **Diagnostics, not automated crash reporting.** Settings → Reliability → "Share
 Diagnostics" writes a local text file (app/OS version, per-app AX success/fail counts,
@@ -259,6 +266,6 @@ recent crash reports macOS already collected under `~/Library/Logs/DiagnosticRep
 that the user explicitly saves and can choose to send — nothing is ever collected or
 uploaded automatically.
 
-**Versioning**: no `v1.0.0` tag exists yet. Cut one once a signed+notarized build has
-actually been through Phase 4's exit criteria and Phase 3's live-verification pass — see
-`CLAUDE.md`'s current-state note for what's still pending.
+**Versioning**: no `v1.0.0` tag exists yet. Cut one after the gates in `RELEASE.md`,
+Phase 3/4 live verification, soak, checksum/artifact checks, and clean-Mac manual
+Gatekeeper test pass. Developer ID signing and notarization are not v1 tag gates.
