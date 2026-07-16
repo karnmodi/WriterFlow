@@ -101,45 +101,88 @@ struct SettingsTabView: View {
         }
     }
 
-    // MARK: - API key
+    // MARK: - Azure connection (BYO)
 
     private var apiKeyCard: some View {
         DashboardCard(
-            title: "Azure OpenAI API Key",
+            title: "Azure OpenAI (your key)",
+            subtitle: "Bring your own Azure resource — WriterFlow never ships a shared key.",
             icon: "key.fill",
             iconTint: .yellow
         ) {
             VStack(alignment: .leading, spacing: 8) {
-                SecureField("API key", text: $apiKeyViewModel.apiKeyInput)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(apiKeyViewModel.isValidating)
+                if apiKeyViewModel.hasSavedKey {
+                    Label("API key saved in Keychain", systemImage: "checkmark.seal.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.green)
+                } else {
+                    Label("No API key yet — actions will fail until you add one", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.orange)
+                }
+
+                Text("Responses endpoint")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField(
+                    "https://YOUR-RESOURCE.cognitiveservices.azure.com/openai/responses?api-version=…",
+                    text: $apiKeyViewModel.endpointURL
+                )
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.caption, design: .monospaced))
+                .disabled(apiKeyViewModel.isValidating)
+                .onChange(of: apiKeyViewModel.endpointURL) { _, newValue in
+                    viewModel.modelsConfig.responsesURL = newValue
+                }
+
+                Text("API key")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                SecureField(
+                    apiKeyViewModel.hasSavedKey ? "Paste a new key to replace…" : "Paste your Azure OpenAI API key",
+                    text: $apiKeyViewModel.apiKeyInput
+                )
+                .textFieldStyle(.roundedBorder)
+                .disabled(apiKeyViewModel.isValidating)
 
                 HStack(spacing: 10) {
                     Button {
-                        apiKeyViewModel.validateAndSave()
+                        apiKeyViewModel.validateAndSave(updatingDeploymentsFrom: viewModel.modelsConfig)
                     } label: {
                         if apiKeyViewModel.isValidating {
                             ProgressView().controlSize(.small)
                         } else {
-                            Text("Validate & Save")
+                            Text(apiKeyViewModel.hasSavedKey ? "Re-validate & Save" : "Validate & Save")
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(apiKeyViewModel.isValidating || apiKeyViewModel.apiKeyInput.isEmpty)
+                    .disabled(
+                        apiKeyViewModel.isValidating
+                        || apiKeyViewModel.apiKeyInput.isEmpty
+                        || apiKeyViewModel.endpointURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
 
-                    if let message = apiKeyViewModel.statusMessage {
-                        Text(message)
-                            .font(.callout)
-                            .foregroundStyle(apiKeyViewModel.statusIsError ? .red : .green)
+                    if apiKeyViewModel.hasSavedKey {
+                        Button("Remove key") {
+                            apiKeyViewModel.clearSavedKey()
+                        }
+                        .buttonStyle(.link)
                     }
                 }
 
+                if let message = apiKeyViewModel.statusMessage {
+                    Text(message)
+                        .font(.callout)
+                        .foregroundStyle(apiKeyViewModel.statusIsError ? .red : .green)
+                }
+
                 DashboardSectionCaption(
-                    text: "Validated with a 1-token test call, then stored in the macOS Keychain — never in logs, UserDefaults, or any file WriterFlow writes."
+                    text: "Create a key in Azure Portal → your OpenAI resource → Keys and Endpoint. WriterFlow validates with a 1-token ping, then stores the key only in the macOS Keychain — never in the app bundle, logs, or UserDefaults."
                 )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear { apiKeyViewModel.sync(from: viewModel.modelsConfig) }
     }
 
     // MARK: - Models
@@ -147,11 +190,16 @@ struct SettingsTabView: View {
     private var modelsCard: some View {
         DashboardCard(
             title: "Models",
-            subtitle: "Deployment name and estimated $/1M-token pricing per action class.",
+            subtitle: "Exact Azure deployment names from your resource, plus optional cost estimates.",
             icon: "cpu",
             iconTint: .purple
         ) {
             VStack(alignment: .leading, spacing: 12) {
+                Toggle("Use one deployment for all actions", isOn: $viewModel.useOneModelForAll)
+                DashboardSectionCaption(
+                    text: "On: Default, Grammar, and Heavy all call the same deployment. Off: pick a cheaper model for grammar and a stronger one for the background classifier."
+                )
+
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 10) {
                         modelSlots
@@ -161,14 +209,14 @@ struct SettingsTabView: View {
                     }
                 }
                 DashboardSectionCaption(
-                    text: "Changes save to models.json immediately and apply to the very next action — no restart needed. Pricing feeds the Usage tab's estimated cost."
+                    text: "Names must match Azure Portal → Deployments exactly (e.g. gpt-5.4-mini). Changes save immediately and apply to the next action. Pricing only feeds the Usage tab estimate — WriterFlow never bills you."
                 )
 
                 Divider()
-                TextField("Remote config URL (optional)", text: $settings.remoteConfigURL)
+                TextField("Remote config URL (optional, advanced)", text: $settings.remoteConfigURL)
                     .textFieldStyle(.roundedBorder)
                 DashboardSectionCaption(
-                    text: "Advanced, optional. If set, WriterFlow checks this URL once per launch for maintainer-published fallback deployment names and pricing — never your own configured deployments or API keys. Only affects a brand-new install's defaults, or a deployment with no pricing entry yet. Leave blank to disable (the default)."
+                    text: "Leave blank (default). If set, WriterFlow may fetch maintainer-published fallback deployment names/pricing for brand-new installs only — never your key or your configured deployments."
                 )
             }
         }
@@ -179,23 +227,29 @@ struct SettingsTabView: View {
         ModelSlotCard(
             title: "Default",
             usageDescription: "Elaborate, Formal, Casual, Reply, Prompt Builder, Custom",
-            deployment: $viewModel.modelsConfig.slots.default.deployment,
+            deployment: Binding(
+                get: { viewModel.modelsConfig.slots.default.deployment },
+                set: { viewModel.setDefaultDeployment($0) }
+            ),
             inputPrice: pricingBinding(for: viewModel.modelsConfig.slots.default.deployment, \.inputPerMillion),
-            outputPrice: pricingBinding(for: viewModel.modelsConfig.slots.default.deployment, \.outputPerMillion)
+            outputPrice: pricingBinding(for: viewModel.modelsConfig.slots.default.deployment, \.outputPerMillion),
+            isEnabled: true
         )
         ModelSlotCard(
             title: "Grammar",
             usageDescription: "Fix Grammar",
             deployment: $viewModel.modelsConfig.slots.grammar.deployment,
             inputPrice: pricingBinding(for: viewModel.modelsConfig.slots.grammar.deployment, \.inputPerMillion),
-            outputPrice: pricingBinding(for: viewModel.modelsConfig.slots.grammar.deployment, \.outputPerMillion)
+            outputPrice: pricingBinding(for: viewModel.modelsConfig.slots.grammar.deployment, \.outputPerMillion),
+            isEnabled: !viewModel.useOneModelForAll
         )
         ModelSlotCard(
             title: "Heavy",
-            usageDescription: "The recommended-action classifier — starts running in the background as soon as you begin typing.",
+            usageDescription: "Background recommended-action classifier (while typing).",
             deployment: $viewModel.modelsConfig.slots.heavy.deployment,
             inputPrice: pricingBinding(for: viewModel.modelsConfig.slots.heavy.deployment, \.inputPerMillion),
-            outputPrice: pricingBinding(for: viewModel.modelsConfig.slots.heavy.deployment, \.outputPerMillion)
+            outputPrice: pricingBinding(for: viewModel.modelsConfig.slots.heavy.deployment, \.outputPerMillion),
+            isEnabled: !viewModel.useOneModelForAll
         )
     }
 
@@ -337,6 +391,7 @@ private struct ModelSlotCard: View {
     @Binding var deployment: String
     @Binding var inputPrice: Double
     @Binding var outputPrice: Double
+    var isEnabled: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -346,11 +401,15 @@ private struct ModelSlotCard: View {
             TextField("deployment name", text: $deployment)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.callout, design: .monospaced))
+                .disabled(!isEnabled)
+                .opacity(isEnabled ? 1 : 0.55)
 
             HStack(spacing: 8) {
                 priceField(label: "Input $/1M", value: $inputPrice)
                 priceField(label: "Output $/1M", value: $outputPrice)
             }
+            .disabled(!isEnabled)
+            .opacity(isEnabled ? 1 : 0.55)
 
             Text(usageDescription)
                 .font(.caption2)

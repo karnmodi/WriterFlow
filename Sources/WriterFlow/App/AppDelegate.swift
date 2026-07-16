@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
     private var pauseMenuItem: NSMenuItem?
     private var statusMenuItem: NSMenuItem?
     private let permissions = PermissionsCoordinator()
-    private lazy var onboarding = OnboardingWindowController(permissions: permissions)
+    private lazy var onboarding = OnboardingWindowController(permissions: permissions, modelsConfig: modelsConfig)
     private lazy var dashboardWindow = DashboardWindowController(modelsConfig: modelsConfig)
     private let focusMonitor = FocusMonitor()
     private let overlay = OverlayController()
@@ -49,16 +49,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         onboarding.onOpenDashboard = { [weak self] in self?.dashboardWindow.show() }
         dashboardWindow.show()
 
-        // Permissions gate only the floating icon/hotkey — surface that setup on top,
-        // non-blocking (the user can dismiss it and use the Dashboard immediately).
-        if !permissions.allGranted {
-            Log.app.info("Permissions missing — showing onboarding above the Dashboard")
+        // Local-dev only: seed Keychain from project `.env` / secrets.env before deciding
+        // whether BYO setup is still needed.
+        seedAzureCredentials()
+
+        // Permissions + BYO Azure key gate only the floating icon / AI actions —
+        // surface setup on top, non-blocking (Dashboard still works immediately).
+        let liveConfig = AzureModelsConfig.loadFromDisk() ?? modelsConfig
+        let needsAzureSetup = !KeychainStore.hasConfiguredAPIKey(envName: liveConfig.defaultApiKeyEnv)
+            || liveConfig.hasPlaceholderEndpoint
+        if !permissions.allGranted || needsAzureSetup {
+            Log.app.info("Setup incomplete — showing onboarding above the Dashboard")
             onboarding.show()
         }
 
         focusMonitor.delegate = overlay
-
-        seedAzureCredentials()
 
         // Stage 4.5: non-blocking — only ever updates the cache used by *next* launch's
         // bootstrap, never anything in this running session. No-ops entirely when
@@ -286,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
 
         menu.addItem(.separator())
 
-        let onboard = NSMenuItem(title: "Setup Permissions…", action: #selector(showOnboarding), keyEquivalent: "")
+        let onboard = NSMenuItem(title: "Setup…", action: #selector(showOnboarding), keyEquivalent: "")
         onboard.target = self
         menu.addItem(onboard)
 

@@ -1,15 +1,42 @@
 import Foundation
 import Security
 
-/// API key storage — Keychain first, with an Application Support fallback for
-/// ad-hoc dev builds whose code signature changes on every rebuild (which
-/// otherwise triggers a keychain password prompt on every read).
+/// API key storage for bring-your-own-key (BYO).
+///
+/// Public path: the user pastes their Azure OpenAI key in onboarding/Settings;
+/// it lives only in the macOS Keychain. Never bundled, never written to a
+/// shippable artifact.
+///
+/// Local-dev convenience only: `bootstrap(from:)` may seed Keychain from a
+/// project `.env` / Application Support `secrets.env` so rebuilds don't force
+/// re-pasting. That path must never ship a publisher key.
 enum KeychainStore {
     private static let service = "com.karan.writerflow"
     private static let account = "azure-openai-api-key"
     private static let secretsFileName = "secrets.env"
 
     nonisolated(unsafe) private static var cachedKey: String?
+
+    /// True when a key is already available without prompting (Keychain, cache,
+    /// or local-dev env/secrets). Used to decide whether onboarding should ask
+    /// for Azure setup.
+    static func hasConfiguredAPIKey(envName: String = "API_KEY_GPT_5-4_Pro") -> Bool {
+        if let cached = cachedKey, !cached.isEmpty { return true }
+        if let key = readFromKeychain(interactive: false), !key.isEmpty {
+            cachedKey = key
+            return true
+        }
+        if let key = readFromSecretsFile(envName: envName), !key.isEmpty {
+            return true
+        }
+        let exec = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? ".")
+        if let envFile = DotEnvLoader.findEnvFile(startingAt: exec.deletingLastPathComponent()),
+           let env = DotEnvLoader.load(from: envFile),
+           let key = env[envName], !key.isEmpty {
+            return true
+        }
+        return false
+    }
 
     /// Resolve the API key once per session — avoids repeated keychain prompts.
     static func resolveAPIKey(env: [String: String], envName: String) -> String? {
@@ -39,7 +66,7 @@ enum KeychainStore {
         return nil
     }
 
-    /// Save a user-provided key from the Settings pane (Phase 1.5).
+    /// Save a user-provided key from onboarding / Settings (BYO path).
     @discardableResult
     static func saveUserProvidedKey(_ key: String) -> Bool {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -48,7 +75,14 @@ enum KeychainStore {
         return resetAndSaveAPIKey(trimmed)
     }
 
-    /// Seed Keychain + Application Support from `.env` on launch.
+    /// Removes the Keychain item and session cache. Does not delete local-dev
+    /// `secrets.env` — leave that for `scripts/install.sh` / rebuild workflows.
+    static func clearUserProvidedKey() {
+        cachedKey = nil
+        deleteAPIKey()
+    }
+
+    /// Seed Keychain + Application Support from `.env` on launch (local development only).
     static func bootstrap(from env: [String: String], keyEnvName: String) {
         guard let key = env[keyEnvName], !key.isEmpty else { return }
 

@@ -48,6 +48,21 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
         pricing[deployment] ?? .fallback
     }
 
+    /// Placeholder endpoint left by a fresh install before the user pastes theirs.
+    var hasPlaceholderEndpoint: Bool {
+        responsesURL.contains("YOUR-RESOURCE") || responsesURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Endpoint looks like a usable HTTPS Azure Responses URL.
+    var hasUsableEndpoint: Bool {
+        guard let url = URL(string: responsesURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "https",
+              let host = url.host, !host.isEmpty
+        else { return false }
+        return !hasPlaceholderEndpoint
+    }
+
     /// Writes to `models.json` immediately — the hot-swappable config `AzureOpenAIClient`
     /// re-reads on every call, so this is how the Settings tab's model fields live-apply.
     func save() {

@@ -11,7 +11,7 @@ enum AzureOpenAIError: Error, LocalizedError, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .missingAPIKey: return "Azure API key not configured. Add it in Settings."
+        case .missingAPIKey: return "Azure API key not configured. Add it in Setup or Dashboard → Settings."
         case .invalidURL(let u): return "Invalid Azure endpoint: \(u)"
         case .httpError(let code, let body): return "Azure API error \(code): \(body)"
         case .apiError(let msg): return msg

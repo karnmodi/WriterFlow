@@ -5,14 +5,16 @@ import SwiftUI
 final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     let permissions: PermissionsCoordinator
+    private let modelsConfig: AzureModelsConfig
     private(set) var isVisible = false
     weak var visibilityDelegate: AppWindowVisibilityDelegate?
     /// Lets the onboarding screen jump straight to the Dashboard without closing itself first —
     /// the Dashboard is the default landing surface now, onboarding is just an overlay on top of it.
     var onOpenDashboard: (() -> Void)?
 
-    init(permissions: PermissionsCoordinator) {
+    init(permissions: PermissionsCoordinator, modelsConfig: AzureModelsConfig) {
         self.permissions = permissions
+        self.modelsConfig = modelsConfig
         super.init()
     }
 
@@ -26,8 +28,11 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
             return
         }
 
+        // Prefer live disk config so Settings edits aren't lost if setup reopens.
+        let config = AzureModelsConfig.loadFromDisk() ?? modelsConfig
         let view = OnboardingView(
             permissions: permissions,
+            modelsConfig: config,
             onOpenDashboard: { [weak self] in self?.onOpenDashboard?() },
             onDone: { [weak self] in self?.close() }
         )
@@ -42,8 +47,8 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        window.setContentSize(NSSize(width: 540, height: 640))
-        window.minSize = NSSize(width: 540, height: 520)
+        window.setContentSize(NSSize(width: 560, height: 720))
+        window.minSize = NSSize(width: 560, height: 560)
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
