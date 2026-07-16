@@ -20,13 +20,20 @@ enum FocusedFieldClassifier {
     ]
 
     static func classify(_ element: AXUIElement, pid: pid_t, bundleID: String?) -> FocusedField? {
-        if IsSecureEventInputEnabled() { return nil }
+        if IsSecureEventInputEnabled() {
+            Log.focus.debug("classify: secure event input active, ignoring \(bundleID ?? "?", privacy: .public)")
+            return nil
+        }
 
+        let rawRole = AXCall.string(element, AXAttr.role) ?? "?"
         guard let editable = FocusedElementResolver.resolveEditable(from: element) else {
+            Log.focus.debug("classify: resolveEditable found nothing, rawRole=\(rawRole, privacy: .public) app=\(bundleID ?? "?", privacy: .public)")
             return nil
         }
         guard StrictFieldGate.allows(editable, pid: pid) else {
-            Log.focus.debug("StrictFieldGate rejected \(bundleID ?? "?", privacy: .public)")
+            let role = AXCall.string(editable, AXAttr.role) ?? "?"
+            let frame = AXCall.axFrame(editable) ?? .zero
+            Log.focus.debug("StrictFieldGate rejected role=\(role, privacy: .public) frame=\(frame.debugDescription, privacy: .public) app=\(bundleID ?? "?", privacy: .public)")
             return nil
         }
         guard let role = AXCall.string(editable, AXAttr.role) else { return nil }

@@ -153,6 +153,7 @@ final class FocusMonitor {
 
     private func handleFocusChanged(element: AXUIElement?, in observer: AppObserver) {
         guard let element else {
+            Log.focus.debug("handleFocusChanged: nil element from \(observer.bundleID ?? "?", privacy: .public)")
             observer.observeValueChanges(on: nil)
             clearCurrentField()
             return
@@ -160,13 +161,16 @@ final class FocusMonitor {
         observer.observeValueChanges(on: element)
         let pid = observer.pid
         let bundleID = observer.bundleID
+        Log.focus.debug("handleFocusChanged: element received from \(bundleID ?? "?", privacy: .public), classifying")
         axQueue.async { [weak self] in
             let classified = FocusedFieldClassifier.classify(element, pid: pid, bundleID: bundleID)
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if let field = classified {
+                    Log.focus.debug("classify: accepted role=\(field.role, privacy: .public) app=\(bundleID ?? "?", privacy: .public)")
                     self.applyClassifiedField(field)
                 } else {
+                    Log.focus.debug("classify: rejected/no field app=\(bundleID ?? "?", privacy: .public)")
                     self.clearCurrentField()
                 }
             }
