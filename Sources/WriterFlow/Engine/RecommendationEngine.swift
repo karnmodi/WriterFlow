@@ -1,8 +1,7 @@
 import Foundation
 
-/// Suggests which writing action best fits the current field, via a small
-/// classification call. Never blocks the popover from opening — runs
-/// concurrently with it and reports back asynchronously.
+/// Suggests which writing action best fits the current field after the user
+/// explicitly opens the action popover. Never runs from passive typing signals.
 @MainActor
 final class RecommendationEngine {
     private let client: AzureOpenAIClient
@@ -14,10 +13,7 @@ final class RecommendationEngine {
     /// under itself mid-flight.
     private var currentGeneration = UUID()
 
-    /// Last successful classification, kept around so a popover opening for the same field
-    /// (matched the same way `applyRecommendation` already does) can apply it instantly
-    /// instead of waiting on a fresh network round trip — the whole point of starting this
-    /// call in the background as soon as the user starts typing, not when the popover opens.
+    /// Last successful classification for the same field during the current interaction.
     private var cachedRecommendation: (field: FocusedField, action: WritingAction)?
 
     /// Fired with the suggested action, tagged with the field it was computed for

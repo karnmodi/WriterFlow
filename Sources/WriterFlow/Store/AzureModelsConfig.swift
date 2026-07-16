@@ -1,7 +1,8 @@
 import Foundation
 
-/// Hot-swappable Azure OpenAI model routing. Lives in Application Support;
-/// bootstrapped from `.env` on first launch.
+/// Hot-swappable Azure OpenAI model routing in Application Support. Release
+/// installs start with non-secret placeholders completed in Setup; debug builds
+/// may bootstrap contributor values from a local `.env`.
 struct AzureModelsConfig: Codable, Sendable, Equatable {
     struct Slot: Codable, Sendable, Equatable {
         var deployment: String
@@ -55,12 +56,31 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
 
     /// Endpoint looks like a usable HTTPS Azure Responses URL.
     var hasUsableEndpoint: Bool {
-        guard let url = URL(string: responsesURL.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "https",
-              let host = url.host, !host.isEmpty
+        Self.isUsableResponsesURL(responsesURL) && !hasPlaceholderEndpoint
+    }
+
+    static func isUsableResponsesURL(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.localizedCaseInsensitiveContains("YOUR-RESOURCE"),
+              let components = URLComponents(
+                  string: trimmed
+              ),
+              components.scheme?.lowercased() == "https",
+              components.user == nil,
+              components.password == nil,
+              components.port == nil || components.port == 443,
+              let host = components.host?.lowercased(),
+              (
+                  host.hasSuffix(".cognitiveservices.azure.com")
+                      || host.hasSuffix(".openai.azure.com")
+              ),
+              components.path == "/openai/responses",
+              components.queryItems?.contains(where: {
+                  $0.name == "api-version" && !($0.value ?? "").isEmpty
+              }) == true
         else { return false }
-        return !hasPlaceholderEndpoint
+        return true
     }
 
     /// Writes to `models.json` immediately — the hot-swappable config `AzureOpenAIClient`
@@ -92,7 +112,7 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
         try? FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
         if let data = try? JSONEncoder.pretty.encode(bootstrapped) {
             try? data.write(to: configURL, options: .atomic)
-            Log.store.info("Bootstrapped models.json from .env")
+            Log.store.info("Created initial models.json")
         }
         return bootstrapped
     }
@@ -103,9 +123,13 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
     }
 
     private static func bootstrapFromEnv() -> AzureModelsConfig {
+        #if DEBUG
         let exec = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? ".")
         let envFile = DotEnvLoader.findEnvFile(startingAt: exec.deletingLastPathComponent())
         let env = DotEnvLoader.loadMerged(fileURL: envFile)
+        #else
+        let env: [String: String] = [:]
+        #endif
 
         let responsesURL = env["TARGET_URI"]
             ?? "https://YOUR-RESOURCE.cognitiveservices.azure.com/openai/responses?api-version=2025-04-01-preview"
@@ -116,13 +140,8 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
             env[key] ?? fallback
         }
 
-        // Stage 4.5: prefer a maintainer-published remote fallback over the hardcoded
-        // literal here, if one was cached by a previous launch's RemoteConfigFetcher —
-        // keeps a brand-new install's bootstrap defaults from going stale after a model
-        // retirement, without ever touching an existing user's already-configured slots.
-        let remote = RemoteConfigFetcher.cached()
-        let miniFallback = remote?.recommendedMiniDeployment ?? "gpt-5.4-mini"
-        let proFallback = remote?.recommendedProDeployment ?? "gpt-5.4-pro"
+        let miniFallback = "gpt-5.4-mini"
+        let proFallback = "gpt-5.4-pro"
         let miniDeployment = deployment("AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Mini", fallback: miniFallback)
         let proDeployment = deployment("AZURE_OPENAI_DEPLOYMENT_GPT_5-4_Pro", fallback: proFallback)
 
@@ -137,15 +156,10 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
                     apiKeyEnv: env[defaultKeyEnv] != nil ? defaultKeyEnv : nil
                 )
             ),
-            // Rough placeholder rates so the Usage tab shows a plausible estimate out of the
-            // box — editable per-deployment from the Settings tab (Stage 3.4/3.5), and this
-            // is explicitly labeled an estimate in the UI, not a billing-accurate figure.
-            // Prefer a cached remote rate (see RemoteConfigFetcher) when one exists.
+            // Editable estimates for the user's own Azure account; WriterFlow does not bill.
             pricing: [
-                miniDeployment: remote?.pricing?[miniDeployment]
-                    ?? Pricing(inputPerMillion: 0.15, outputPerMillion: 0.60),
-                proDeployment: remote?.pricing?[proDeployment]
-                    ?? Pricing(inputPerMillion: 2.00, outputPerMillion: 8.00)
+                miniDeployment: Pricing(inputPerMillion: 0.15, outputPerMillion: 0.60),
+                proDeployment: Pricing(inputPerMillion: 2.00, outputPerMillion: 8.00)
             ]
         )
     }

@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 
 /// API key storage for bring-your-own-key (BYO).
@@ -13,19 +14,22 @@ import Security
 enum KeychainStore {
     private static let service = "com.karan.writerflow"
     private static let account = "azure-openai-api-key"
+    #if DEBUG
     private static let secretsFileName = "secrets.env"
+    #endif
 
     nonisolated(unsafe) private static var cachedKey: String?
 
-    /// True when a key is already available without prompting (Keychain, cache,
-    /// or local-dev env/secrets). Used to decide whether onboarding should ask
-    /// for Azure setup.
+    /// True when a key is already available without prompting. Release builds
+    /// consult only the session cache and Keychain; debug builds may also use
+    /// contributor-only local credential files.
     static func hasConfiguredAPIKey(envName: String = "API_KEY_GPT_5-4_Pro") -> Bool {
         if let cached = cachedKey, !cached.isEmpty { return true }
         if let key = readFromKeychain(interactive: false), !key.isEmpty {
             cachedKey = key
             return true
         }
+        #if DEBUG
         if let key = readFromSecretsFile(envName: envName), !key.isEmpty {
             return true
         }
@@ -35,6 +39,7 @@ enum KeychainStore {
            let key = env[envName], !key.isEmpty {
             return true
         }
+        #endif
         return false
     }
 
@@ -47,6 +52,7 @@ enum KeychainStore {
             return key
         }
 
+        #if DEBUG
         if let key = env[envName], !key.isEmpty {
             cachedKey = key
             return key
@@ -56,6 +62,7 @@ enum KeychainStore {
             cachedKey = key
             return key
         }
+        #endif
 
         // Last resort — may show the keychain dialog once.
         if let key = readFromKeychain(interactive: true), !key.isEmpty {
@@ -82,6 +89,7 @@ enum KeychainStore {
         deleteAPIKey()
     }
 
+    #if DEBUG
     /// Seed Keychain + Application Support from `.env` on launch (local development only).
     static func bootstrap(from env: [String: String], keyEnvName: String) {
         guard let key = env[keyEnvName], !key.isEmpty else { return }
@@ -93,6 +101,7 @@ enum KeychainStore {
         _ = resetAndSaveAPIKey(key)
         Log.store.info("Bootstrapped Azure API key (\(keyEnvName, privacy: .public))")
     }
+    #endif
 
     // MARK: - Keychain
 
@@ -105,7 +114,9 @@ enum KeychainStore {
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         if !interactive {
-            query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+            let context = LAContext()
+            context.interactionNotAllowed = true
+            query[kSecUseAuthenticationContext as String] = context
         }
 
         var item: CFTypeRef?
@@ -145,6 +156,7 @@ enum KeychainStore {
 
     // MARK: - Application Support fallback
 
+    #if DEBUG
     static var secretsFileURL: URL {
         AzureModelsConfig.appSupportURL.appendingPathComponent(secretsFileName)
     }
@@ -173,4 +185,5 @@ enum KeychainStore {
         guard let env = DotEnvLoader.load(from: secretsFileURL) else { return nil }
         return env[envName]
     }
+    #endif
 }

@@ -49,29 +49,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         onboarding.onOpenDashboard = { [weak self] in self?.dashboardWindow.show() }
         dashboardWindow.show()
 
-        // Local-dev only: seed Keychain from project `.env` / secrets.env before deciding
-        // whether BYO setup is still needed.
+        #if DEBUG
+        // Contributor builds may seed Keychain from local development credentials.
+        // Release builds compile this path out completely.
         seedAzureCredentials()
+        #endif
 
         // Permissions + BYO Azure key gate only the floating icon / AI actions —
         // surface setup on top, non-blocking (Dashboard still works immediately).
         let liveConfig = AzureModelsConfig.loadFromDisk() ?? modelsConfig
         let needsAzureSetup = !KeychainStore.hasConfiguredAPIKey(envName: liveConfig.defaultApiKeyEnv)
-            || liveConfig.hasPlaceholderEndpoint
+            || !liveConfig.hasUsableEndpoint
         if !permissions.allGranted || needsAzureSetup {
             Log.app.info("Setup incomplete — showing onboarding above the Dashboard")
             onboarding.show()
         }
 
         focusMonitor.delegate = overlay
-
-        // Stage 4.5: non-blocking — only ever updates the cache used by *next* launch's
-        // bootstrap, never anything in this running session. No-ops entirely when
-        // remoteConfigURL is unset (the default).
-        let remoteConfigURL = settings.remoteConfigURL
-        Task.detached(priority: .background) {
-            await RemoteConfigFetcher.refreshInBackground(urlString: remoteConfigURL)
-        }
 
         actionEngine.onStreamDelta = { [weak self] delta in
             self?.overlay.appendVariant(0, delta: delta)
@@ -118,12 +112,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         }
         recommendationEngine.onRecommendation = { [weak self] action, field in
             self?.overlay.applyRecommendation(action, for: field)
-        }
-        // Starts the classifier the moment the user begins typing anywhere (and refines it on
-        // every short pause), so by the time they open the popover a suggestion is usually
-        // already cached — see `FocusMonitor.onTypingActivity`.
-        focusMonitor.onTypingActivity = { [weak self] field in
-            self?.recommendationEngine.recommend(field: field)
         }
 
         globalHotkey.onTrigger = { [weak self] in
@@ -338,6 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         NSApp.terminate(nil)
     }
 
+    #if DEBUG
     private func seedAzureCredentials() {
         let exec = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? ".")
         let projectEnvURL = DotEnvLoader.findProjectEnvFile(startingAt: exec.deletingLastPathComponent())
@@ -349,4 +338,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         }
         KeychainStore.bootstrap(from: merged, keyEnvName: modelsConfig.defaultApiKeyEnv)
     }
+    #endif
 }

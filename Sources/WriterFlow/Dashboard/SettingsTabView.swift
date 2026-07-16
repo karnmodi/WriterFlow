@@ -197,7 +197,7 @@ struct SettingsTabView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle("Use one deployment for all actions", isOn: $viewModel.useOneModelForAll)
                 DashboardSectionCaption(
-                    text: "On: Default, Grammar, and Heavy all call the same deployment. Off: pick a cheaper model for grammar and a stronger one for the background classifier."
+                    text: "On: Default, Grammar, and Heavy all call the same deployment. Off: pick a cheaper model for grammar and a stronger one for the recommendation shown after you open the action menu."
                 )
 
                 ViewThatFits(in: .horizontal) {
@@ -212,12 +212,6 @@ struct SettingsTabView: View {
                     text: "Names must match Azure Portal → Deployments exactly (e.g. gpt-5.4-mini). Changes save immediately and apply to the next action. Pricing only feeds the Usage tab estimate — WriterFlow never bills you."
                 )
 
-                Divider()
-                TextField("Remote config URL (optional, advanced)", text: $settings.remoteConfigURL)
-                    .textFieldStyle(.roundedBorder)
-                DashboardSectionCaption(
-                    text: "Leave blank (default). If set, WriterFlow may fetch maintainer-published fallback deployment names/pricing for brand-new installs only — never your key or your configured deployments."
-                )
             }
         }
     }
@@ -245,7 +239,7 @@ struct SettingsTabView: View {
         )
         ModelSlotCard(
             title: "Heavy",
-            usageDescription: "Background recommended-action classifier (while typing).",
+            usageDescription: "Recommended action after you explicitly open the action menu.",
             deployment: $viewModel.modelsConfig.slots.heavy.deployment,
             inputPrice: pricingBinding(for: viewModel.modelsConfig.slots.heavy.deployment, \.inputPerMillion),
             outputPrice: pricingBinding(for: viewModel.modelsConfig.slots.heavy.deployment, \.outputPerMillion),

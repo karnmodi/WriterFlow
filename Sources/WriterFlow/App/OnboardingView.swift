@@ -28,7 +28,9 @@ struct OnboardingView: View {
     }
 
     private var azureReady: Bool {
-        connection.hasSavedKey && !connection.endpointURL.contains("YOUR-RESOURCE")
+        connection.hasSavedKey
+            && AzureModelsConfig.isUsableResponsesURL(connection.endpointURL)
+            && !connection.endpointURL.contains("YOUR-RESOURCE")
     }
 
     var body: some View {

@@ -1,5 +1,4 @@
 import AppKit
-import Darwin
 import Foundation
 
 /// Stage 4.4: if the user launches WriterFlow straight from the mounted install DMG
@@ -30,10 +29,6 @@ enum AppRelocator {
                 try fm.removeItem(at: destination)
             }
             try fm.copyItem(at: URL(fileURLWithPath: bundlePath), to: destination)
-            // The copy inherits com.apple.quarantine from the DMG-mounted original;
-            // clear it on the relocated copy so the user isn't re-prompted by Gatekeeper
-            // for an app they just explicitly asked to install.
-            removeQuarantineAttribute(at: destination)
             NSWorkspace.shared.open(destination)
             NSApp.terminate(nil)
         } catch {
@@ -45,9 +40,4 @@ enum AppRelocator {
         }
     }
 
-    private static func removeQuarantineAttribute(at url: URL) {
-        _ = url.path.withCString { path in
-            removexattr(path, "com.apple.quarantine", 0)
-        }
-    }
 }

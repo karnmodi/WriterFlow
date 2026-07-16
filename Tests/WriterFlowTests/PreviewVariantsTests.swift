@@ -15,7 +15,7 @@ final class PreviewVariantsTests: XCTestCase {
     func testSingleFactory() {
         let variants = PreviewVariants.single("Hello")
         XCTAssertEqual(variants.selectedText, "Hello")
-        XCTAssertEqual(variants.completedIndices, [0])
+        XCTAssertEqual(variants.completedIndices, Set(0..<PreviewVariants.count))
         XCTAssertTrue(variants.canReplace)
         XCTAssertFalse(variants.isStreaming)
     }
@@ -39,13 +39,13 @@ final class PreviewVariantsTests: XCTestCase {
         XCTAssertFalse(variants.isStreaming)
     }
 
-    func testRewriteActionsUseMultiVariantPreview() {
-        XCTAssertTrue(WritingAction.elaborate.usesMultiVariantPreview)
-        XCTAssertTrue(WritingAction.formal.usesMultiVariantPreview)
-        XCTAssertTrue(WritingAction.casual.usesMultiVariantPreview)
-        XCTAssertTrue(WritingAction.fixGrammar.usesMultiVariantPreview)
-        XCTAssertTrue(WritingAction.reply.usesMultiVariantPreview)
-        XCTAssertTrue(WritingAction.custom.usesMultiVariantPreview)
+    func testV1ActionsUseOneProviderRequest() {
+        XCTAssertFalse(WritingAction.elaborate.usesMultiVariantPreview)
+        XCTAssertFalse(WritingAction.formal.usesMultiVariantPreview)
+        XCTAssertFalse(WritingAction.casual.usesMultiVariantPreview)
+        XCTAssertFalse(WritingAction.fixGrammar.usesMultiVariantPreview)
+        XCTAssertFalse(WritingAction.reply.usesMultiVariantPreview)
+        XCTAssertFalse(WritingAction.custom.usesMultiVariantPreview)
         XCTAssertFalse(WritingAction.promptBuilder.usesMultiVariantPreview)
     }
 }

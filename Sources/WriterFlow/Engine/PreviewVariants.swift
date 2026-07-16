@@ -39,7 +39,8 @@ struct PreviewVariants: Sendable, Equatable {
     static func single(_ text: String) -> PreviewVariants {
         var variants = PreviewVariants()
         variants.texts[0] = text
-        variants.completedIndices = [0]
+        // A single-output action has no background variant streams left to finish.
+        variants.completedIndices = Set(0..<Self.count)
         return variants
     }
 
@@ -60,8 +61,10 @@ struct PreviewVariants: Sendable, Equatable {
 }
 
 extension WritingAction {
-    /// Rewrite actions generate three parallel variants; Prompt Builder stays single-output.
+    /// V1 makes one provider request per explicit action. The variant container remains
+    /// for preview compatibility, but parallel generation is disabled to avoid silently
+    /// tripling the user's Azure usage and cost.
     var usesMultiVariantPreview: Bool {
-        self != .promptBuilder
+        false
     }
 }

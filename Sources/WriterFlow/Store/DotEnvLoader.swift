@@ -25,11 +25,15 @@ enum DotEnvLoader {
 
     /// Runtime env file — prefers stable Application Support secrets, then project `.env`.
     static func findEnvFile(startingAt start: URL, maxDepth: Int = 6) -> URL? {
+        #if DEBUG
         let appSupportSecrets = KeychainStore.secretsFileURL
         if FileManager.default.fileExists(atPath: appSupportSecrets.path) {
             return appSupportSecrets
         }
         return findProjectEnvFile(startingAt: start, maxDepth: maxDepth)
+        #else
+        return nil
+        #endif
     }
 
     /// Merged map: process environment overrides file values.

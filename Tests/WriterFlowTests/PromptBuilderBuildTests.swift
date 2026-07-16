@@ -88,7 +88,7 @@ final class PromptBuilderBuildTests: XCTestCase {
         XCTAssertTrue(built.system.contains("Contextual transform"))
         XCTAssertTrue(built.system.contains("Adaptive structure"))
         XCTAssertTrue(built.system.contains("Cursor IDE agent chat"))
-        XCTAssertTrue(built.system.contains("Do NOT add new requirements or facts"))
+        XCTAssertTrue(built.system.contains("do NOT add new requirements or facts"))
         XCTAssertTrue(built.user.contains("CONVERSATION:"))
         XCTAssertTrue(built.user.contains("DRAFT/NEXT MESSAGE:"))
         XCTAssertTrue(built.user.contains("add tests for prompt builder"))
@@ -184,7 +184,7 @@ final class PromptBuilderBuildTests: XCTestCase {
         XCTAssertTrue(built.user.contains("Q: Tone?"))
         XCTAssertTrue(built.user.contains("A: Formal"))
         XCTAssertTrue(built.system.contains("Expand BRIEF into a send-ready LLM message"))
-        XCTAssertFalse(built.system.contains("---CLARIFY---"))
+        XCTAssertTrue(built.system.contains("Do NOT re-ask questions or emit ---CLARIFY---"))
     }
 
     // MARK: - Non-LLM sites

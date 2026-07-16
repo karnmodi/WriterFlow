@@ -48,6 +48,11 @@ final class SettingsViewModel: ObservableObject {
             statusMessage = "Replace YOUR-RESOURCE with your Azure resource hostname."
             return
         }
+        guard AzureModelsConfig.isUsableResponsesURL(endpoint) else {
+            statusIsError = true
+            statusMessage = "Use an Azure Responses endpoint on *.openai.azure.com or *.cognitiveservices.azure.com, including ?api-version=…"
+            return
+        }
         guard !key.isEmpty else {
             statusIsError = true
             statusMessage = "Enter an API key first."
@@ -91,7 +96,7 @@ final class SettingsViewModel: ObservableObject {
     }
 
     private static func friendlyMessage(for error: Error) -> String {
-        if case AzureOpenAIError.httpError(let code, _) = error {
+        if case AzureOpenAIError.httpError(let code) = error {
             switch code {
             case 401, 403: return "Invalid API key (or key lacks access to this endpoint)."
             case 404: return "Endpoint or deployment not found — check the URL and deployment name."

@@ -3,8 +3,8 @@ import Foundation
 enum AzureOpenAIError: Error, LocalizedError, Sendable {
     case missingAPIKey
     case invalidURL(String)
-    case httpError(Int, String)
-    case apiError(String)
+    case httpError(Int)
+    case apiError
     case timeout
     case emptyResponse
     case streamEnded
@@ -13,8 +13,8 @@ enum AzureOpenAIError: Error, LocalizedError, Sendable {
         switch self {
         case .missingAPIKey: return "Azure API key not configured. Add it in Setup or Dashboard → Settings."
         case .invalidURL(let u): return "Invalid Azure endpoint: \(u)"
-        case .httpError(let code, let body): return "Azure API error \(code): \(body)"
-        case .apiError(let msg): return msg
+        case .httpError(let code): return "Azure API request failed (\(code)). Check your endpoint, deployment, and Azure access."
+        case .apiError: return "Azure ended the request with an error. Check your deployment and try again."
         case .timeout: return "Request timed out. Check your connection and try again."
         case .emptyResponse: return "Azure returned an empty response."
         case .streamEnded: return "Stream ended unexpectedly."
@@ -44,9 +44,13 @@ actor AzureOpenAIClient {
     init(config: AzureModelsConfig, session: URLSession = .shared) {
         self.initialConfig = config
         self.session = session
+        #if DEBUG
         let exec = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? ".")
         let envFile = DotEnvLoader.findEnvFile(startingAt: exec.deletingLastPathComponent())
         self.env = DotEnvLoader.loadMerged(fileURL: envFile)
+        #else
+        self.env = [:]
+        #endif
     }
 
     /// Stream text deltas for a writing action.
@@ -96,7 +100,7 @@ actor AzureOpenAIClient {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
-        try validateHTTP(response: response, data: data)
+        try validateHTTP(response: response)
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let text = json["output_text"] as? String {
             return text
@@ -104,13 +108,10 @@ actor AzureOpenAIClient {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    /// Non-streaming classification call for the Recommendation Engine — one word
-    /// out of elaborate/formal/casual/grammar/reply, or nil if it doesn't parse.
+    /// Classification call made only after the user explicitly opens the action popover.
     func classifyAction(fieldText: String, hasVisibleThread: Bool, toneBias: String) async throws -> WritingAction? {
-        // Uses the heavy/reasoning slot rather than the cheap grammar one — this call now runs
-        // in the background starting the moment the user begins typing (see
-        // `RecommendationEngine`/`FocusMonitor.onTypingActivity`), so its extra latency is
-        // hidden behind typing time instead of being paid when the user opens the popover.
+        // Uses the heavy/reasoning slot; the user may route this to the same deployment
+        // as other actions from Settings.
         let slot = config.slots.heavy
         let apiKey = try resolveAPIKey(for: slot)
         let url = try resolveURL()
@@ -119,12 +120,6 @@ actor AzureOpenAIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "api-key")
-        // 8s (the old value) was sized for when this ran in the foreground at popover-open —
-        // too tight for a reasoning-capable "heavy" model, which was killing every attempt
-        // before it could finish, so no suggestion ever appeared no matter how long the user
-        // waited. This now runs in the background while the user types (see
-        // `RecommendationEngine`/`FocusMonitor.onTypingActivity`), so it's safe to give it
-        // much more room to actually complete.
         request.timeoutInterval = 25
 
         let threadNote = hasVisibleThread ? "A conversation thread is visible above this field." : "No conversation thread is visible."
@@ -146,7 +141,7 @@ actor AzureOpenAIClient {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
-        try validateHTTP(response: response, data: data)
+        try validateHTTP(response: response)
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let text = Self.extractOutputText(from: json)
         else { return nil }
@@ -183,7 +178,7 @@ actor AzureOpenAIClient {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
-        try validateHTTP(response: response, data: data)
+        try validateHTTP(response: response)
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let text = Self.extractOutputText(from: json),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -228,7 +223,10 @@ actor AzureOpenAIClient {
     // MARK: - Private
 
     private func resolveURL() throws -> URL {
-        guard let url = URL(string: config.responsesURL) else {
+        let raw = config.responsesURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard AzureModelsConfig.isUsableResponsesURL(raw),
+              let url = URL(string: raw)
+        else {
             throw AzureOpenAIError.invalidURL(config.responsesURL)
         }
         return url
@@ -271,9 +269,6 @@ actor AzureOpenAIClient {
         do {
             let (bytes, response) = try await session.bytes(for: request)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                var errData = Data()
-                for try await chunk in bytes { errData.append(chunk) }
-                let msg = String(data: errData, encoding: .utf8) ?? "unknown"
                 if (500...599).contains(http.statusCode), attempt < 1 {
                     try await streamOnce(
                         url: url, apiKey: apiKey, deployment: deployment,
@@ -281,7 +276,7 @@ actor AzureOpenAIClient {
                     )
                     return
                 }
-                throw AzureOpenAIError.httpError(http.statusCode, msg)
+                throw AzureOpenAIError.httpError(http.statusCode)
             }
 
             var gotDelta = false
@@ -305,9 +300,8 @@ actor AzureOpenAIClient {
                     let tokensOut = usage["output_tokens"] as? Int ?? 0
                     lastUsage = (model: deployment, tokensIn: tokensIn, tokensOut: tokensOut)
                 }
-                if let err = json["error"] as? [String: Any],
-                   let message = err["message"] as? String {
-                    throw AzureOpenAIError.apiError(message)
+                if json["error"] != nil {
+                    throw AzureOpenAIError.apiError
                 }
             }
             if !gotDelta { throw AzureOpenAIError.emptyResponse }
@@ -335,16 +329,15 @@ actor AzureOpenAIClient {
         }
     }
 
-    private func validateHTTP(response: URLResponse, data: Data) throws {
+    private func validateHTTP(response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard (200...299).contains(http.statusCode) else {
-            let msg = String(data: data, encoding: .utf8) ?? "unknown"
-            throw AzureOpenAIError.httpError(http.statusCode, msg)
+            throw AzureOpenAIError.httpError(http.statusCode)
         }
     }
 
     private func shouldRetry(_ error: Error) -> Bool {
-        if case AzureOpenAIError.httpError(let code, _) = error {
+        if case AzureOpenAIError.httpError(let code) = error {
             return (500...599).contains(code)
         }
         if let urlError = error as? URLError {

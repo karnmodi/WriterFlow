@@ -64,9 +64,8 @@ final class OverlayController {
     var onPromptBuilderAnswersSelected: (([(question: String, answer: String)], FocusedField) -> Void)?
     var onRequestRecommendation: ((FocusedField) -> Void)?
     var onCancelRecommendation: (() -> Void)?
-    /// Synchronous cache check — the classifier has been running in the background since the
-    /// user started typing (see `FocusMonitor.onTypingActivity`), so by the time the popover
-    /// opens there's usually already an answer ready with no wait.
+    /// Synchronous cache check for a recommendation produced by an earlier explicit
+    /// action-menu open on the same field.
     var onCheckCachedRecommendation: ((FocusedField) -> WritingAction?)?
 
     private let iconSize = CGSize(width: 28, height: 28)
@@ -222,10 +221,7 @@ final class OverlayController {
         promptBuilderText = ""
         pendingPopoverRefresh = false
 
-        // The classifier has likely already been running in the background since the user
-        // started typing (see `FocusMonitor.onTypingActivity`) — apply whatever's cached
-        // before the first render so the suggestion is there from the very first frame,
-        // not a beat later.
+        // Reuse only a result produced by an earlier explicit action-menu open.
         if let cached = onCheckCachedRecommendation?(field) {
             applyRecommendedHighlight(cached)
         }
@@ -244,9 +240,8 @@ final class OverlayController {
             Log.overlay.error("Failed to install popover key monitor")
         }
         keyMonitor.onKey = { [weak self] event in self?.handleKeyEvent(event) }
-        // Still kick off a fresh classification even on a cache hit — it can only be as
-        // current as the last typing pause, so this silently upgrades the suggestion via
-        // `applyRecommendation` below if the field has moved on since then.
+        // Opening the action menu is the explicit user action that authorizes this
+        // recommendation request and its field/context read.
         onRequestRecommendation?(field)
         Log.overlay.info("Action popover opened")
     }

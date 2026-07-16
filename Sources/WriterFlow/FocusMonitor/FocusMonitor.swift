@@ -12,13 +12,6 @@ import Foundation
 final class FocusMonitor {
     weak var delegate: FocusMonitorDelegate?
 
-    /// Fires immediately on the first keystroke of a typing burst, then again on every short
-    /// pause thereafter — a "start thinking now, refine as text firms up" signal for the
-    /// recommendation classifier. Deliberately a direct closure rather than routed through
-    /// `FocusMonitorDelegate`/`OverlayController`: it's a background-work trigger, not overlay
-    /// UI state, so it doesn't belong in the delegate whose job is icon/popover chrome.
-    var onTypingActivity: ((FocusedField) -> Void)?
-
     private let axQueue = DispatchQueue(label: "com.karan.writerflow.ax", qos: .userInitiated)
     private let eventTap = EventTap()
 
@@ -26,17 +19,12 @@ final class FocusMonitor {
     private var currentField: FocusedField?
     private var typingActive: Bool = false
     private var stopTypingTask: Task<Void, Never>?
-    private var pauseClassifyTask: Task<Void, Never>?
     private var frameTimer: Timer?
     private var quirksApplied: Set<pid_t> = []
     private var isRunning: Bool = false
 
     // 4-second debounce per phase-0 spec.
     private let typingStopDelay: TimeInterval = 4.0
-    // Short pause debounce for re-triggering the recommendation classifier while still typing —
-    // separate from `typingStopDelay`, which means "typing stopped entirely."
-    private let pauseClassifyDelay: TimeInterval = 0.7
-
     func start() {
         guard !isRunning else { return }
         isRunning = true
@@ -92,8 +80,6 @@ final class FocusMonitor {
 
         stopTypingTask?.cancel()
         stopTypingTask = nil
-        pauseClassifyTask?.cancel()
-        pauseClassifyTask = nil
         frameTimer?.invalidate()
         frameTimer = nil
 
@@ -196,8 +182,6 @@ final class FocusMonitor {
     private func clearCurrentField() {
         stopTypingTask?.cancel()
         stopTypingTask = nil
-        pauseClassifyTask?.cancel()
-        pauseClassifyTask = nil
         frameTimer?.invalidate()
         frameTimer = nil
         if typingActive {
@@ -216,17 +200,13 @@ final class FocusMonitor {
         if currentField == nil {
             bootstrapFocusFromKeystrokeSync()
         }
-        guard let field = currentField else { return }
+        guard currentField != nil else { return }
         pollFrame()
         if !typingActive {
             typingActive = true
             delegate?.focusMonitorTypingStarted(self)
-            // Start the recommendation classifier the moment typing begins, on whatever text
-            // is readable right now — a head start, refined below as the user keeps typing.
-            onTypingActivity?(field)
         }
         scheduleTypingStopped()
-        schedulePauseClassify(field: field)
     }
 
     private func bootstrapFocusFromKeystrokeSync() {
@@ -258,19 +238,6 @@ final class FocusMonitor {
                 self.typingActive = false
                 self.delegate?.focusMonitorTypingStopped(self)
             }
-        }
-    }
-
-    /// Re-triggers the recommendation classifier on every short pause in typing (not just when
-    /// typing stops entirely) — refines the background suggestion as the text firms up, so
-    /// whatever's cached by the time the popover opens is as current as possible.
-    private func schedulePauseClassify(field: FocusedField) {
-        pauseClassifyTask?.cancel()
-        let delay = pauseClassifyDelay
-        pauseClassifyTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard !Task.isCancelled, let self else { return }
-            self.onTypingActivity?(field)
         }
     }
 
