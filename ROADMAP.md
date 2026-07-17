@@ -1,6 +1,7 @@
 # WriterFlow — Development Roadmap
 
-Master index for all planning docs. Read `PRD.md` first for product context.
+Master index for all planning docs. Read `PRD.md` for the shipped v1 baseline and
+`PRD-V2.md` before v2 implementation.
 
 ## Docs structure
 
@@ -8,19 +9,23 @@ Master index for all planning docs. Read `PRD.md` first for product context.
 |---|---|
 | `CLAUDE.md` / `AGENTS.md` | Intentional tool-specific mirrors for AI-assisted development; update together |
 | `PRD.md` | Product requirements — the *what* and *why* |
+| `PRD-V2.md` | V2 account-backed product requirements and release criteria |
 | `ROADMAP.md` | This file — phase order, timeline, dependencies |
 | `RELEASE.md` | Canonical v1 production gates, packaging runbook, and v1/v2 infrastructure split |
+| `V2-ARCHITECTURE.md` | V2 auth, encryption, API, data, Azure routing, Stripe, and Wispr research decisions |
+| `V2-ROADMAP.md` | V2 phase order, dependencies, stage acceptance, and first vertical slice |
 | `phases/phase-0-foundation.md` | Project setup, permissions, focus monitoring, floating icon |
 | `phases/phase-1-core-actions.md` | AX read/replace, action popover, streaming AI preview (original direct Azure development transport) |
 | `phases/phase-2-context-reply.md` | Conversation context extraction, Reply + Custom, app fallbacks |
 | `phases/phase-3-dashboard-memory.md` | Dashboard window, history, voice profile, per-app rules |
 | `phases/phase-4-polish-release.md` | Animations, fallbacks, public v1 packaging, manual-install distribution |
+| `phases/phase-5-v2-cloud-foundation.md` | V2 identity, encrypted local data, private cloud transport, and usage ledger |
 
 ## Execution order
 
 Development is AI-assisted (Claude Code / Cursor), so phases are sequenced by dependency, not calendar time. Complete phases strictly in order — each phase's exit criteria must pass before starting the next:
 
-`Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4`
+`Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → v1.0.0 → Phase 5 → Phase 6 → Phase 7 → Phase 8`
 
 Within a phase, stages (x.1, x.2, …) are also ordered; stages inside a phase may be parallelized only when they don't share components.
 
@@ -30,6 +35,14 @@ Within a phase, stages (x.1, x.2, …) are also ordered; stages inside a phase m
 - Phase 2 needs Phase 1's ActionEngine + replace pipeline.
 - Phase 3 needs Phase 1's history events being emitted (log from day one).
 - Phase 4 needs everything feature-complete.
+- Phase 5 starts from the published v1.0.0 baseline and changes the trust/transport
+  boundary without removing the action menu.
+- Phase 6 starts from Phase 5's authenticated transport and usage telemetry; its first
+  gate strengthens target identity and builds the labeled evaluation set before the
+  normal options flow can be removed.
+- Phase 7 needs Phase 5's server-authoritative identity, entitlement projection, and
+  usage ledger before Stripe or paid enforcement can become authoritative.
+- Phase 8 needs both Phase 6 contextual UX and Phase 7 membership/billing behavior.
 
 ## v1.0 production path
 
@@ -48,10 +61,10 @@ boundary is:
   Gatekeeper **Open Anyway** approval, and manual updates;
 - no Apple Developer Program membership requirement for v1.
 
-The BYO Azure path is the approved v1 transport. Passive typing no longer starts
+The BYO Azure path is the published v1 transport. Passive typing does not start
 inference, release builds compile out file credential fallbacks, and the release
-verifier checks the app and mounted DMG. Live UI/Accessibility validation, the soak,
-and clean-Mac Gatekeeper installation evidence remain tag gates.
+verifier checks the app and mounted DMG. `RELEASE.md` preserves the original manual
+UI/soak/clean-Mac evidence checklist alongside the published tag record.
 
 ## v1.0 release definition of done
 
@@ -100,15 +113,27 @@ deliberately not attempted during v1:
   Automation + a different overlay mechanism, not a port — worth a spike to size before
   committing, not before.
 
-## v2.0 infrastructure deferred from v1
+## v2.0 planned path
 
-These items are intentionally not v1 blockers:
+The v1-deferred infrastructure is now an explicit v2 product decision. The user's July
+17, 2026 request is the required policy change that permits a WriterFlow-operated API.
+See `PRD-V2.md`, `V2-ARCHITECTURE.md`, and `V2-ROADMAP.md` for the complete scope.
 
-- Apple Developer Program membership, Developer ID Application signing,
-  notarization workflow, ticket stapling, and trusted Gatekeeper identity.
-- Sparkle, public appcast hosting, EdDSA update signing, and automatic updates.
-- Remote accounts, membership/entitlement records, user-data sync, billing,
-  subscriptions, commercial licensing, and team administration.
-- A new WriterFlow-operated backend exposed through a bespoke app-facing API. V1 uses
-  the provider-platform branch because no existing non-custom WriterFlow transport is
-  documented. The no-custom-API rule continues into v2 unless explicitly changed.
+The delivery order is:
+
+1. **Phase 5 — cloud foundation:** Entra External ID, account/device state, encrypted
+   local GRDB/SQLCipher, PostgreSQL, authenticated SSE relay, private Azure model access,
+   logical routes, idempotency, quotas, and usage ledger.
+2. **Phase 6 — contextual intelligence:** stronger field/window identity, deterministic
+   context signals, classifier, personalized routing, versioned prompt enhancer, and
+   removal of the normal pre-generation options flow.
+3. **Phase 7 — memberships and Stripe:** Free/Pro entitlement projection, Checkout,
+   Customer Portal, webhook reconciliation, optional encrypted personalization sync,
+   and shadow metered-overage readiness.
+4. **Phase 8 — v2 release:** security/privacy/load gates, v1 migration rollout,
+   operational runbooks, and the separate Developer ID/notarization/update gate.
+
+V2 keeps the provider plane private and secrets server-side, but it does not pretend the
+consumer app can reach a literally non-public service. The only internet-facing path is
+an authenticated edge; origin services, database, Key Vault, and Azure OpenAI remain on
+private networking.

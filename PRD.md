@@ -2,7 +2,12 @@
 
 **Version:** 1.0 · **Date:** July 16, 2026 · **Owner:** Karan
 
-**One-liner:** A Whisperflow-style, always-on macOS writing assistant. Invisible until you type — then a small floating icon appears near your cursor with one-tap AI actions (Elaborate, Formal, Casual, Fix Grammar, Reply, Custom) powered by provider-managed AI processing. Works in any app: Gmail, WhatsApp, Slack, Notion, anywhere text is typed.
+> **Shipped-v1 baseline:** v1.0.0 was published July 17, 2026. This document is retained
+> as the v1 product specification; [`PRD-V2.md`](PRD-V2.md) supersedes it for v2 work.
+> Where older v1 wording conflicts, the shipped code and [`RELEASE.md`](RELEASE.md)
+> define the v1 security/transport behavior.
+
+**One-liner:** A Whisperflow-style, always-on macOS writing assistant. Invisible until you type — then a small floating icon appears near your cursor with one-tap AI actions (Elaborate, Formal, Casual, Fix Grammar, Reply, Custom) powered by the user's Azure OpenAI resource in v1. Works in any app: Gmail, WhatsApp, Slack, Notion, anywhere text is typed.
 
 ---
 
@@ -15,7 +20,7 @@ Rewriting text with AI today means copy → open ChatGPT → paste → prompt �
 - Context-aware: reads the input field content and visible conversation context via macOS Accessibility API.
 - Invisible-first: no windows, no dock icon. Only a tiny floating icon while typing, plus a menu bar glyph.
 - Smooth: <150 ms icon appearance, streamed AI output, native-feel animations.
-- Public and free for v1: no WriterFlow/provider account or sign-in, membership, subscription, payment, remote user database, user-supplied provider key, or separate provider payment for the core AI actions.
+- Public and free for v1: no WriterFlow account or sign-in, membership, subscription, payment, or remote user database. Each user supplies an Azure OpenAI endpoint/key and pays their own provider usage.
 - Secret-safe: no maintainer-owned AI API key or other long-lived service credential is released in the Mac app or DMG.
 
 **Non-goals (v1)**
@@ -163,7 +168,7 @@ Development is AI-assisted (Claude Code / Cursor) — phases are ordered by depe
 | AX API blocked/flaky in some apps (esp. web views) | Chrome/Electron AX flags + clipboard fallback; per-app compatibility table maintained in-app |
 | Mac App Store rejection (private AX usage) | V1 direct DMG distribution with published checksum and documented **Open Anyway** flow; Developer ID/notarization/Sparkle deferred to v2 |
 | Unidentified/unnotarized v1 build creates install friction | State the limitation plainly, test on a clean unmanaged Mac, never ask users to disable Gatekeeper; managed Macs may be unsupported |
-| Provider credential extraction or anonymous AI abuse | No shared key in the client; require provider-managed public-client auth, platform-side rate limits, abuse controls, and a hard spend ceiling before launch |
+| Provider credential extraction or anonymous AI abuse | V1 has no shared key: each user's Azure key stays in Keychain, requests are restricted to validated Azure HTTPS endpoints, and the release artifact is secret-scanned |
 | AI model retirements | Provider/platform-side routing; a static non-secret client config may supply safe fallbacks, but never credentials or an arbitrary service contract |
 | Latency spikes ruin "smooth" feel | Streaming UI, optimistic spinner, nano model for grammar, request timeout + retry |
 | Privacy concerns from keystroke monitoring | Listen-only local signal, clear onboarding copy, open pause control |
@@ -174,4 +179,6 @@ Development is AI-assisted (Claude Code / Cursor) — phases are ordered by depe
 
 1. Should Reply mode support multi-language (detect Hindi/Hinglish input, reply in same language)? — likely yes, cheap to add via prompt.
 2. Local model fallback (Apple Foundation Models) for offline grammar fixes? — post-v1.
-3. V2 commercial/team/licensing model if this becomes a side-venture product? — explicitly deferred, along with remote membership and billing storage.
+3. V2 commercial/team/licensing model? — resolved at planning level by `PRD-V2.md`:
+   Free/Pro first, team-ready ownership schema, and metered overage only after shadow
+   usage reconciliation. Exact prices and allowances remain measurement-dependent.
