@@ -29,3 +29,9 @@ WriterFlow.app/
 
 # Logs
 *.log
+
+# Static launch website
+website/node_modules/
+website/.next/
+website/out/
+website/*.tsbuildinfo

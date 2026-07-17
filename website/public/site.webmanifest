@@ -1,0 +1,9 @@
+{
+  "name": "WriterFlow",
+  "short_name": "WriterFlow",
+  "description": "A native macOS writing assistant that works where you type.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f1e9",
+  "theme_color": "#1428ff"
+}
