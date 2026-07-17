@@ -18,7 +18,7 @@ help:
 	@echo "  make relaunch    — clean + bundle + launch (fresh build)"
 	@echo "  make clean       — remove .build and build/"
 	@echo "  make release     — V2 ONLY: Developer ID sign + notarize + staple (not a v1 requirement)"
-	@echo "  make dmg         — package the existing build/WriterFlow.app into a DMG; see RELEASE.md before public use"
+	@echo "  make dmg         — package build/WriterFlow.app into a drag-to-Applications DMG (branded installer window)"
 	@echo "  make verify-release — single-command v1: clean + release bundle + verify identity/secrets + DMG + checksum"
 
 xcodeproj:

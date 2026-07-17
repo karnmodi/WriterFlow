@@ -26,7 +26,7 @@ const steps = [
   },
   {
     title: "Move WriterFlow to Applications",
-    body: "Open the DMG and drag WriterFlow into Applications. Eject the mounted disk image when the copy finishes.",
+    body: "Open the DMG — Finder shows the installer window automatically, with WriterFlow on the left and Applications on the right. Drag WriterFlow onto Applications, then eject the disk image.",
   },
   {
     title: "Approve the first launch",

@@ -12,6 +12,9 @@ build/
 dist/
 WriterFlow.app/
 
+# Intermediate iconutil input (regenerate via packaging/generate-assets.py)
+packaging/AppIcon.iconset/
+
 # macOS
 .DS_Store
 

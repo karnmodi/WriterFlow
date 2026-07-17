@@ -82,10 +82,15 @@ grep -Eq 'flags=0x[0-9a-fA-F]*\(?[^)]*runtime' <<<"$SIGN_INFO" || fail "hardened
 pass "hardened runtime enabled"
 
 # ---------------------------------------------------------------------------
-step "6/9  Third-party license notice present in bundle"
+step "6/9  Bundle resources (license notice + app icon)"
 [[ -f "$APP/Contents/Resources/$NOTICE_NAME" ]] || fail "$NOTICE_NAME missing from $APP/Contents/Resources"
 grep -q 'GRDB' "$APP/Contents/Resources/$NOTICE_NAME" || fail "$NOTICE_NAME does not mention GRDB"
 pass "$NOTICE_NAME bundled and mentions GRDB"
+
+[[ -f "$APP/Contents/Resources/AppIcon.icns" ]] || fail "AppIcon.icns missing from $APP/Contents/Resources"
+ICON_FILE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$PLIST" 2>/dev/null || true)"
+[[ "$ICON_FILE" == "AppIcon" ]] || fail "CFBundleIconFile is '$ICON_FILE', expected 'AppIcon'"
+pass "AppIcon.icns bundled and CFBundleIconFile=AppIcon"
 
 # ---------------------------------------------------------------------------
 # scan_tree <label> <root-dir>
@@ -199,6 +204,15 @@ trap cleanup EXIT
 hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT_DIR" >/dev/null || fail "could not mount $DMG"
 ATTACHED=1
 pass "mounted $DMG"
+
+# Installer-window structure: app + Applications drop target + background art + Finder layout.
+[[ -d "$MOUNT_DIR/WriterFlow.app" ]] || fail "DMG missing WriterFlow.app"
+[[ -L "$MOUNT_DIR/Applications" ]] || fail "DMG missing Applications symlink"
+[[ "$(readlink "$MOUNT_DIR/Applications")" == "/Applications" ]] || fail "Applications symlink does not point to /Applications"
+[[ -f "$MOUNT_DIR/.background/background.png" ]] || fail "DMG missing .background/background.png installer art"
+[[ -f "$MOUNT_DIR/.DS_Store" ]] || fail "DMG missing .DS_Store (Finder window layout was not baked in)"
+[[ -f "$MOUNT_DIR/.VolumeIcon.icns" ]] || fail "DMG missing .VolumeIcon.icns"
+pass "DMG installer layout (app, Applications, background, .DS_Store, volume icon)"
 scan_tree "dmg" "$MOUNT_DIR"
 
 # ---------------------------------------------------------------------------
