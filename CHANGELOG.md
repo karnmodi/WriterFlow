@@ -1,10 +1,16 @@
 # Changelog
 
 All notable changes to WriterFlow, grouped by development phase (see `phases/` and
-`ROADMAP.md`). No version has been tagged yet — see "Releasing" in `README.md` for
-what's still gating a 1.0.0 tag.
+`ROADMAP.md`).
 
-## Unreleased — Phase 4 (polish & release), in progress
+## Unreleased — v2.0 planning
+
+- Added the v2 product requirements, architecture, staged roadmap, and detailed Phase 5
+  implementation checklist for authentication, encryption, private Azure inference,
+  PostgreSQL, memberships/usage, Stripe readiness, contextual auto-selection, prompt
+  enhancement, and multiple logical model routes.
+
+## 1.0.0 — 2026-07-17
 
 - **4.1 Clipboard fallback pipeline**: hardened the existing AX-write-fails-so-paste
   fallback with a refocus guard (aborts if the target field changed mid-request), a
@@ -50,7 +56,8 @@ non-destructive "derivative artifact" insert mode.
 Per-app compatibility layer (Chrome/Electron/Safari quirks persisted to
 `compatibility.json`), conversation context extraction (4k char cap, terminal-safe
 current-line-only mode), Reply and Custom prompt actions, per-app tone defaults, and an
-async recommendation engine that classifies the best action while the user types.
+async recommendation engine that classifies the best action only after the user opens
+the action menu.
 
 ## Phase 1 — Core actions
 

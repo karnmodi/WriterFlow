@@ -10,25 +10,26 @@ WriterFlow is a native macOS menu bar app — an always-on, invisible writing as
 
 ## Current state
 
-**Phase 2 complete** — app compatibility layer (`AppAdapter`, Chrome/Electron/Safari quirks, `CompatibilityMap` persisted to `compatibility.json`), conversation context extraction (`ConversationExtractor`, 4k char cap, 10s cache, terminal-safe current-line-only mode via `TerminalApps`), Reply + Custom prompt actions, per-app tone defaults, and the async Recommendation Engine (`RecommendationEngine` + `AzureOpenAIClient.classifyAction`) are all implemented and committed. Phase 1's preview card and Settings pane remain in place; the Phase 4 clipboard-fallback pipeline and field-detection hardening pulled forward during Phase 1 are unchanged.
+**V1.0.0 is published** from tag `v1.0.0` at commit `7255390` (July 17,
+2026). The shipped product is the completed Phase 0–4 native macOS app: AX focus/context
+capture, non-activating overlay, action popover and prompt builder, streamed preview,
+in-place/clipboard replacement, local GRDB history/memory/rules, Dashboard, resilience,
+and the ARM64 ad-hoc-signed DMG. Its production AI transport is bring-your-own Azure
+OpenAI endpoint/key/deployment configuration; the user's key is stored in that user's
+Keychain and no publisher-owned/shared credential ships in the app.
 
-**Phase 3 implementation complete, including a post-stage polish pass (3.6/3.7)** — GRDB store (3.1); Dashboard shell + History tab, user-verified working (3.2); Personalization & memory — voice profile, explicit "Analyze My Writing Style" button, snippets/facts, per-app rules (3.3); full Settings tab — configurable/collision-checked hotkey recorder, icon behavior, per-action-class model deployment fields, BYO Azure endpoint + API key management, clipboard-fallback toggle, launch at login, retention (3.4); Usage tab — Swift Charts for action/token volume, acceptance-rate stat as the north star, estimated cost from an editable pricing table (3.5). The standalone Phase 1.5 Settings window was retired — Dashboard is the one settings surface now. **Launch flow changed**: Dashboard opens by default on every launch/reopen regardless of permission state; missing permissions or missing BYO Azure setup still show onboarding on top, but non-blocking (it links to the Dashboard instead of gating it).
+**V2.0 is planned; implementation has not started.** The active v2 sources of truth are
+`PRD-V2.md`, `V2-ARCHITECTURE.md`, `V2-ROADMAP.md`, and
+`phases/phase-5-v2-cloud-foundation.md`. The explicit product-policy change for v2 is a
+WriterFlow-operated authenticated backend: Entra External ID, encrypted local data,
+PostgreSQL, a public authenticated edge with private Azure origin/model access,
+server-authoritative usage/entitlements, Stripe-ready billing, contextual auto selection,
+prompt enhancement, and server-side multi-model routing. Phase 5 changes transport and
+identity first while preserving the v1 action UI; Phase 6 removes the normal options
+flow only after classifier evaluation passes.
 
-Polish pass on top of 3.1-3.5 (commits `84189fe` phase3.6, `0169d6c` phase3.7): shared `DashboardChrome` card-based design system applied across all Dashboard tabs; Personalization layout-collapse fix (scrollable sections, memory-note detail modal); a real race condition in Custom-instruction submission fixed (`suppressBlurUntil` 300ms window guards against delayed AX blur notifications on host-app reactivation tearing down in-flight state); a non-destructive "derivative artifact" insert mode for Custom instructions (`CustomOutputParser`, `---INSERT---` marker) so things like "write a title" insert above content instead of replacing it; preview-variant infrastructure; recommendation-classifier reliability fixes. Public v1 makes one provider request per action and starts recommendation classification only after the user explicitly opens the action menu.
-
-Stages 3.3-3.5 and the launch-flow change are still not visually verified live (no AX/Screen Recording grant in this sandbox) — pending user confirmation, but not blocking Phase 4 per the user's go-ahead.
-
-Note: `swift test` cannot run in this sandbox — `xctest` isn't present (Command Line Tools only, no Xcode), so unit tests must be verified by the user locally or in CI. `swift build` works fine and is the correctness bar available here.
-
-**Phase 4 feature implementation baseline complete** (`phases/phase-4-polish-release.md`, commits `0b4ff28`…`f1d0bdf`), but production readiness was reopened by the v1 release/security plan in `RELEASE.md`:
-
-- **4.1 Clipboard fallback**: refocus guard before pasting, a matching `⌘A ⌘C` read-fallback for fields whose AX value can't be read directly, tri-state per-app override (`AppRule.clipboardFallback`).
-- **4.2 Animation & feel**: icon spring fade/scale-in + spinner-morph while streaming (`IconState`), subtle Replace haptic, `NSWorkspace.accessibilityDisplayShouldReduceMotion` respected throughout (`animDuration` helper). Popover/preview sizing, dark/light mode, and multi-display/Spaces/fullscreen were already correct from earlier phases — audited, no changes needed.
-- **4.3 Resilience**: `AXWatchdog` — session-only kill-switch, auto-pauses an app after 3 consecutive AX failures (toast + Settings-tab note + re-enable button). `ActionEngine.userFacingMessage(for:)` gives clear offline/timeout errors. Event-tap auto-re-enable and rate-limiting/cancellation were already correct — audited, no changes needed.
-- **4.4 Packaging**: `scripts/make-dmg.sh` produces a drag-to-Applications DMG and `DiagnosticsExporter` provides a local-only, opt-in export. V1 intentionally uses an ad-hoc signature, manual Gatekeeper **Open Anyway** approval, a published checksum, and manual updates. `scripts/release.sh` + `WriterFlow.entitlements` are retained as **v2-only** Developer ID/notarization scaffolding; Apple membership is not a v1 blocker. `AppRelocator` cannot bypass initial Gatekeeper because it cannot run before the user approves the app.
-- **4.5 Launch checklist**: default-excluded password managers, metrics instrumentation, and local diagnostics exist. Explicit-action-only networking is restored: passive typing never starts inference; recommendation classification begins only after the action menu is opened. Public v1 AI path is **bring-your-own-key** (user Azure endpoint + Keychain key + deployment names via Setup/Settings); publisher-shared keys remain forbidden. The `v1.0.0` tag remains gated on live UI verification, soak, artifact validation, and clean-Mac install testing — not signing/notarization.
-
-**Production readiness** — before an actual 1.0.0 release: (a) BYO Azure path is the approved public transport (done in product policy; keep artifact free of `.env`/shared keys), (b) restore explicit-action-only network behavior, (c) harden HTTPS destination/error handling and secret-scan the DMG, (d) complete the pending Phase 3/4 live verification and eight-hour soak, and (e) produce a versioned, checksum-published artifact for every advertised CPU architecture and test Apple's manual Gatekeeper flow on a clean Mac. Remote user/membership databases, Apple Developer membership, Developer ID/notarization, Sparkle, billing/licensing, and teams are v2-only.
+Note: this machine has only Command Line Tools. `swift build` works; `swift test` may
+remain unavailable when `xctest` is absent, so tests must run in Xcode/CI where required.
 
 ### Build system deviation from original spec
 
@@ -48,10 +49,13 @@ make run          # bundle + open
 
 Read in this order before writing any code:
 
-1. `PRD.md` — full product requirements: UX states, actions, context capture, dashboard, architecture diagram, privacy rules, success metrics, risks.
-2. `ROADMAP.md` — phase sequencing, dependencies, definition of done, golden rules.
-3. `RELEASE.md` — canonical v1 production/security gates, packaging runbook, and v1/v2 infrastructure split.
-4. `phases/phase-N-*.md` — the phase you're implementing. Each has stages with task checklists and **Accept:** criteria. Work stage by stage; tick checkboxes (`- [ ]` → `- [x]`) as you complete tasks.
+1. `PRD.md` — shipped v1 product requirements and historical baseline.
+2. `PRD-V2.md` — active v2 product requirements and release criteria.
+3. `ROADMAP.md` — master phase index and golden rules.
+4. `V2-ARCHITECTURE.md` — v2 auth, API, encryption, database, Azure, Stripe, classifier, and prompt decisions.
+5. `V2-ROADMAP.md` — v2 phase order, dependencies, and staged delivery path.
+6. `RELEASE.md` — historical/canonical v1 packaging and security runbook.
+7. `phases/phase-N-*.md` — the phase being implemented, with ordered task checklists and **Accept:** criteria. Phase 5 is next.
 
 Never invent requirements — if something isn't specified in these docs, ask or propose in a comment before building.
 
@@ -61,8 +65,9 @@ Never invent requirements — if something isn't specified in these docs, ask or
 - **App type:** Menu bar only (`LSUIElement = YES`), no dock icon. Launch at login via `SMAppService`.
 - **System integration:** Accessibility API (`AXUIElement*`), passive listen-only `CGEventTap` for typing detection, Carbon `RegisterEventHotKey` for the global hotkey.
 - **Overlay:** non-activating `NSPanel` (`.nonactivatingPanel`, level `.floating`) — focus must NEVER leave the user's text field.
-- **AI:** Production v1 is **bring-your-own-key**: the user configures their Azure OpenAI Responses endpoint, API key (Keychain only), and deployment names in Setup / Settings. No publisher-owned/shared reusable service credential may ship in the app. Local `.env` / `secrets.env` bootstrap is contributor-only. No bespoke WriterFlow API. A future provider-managed no-key transport is v2-optional.
-- **Storage:** local SQLite via GRDB (history, memory, app rules) · UserDefaults (settings). No remote user/account/membership/billing/sync database in v1. Public v1 stores no AI provider credential in Keychain; a future provider-issued device token is allowed only after the lifecycle/security review in `RELEASE.md`.
+- **AI:** Production v1 is **bring-your-own-key**: the user configures their Azure OpenAI Responses endpoint, their API key (Keychain only), and deployment names. V2 deliberately replaces this with a WriterFlow authenticated SSE API; Azure credentials/deployments and prompt/model routing are server-side, with managed identity and private endpoints. No publisher-owned/shared reusable service credential may ship in any client.
+- **Storage:** V1 uses local SQLite via GRDB plus UserDefaults. V2 keeps GRDB but encrypts it with SQLCipher, moves user content out of UserDefaults, and adds private managed PostgreSQL for identity/membership/entitlement/usage state. Raw cloud inference content is ephemeral by default.
+- **Backend (v2):** Microsoft Entra External ID · Azure API Management · TypeScript/Fastify on Azure Container Apps · Azure Database for PostgreSQL Flexible Server · Key Vault/App Configuration · Stripe. Do not substitute a different stack without updating the v2 ADR/specs.
 - **Distribution:** V1 = public DMG containing an ad-hoc-signed app + SHA-256 + manual Gatekeeper approval/manual updates, with no Apple membership. V2 = Developer ID + notarization + Sparkle 2. NOT Mac App Store (private AX usage would be rejected).
 
 ## Project structure (create in Phase 0, keep to it)
@@ -76,14 +81,17 @@ WriterFlow/
 ├── Store/          # GRDB models, Keychain, settings
 ├── Dashboard/      # SwiftUI dashboard window (history/memory/settings/usage)
 ├── Adapters/       # per-app compatibility (Chrome, Electron, Safari…) — Phase 2
+├── services/       # v2 API, worker, shared schemas
+├── infra/          # v2 Bicep and API Management policy
+├── prompts/        # v2 versioned server prompt resources and evals
 ├── phases/         # planning docs (this repo's specs)
-├── PRD.md · ROADMAP.md · RELEASE.md · CLAUDE.md
+├── PRD.md · PRD-V2.md · ROADMAP.md · V2-*.md · RELEASE.md · CLAUDE.md
 ```
 
 ## Golden rules (non-negotiable)
 
 1. **Focus:** no window we show may ever steal keyboard focus from the user's text field. Test caret-keeps-blinking after every UI change.
-2. **Privacy:** in production, text is sent to the selected AI processing service ONLY on explicit user action. The event tap is listen-only, used solely as an "is typing" timestamp — never buffer or log key contents. Recommendation classification starts only after the user explicitly opens the action menu.
+2. **Privacy:** in production, text is sent to the selected AI processing service ONLY on explicit user action. The event tap is listen-only, used solely as an "is typing" timestamp — never buffer or log key contents. V1 classification begins after the action menu opens; v2 auto selection/classification may begin only after the user clicks the icon or presses the explicit hotkey.
 3. **Secure fields:** role `AXSecureTextField` or `IsSecureEventInputEnabled()` → WriterFlow is completely inert. No icon, no reads.
 4. **Main thread:** all AX calls and network calls off-main, AX calls wrapped with a 500 ms timeout (AX can hang on busy apps).
 5. **Secrets:** no publisher-owned/shared reusable service credential may be embedded, bundled, downloaded, copied to Application Support, persisted in Keychain/UserDefaults, or logged by a production client. Development credentials stay local and never enter a public artifact. Any provider-issued device token needs an explicitly supported public-client lifecycle and security review.

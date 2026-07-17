@@ -4,7 +4,7 @@ Native macOS menu-bar writing assistant. While you type in any app (Gmail, Whats
 
 Requires **macOS 14+ on Apple Silicon (ARM64)**. Intel Macs are not supported by the v1 artifact. Not distributed via the Mac App Store (Accessibility APIs used here fail App Store review).
 
-The v1 goal is a public, free download (**bring-your-own-key**): AI actions use the user’s Azure OpenAI endpoint and API key. No WriterFlow account, membership, or shared publisher key. See [`RELEASE.md`](RELEASE.md) for production/security gates and the v1/v2 split.
+**v1.0.0 is published** as a public, free **bring-your-own-key** download: AI actions use the user’s Azure OpenAI endpoint and API key. It has no WriterFlow account, membership, or shared publisher key. [`RELEASE.md`](RELEASE.md) preserves the v1 production/security runbook; [`PRD-V2.md`](PRD-V2.md) defines the planned account-backed v2 release.
 
 ---
 
@@ -41,7 +41,7 @@ You Replace / Copy / Retry / Discard
 - V1 keeps history, memory, snippets, and app rules in local GRDB/SQLite only. There is no remote user, membership, entitlement, billing, or sync database and no custom WriterFlow API.
 - A public build must contain no maintainer-owned provider key, `.env`, `secrets.env`, bearer token, private endpoint, or signing credential. Each user pastes **their own** key in Setup / Settings; it stays in that user’s Keychain only.
 
-**Production status:** BYO Azure is the approved public AI path (Setup + Settings). Passive typing does not perform network inference; opening the action menu explicitly authorizes recommendation classification. Automated packaging/security checks are available through the v1 release workflow; live UI, soak, and clean-Mac Gatekeeper checks must still be evidenced before tagging.
+**Production status:** v1.0.0 was published on July 17, 2026 from commit `7255390`. BYO Azure is its production AI path (Setup + Settings). Passive typing does not perform network inference; opening the action menu explicitly authorizes recommendation classification.
 
 **Architecture (source layout)**
 
@@ -53,13 +53,16 @@ You Replace / Copy / Retry / Discard
 | `Sources/WriterFlow/Engine/` | Azure OpenAI client, prompts, replace / clipboard pipeline |
 | `Sources/WriterFlow/Store/` | Local settings/data; user Keychain key + `models.json` endpoint/deployments |
 
-Planning docs: `PRD.md`, `ROADMAP.md`, `RELEASE.md`, `phases/`, plus mirrored `CLAUDE.md` / `AGENTS.md` tool context.
+Planning docs: shipped-v1 baseline in `PRD.md` / `RELEASE.md`; active-v2 requirements in [`PRD-V2.md`](PRD-V2.md), architecture in [`V2-ARCHITECTURE.md`](V2-ARCHITECTURE.md), delivery order in [`V2-ROADMAP.md`](V2-ROADMAP.md), and the next implementation checklist in [`phases/phase-5-v2-cloud-foundation.md`](phases/phase-5-v2-cloud-foundation.md). `CLAUDE.md` / `AGENTS.md` remain mirrored tool context.
 
 ---
 
 ## Local development setup
 
-This section is for contributors running the current direct Azure development transport. It is **not** the public v1 install flow and its credentials must never be copied into a release artifact.
+This section is for contributors. The direct Azure transport is also the published v1
+BYO path; what is development-only here is the local `.env` credential bootstrap. Public
+users configure their own endpoint/key in Setup or Settings, and contributor credentials
+must never be copied into a release artifact.
 
 ### 1. System requirements
 
@@ -131,7 +134,9 @@ chmod +x scripts/test-azure.sh
 # expect: OK: <some streamed text>
 ```
 
-The current development UI can also paste/validate a user-owned key. Do not use this path to distribute a maintainer/shared key; the production transport and UI must not expose one.
+The same Setup/Settings UI used by public v1 can paste and validate a user-owned key.
+Contributors may use it instead of `.env`; never use either path to distribute a
+maintainer/shared key.
 
 ### 5. Build and install
 
@@ -191,7 +196,7 @@ Created automatically; none of this is in git:
 | `~/Library/Application Support/WriterFlow/models.json` | User-configured Azure endpoint, deployment routing, and non-secret pricing estimates |
 | `~/Library/Application Support/WriterFlow/secrets.env` | Debug/contributor builds only; release builds compile this credential fallback out |
 | `~/Library/Application Support/WriterFlow/compatibility.json` | Per-app AX / context diagnostics |
-| Keychain | Current development transport's user/developer-owned API key (`KeychainStore`); no shared production key allowed |
+| Keychain | Published v1 BYO transport's user-owned API key (or contributor-owned key in local development) via `KeychainStore`; no shared production key allowed |
 
 To start clean on a machine: quit WriterFlow, delete the Application Support folder above, and remove Keychain items for WriterFlow if you want a full reset.
 
@@ -220,7 +225,7 @@ make install-run   # preferred daily loop
 
 Open `Package.swift` in Xcode if you have it installed — full Xcode is not required for build/run.
 
-Phase checklists live under `phases/`. Product requirements: `PRD.md`. Changes so far: `CHANGELOG.md`.
+Phase checklists live under `phases/`. V2 product requirements: `PRD-V2.md`. Changes so far: `CHANGELOG.md`.
 
 ---
 
@@ -228,7 +233,7 @@ Phase checklists live under `phases/`. Product requirements: `PRD.md`. Changes s
 
 [`RELEASE.md`](RELEASE.md) is the canonical runbook. The short version is:
 
-### V1.0 — current path, no Apple membership
+### V1.0 — published baseline, no Apple membership
 
 1. Complete every production AI, privacy, credential, version, architecture, license,
    UI, soak, and artifact gate in `RELEASE.md`.
@@ -238,7 +243,8 @@ Phase checklists live under `phases/`. Product requirements: `PRD.md`. Changes s
    make verify-release
    ```
 
-3. Test on a clean, unmanaged Mac. The user drags WriterFlow to Applications, tries to
+3. Test on a clean, unmanaged Mac. Opening the DMG shows the branded installer window
+   (WriterFlow left → Applications right). The user drags WriterFlow to Applications, tries to
    open it once, then uses **System Settings → Privacy & Security → Open Anyway** and
    confirms **Open**. Never ask users to disable Gatekeeper or run `xattr`.
 4. Publish the DMG, checksum, release notes, privacy disclosure, and exact macOS/CPU
@@ -249,13 +255,13 @@ The v1 app is ad-hoc signed and unnotarized. It is publicly downloadable, but
 organization-managed Macs may prohibit unidentified apps. `AppRelocator` cannot bypass the initial
 Gatekeeper decision because the app cannot run before the user approves it.
 
-### V2.0 — deferred
+### V2.0 — planned
 
-Apple Developer Program membership, Developer ID trust/notarization submission, ticket
-stapling, Sparkle/appcast/EdDSA auto-updates, remote user or
-membership databases, billing/licensing, accounts, and teams are v2-only. The existing
-`make release` / `scripts/release.sh` and `WriterFlow.entitlements` are retained as v2
-Developer ID scaffolding; do not use them for the v1 path.
+V2 adds real-user authentication, encrypted local storage, an authenticated WriterFlow
+API with private Azure model access, PostgreSQL membership/usage state, contextual
+auto-selection, multi-model routing, and Stripe-ready billing. Start with
+[`phases/phase-5-v2-cloud-foundation.md`](phases/phase-5-v2-cloud-foundation.md); do not
+remove the v1 options flow or enable charging before its roadmap gates pass.
 
 **Diagnostics, not automated crash reporting.** Settings → Reliability → "Share
 Diagnostics" writes a local text file (app/OS version, per-app AX success/fail counts,

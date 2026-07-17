@@ -1,18 +1,23 @@
 # WriterFlow v1.0 production and release plan
 
+> **Published baseline:** v1.0.0 was tagged and published on July 17, 2026 from commit
+> `7255390`. This file preserves the v1 decision record and release runbook; unchecked
+> evidence boxes reflect the repository's pre-publication record rather than the active
+> v2 plan. See [`PRD-V2.md`](PRD-V2.md) and [`V2-ROADMAP.md`](V2-ROADMAP.md) for v2.
+
 This document is the canonical production path for v1.0. It supersedes older notes
 that treated Developer ID signing, notarization, or Sparkle as v1 release blockers.
 
 ## Decision summary
 
 
-| Area            | v1.0 now                                                                                                                                                                             | v2.0 later                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| Availability    | Public download is free; core AI actions require the user’s own Azure OpenAI key (bring-your-own-key). No WriterFlow account, membership, or subscription                            | Optional commercial, membership, team, or licensing model; optional provider-managed zero-key transport                   |
-| User data       | Existing local GRDB/SQLite and UserDefaults storage only; no remote user/account/membership database; user key lives only in that user’s Keychain                                    | Any remote user, membership, entitlement, billing, or sync database                                                       |
-| AI processing   | Direct Azure OpenAI Responses API with the user’s endpoint + key + deployment names (configured in Setup / Settings)                                                                 | A provider-managed no-key transport, or a bespoke WriterFlow relay only if the no-custom-API policy is explicitly changed |
-| App-facing APIs | No bespoke WriterFlow HTTP, REST, or GraphQL API                                                                                                                                     | Still disallowed unless the product policy changes                                                                        |
-| Distribution    | Release build, verified hardened-runtime ad-hoc app signature (or an explicit reviewed security exception), public DMG, SHA-256 checksum, manual Gatekeeper approval, manual updates | Apple Developer Program, Developer ID trust, notarization, stapling, and Sparkle                                          |
+| Area            | Shipped v1.0                                                                                                                                                                         | Planned v2.0                                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Availability    | Public download is free; core AI actions require the user’s own Azure OpenAI key (bring-your-own-key). No WriterFlow account, membership, or subscription                            | WriterFlow account; Free/Pro entitlement shape, with teams and metered overage left for later gates                    |
+| User data       | Existing local GRDB/SQLite and UserDefaults storage only; no remote user/account/membership database; user key lives only in that user’s Keychain                                    | SQLCipher locally; private PostgreSQL for account/membership/usage; opt-in encrypted personalization sync              |
+| AI processing   | Direct Azure OpenAI Responses API with the user’s endpoint + key + deployment names (configured in Setup / Settings)                                                                 | Authenticated WriterFlow relay with server-side logical Azure routes and private model endpoints                       |
+| App-facing APIs | No bespoke WriterFlow HTTP, REST, or GraphQL API                                                                                                                                     | Versioned authenticated WriterFlow HTTPS/SSE API; public edge with private origins/model plane                          |
+| Distribution    | Release build, verified hardened-runtime ad-hoc app signature (or an explicit reviewed security exception), public DMG, SHA-256 checksum, manual Gatekeeper approval, manual updates | Developer ID/notarization/update work tracked as a separate v2 release gate                                             |
 
 
 For this plan, **no custom APIs** means WriterFlow does not create or operate an
@@ -22,8 +27,8 @@ static configuration file is not an API.
 
 **Product policy (explicit):** v1.0 is **bring-your-own-key (BYO)**. The app download
 is free; AI usage bills the user’s Azure account. Public copy must say this honestly.
-A future provider-managed transport with no user key remains a v2 option, not a v1
-blocker.
+That policy remains the v1 baseline. The v2 product decision now adopts an authenticated
+WriterFlow-operated transport; see `PRD-V2.md`.
 
 ## AI security boundary
 
@@ -90,7 +95,7 @@ verification work; documenting them here does not claim they are already complet
 - [x] Remove automatic quarantine-clearing from `AppRelocator`; installation docs use
   Apple's supported **Open Anyway** flow only.
 
-## Manual evidence still required before public upload/tag
+## Historical manual evidence checklist
 
 These checks cannot be proven by compilation or an artifact scanner. Record the tester,
 date, Mac model/macOS version, and result in the release notes before changing them:
@@ -106,8 +111,9 @@ date, Mac model/macOS version, and result in the release notes before changing t
 - [ ] Download the final uploaded DMG + checksum back from the public HTTPS release page
   and repeat checksum verification (a local copy does not exercise quarantine).
 
-Do not create the `v1.0.0` tag or describe the build as generally released until all
-four boxes have evidence.
+At release-planning time, policy required all four boxes to have evidence before creating
+the tag. The tag now exists; unchecked boxes above preserve this file's recorded evidence
+state and should not be silently rewritten after the fact.
 
 
 
@@ -171,7 +177,9 @@ launch is blocked by Gatekeeper. The supported user flow is:
 
 1. Download the DMG and `.sha256` file from the official release page into the same
   directory, then verify it. For the usual Downloads folder:
-2. Drag WriterFlow to Applications before opening it.
+2. Open the DMG. Finder shows the installer window automatically (WriterFlow on
+  the left, Applications on the right). Drag WriterFlow onto Applications before
+  opening the app.
 3. Try to open WriterFlow once and dismiss the unidentified-developer warning.
 4. Open **System Settings → Privacy & Security**, scroll to Security, and click
   **Open Anyway** for WriterFlow; confirm **Open** in the next prompt.
@@ -182,9 +190,9 @@ Macs may prohibit the override, so this v1 is publicly downloadable but cannot b
 promised to install on every managed Mac. Ad-hoc identity can also change between
 builds, so a manual update may require Accessibility/Input Monitoring approval again.
 
-## Deferred to v2.0
+## Deferred from v1.0 and planned for v2.0
 
-None of the following blocks the v1.0 tag under the current plan:
+None of the following blocked the published v1.0 tag:
 
 - paid Apple Developer Program membership;
 - Developer ID Application signing and trusted Gatekeeper identity;
@@ -192,9 +200,9 @@ None of the following blocks the v1.0 tag under the current plan:
 - Sparkle, an appcast, EdDSA update signing, and automatic updates;
 - remote accounts, user profiles, membership/entitlement storage, billing,
 subscriptions, licensing, teams, or cross-device sync;
-- a new bespoke WriterFlow relay/API, unless “no custom APIs” is deliberately reversed.
-An existing managed transport on WriterFlow infrastructure may qualify under the v1
-criteria described above without becoming this deferred work.
+- a new bespoke WriterFlow relay/API. The July 17, 2026 v2 product decision deliberately
+  reverses the v1 “no custom APIs” rule; its implementation is specified in
+  `V2-ARCHITECTURE.md`.
 
 The existing `scripts/release.sh` and `WriterFlow.entitlements` are retained only as
 v2 scaffolding. They are not the current production path.
