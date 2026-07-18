@@ -1,0 +1,32 @@
+{
+  "description": "Explicit Formal action on a selection within a larger field.",
+  "request": {
+    "operationId": "10000000-0000-4000-8000-000000000002",
+    "mode": "explicit",
+    "task": {
+      "requestedAction": "formal",
+      "customInstruction": null,
+      "promptBuilder": null,
+      "outputModeHint": "replace"
+    },
+    "target": {
+      "bundleId": "com.tinyspeck.slackmacgap",
+      "site": null,
+      "windowClass": null,
+      "fieldRevision": "rev-7"
+    },
+    "content": {
+      "targetScope": "selection",
+      "draft": "hey can we push the launch back a bit, not feeling ready",
+      "selectedText": "not feeling ready",
+      "conversation": null
+    },
+    "signals": {
+      "hasSelection": true,
+      "hasVisibleThread": false,
+      "inputLength": 56,
+      "appTone": "casual"
+    },
+    "personalization": null
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "description": "Explicit Casual action on a full field with a visible conversation thread.",
+  "request": {
+    "operationId": "10000000-0000-4000-8000-000000000003",
+    "mode": "explicit",
+    "task": {
+      "requestedAction": "casual",
+      "customInstruction": null,
+      "promptBuilder": null,
+      "outputModeHint": "replace"
+    },
+    "target": {
+      "bundleId": "com.apple.mail",
+      "site": null,
+      "windowClass": null,
+      "fieldRevision": "rev-3"
+    },
+    "content": {
+      "targetScope": "field",
+      "draft": "Please be advised that the deliverable will be submitted at your earliest convenience.",
+      "selectedText": null,
+      "conversation": "Subject: Q3 deliverable\n\nHi team, checking in on the status of the report."
+    },
+    "signals": {
+      "hasSelection": false,
+      "hasVisibleThread": true,
+      "inputLength": 89,
+      "appTone": "formal"
+    },
+    "personalization": null
+  }
+}

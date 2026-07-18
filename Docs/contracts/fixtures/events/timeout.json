@@ -1,0 +1,11 @@
+{
+  "description": "Provider call times out while state is 'running' (before any output.delta) — retry/failover is permitted here per inference-stream.md's retry rules, but every configured target for the route also fails/times out, so the operation terminates. Upstream host/deployment/timeout-ms details are never forwarded to the client.",
+  "requestOperationId": "10000000-0000-4000-8000-000000000004",
+  "events": [
+    { "type": "request.accepted", "requestId": "30000000-0000-4000-8000-00000000000c" },
+    { "type": "error", "code": "MODEL_UNAVAILABLE", "message": "The AI service didn't respond in time. Please try again.", "requestId": "30000000-0000-4000-8000-00000000000c" }
+  ],
+  "note": "No 'decision' event precedes this error — a timeout in 'running' state can occur before the decision step completes. If a decision had already been sent and the timeout instead happened mid-stream (after first delta), retry/failover would NOT be attempted automatically (see events/disconnected-mid-stream.json); this fixture covers the pre-first-delta case specifically.",
+  "expectedLedgerOutcome": "State = failed. Reservation released. Zero customer billable units. Internal provider-cost/abuse accounting still records the failed attempt(s) against every target tried.",
+  "expectedClientOutcome": "Preview shows a generic 'AI service unavailable, try again' error copy; Retry is offered as a new operation with a new Idempotency-Key and retryOf pointing at this requestId."
+}

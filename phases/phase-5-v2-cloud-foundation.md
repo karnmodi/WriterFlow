@@ -33,33 +33,45 @@ the options flow are Phase 6 work, after the transport is proven independently.
 
 ### Product and security decisions
 
-- [ ] Add short ADRs that freeze the Phase 5 decisions:
-  - managed customer identity = Microsoft Entra External ID;
-  - native auth = browser Authorization Code + PKCE, no client secret;
+- [x] Add short ADRs that freeze the Phase 5 decisions — `Docs/adr/0001`–`0012`:
+  - managed customer identity = Microsoft Entra External ID (web-side confidential
+    client per ADR-0011 amendment);
+  - ~~native auth = browser Authorization Code + PKCE, no client secret~~ **superseded by
+    ADR-0011**: auth/membership in the browser, Mac pairs via device-authorization flow;
   - cloud DB = Azure Database for PostgreSQL Flexible Server;
   - local DB = GRDB + SQLCipher, key in Keychain;
   - app edge = API Management, private origin = Container Apps;
   - provider auth = managed identity/RBAC and private endpoint;
   - inference content = ephemeral by default;
-  - stable Developer ID app identity = required before external alpha migration/auth;
-  - Stripe/paid enforcement = not part of Phase 5.
-- [ ] Inventory v1 data by location and classification:
-  `writerflow.db`, `models.json`, `compatibility.json`, UserDefaults, Keychain,
-  diagnostics, crash logs, `.env`/`secrets.env`, clipboard snapshots, and in-memory
-  field/context/output.
-- [ ] Define retention and deletion behavior for every new cloud table before its
-  migration is written.
-- [ ] Threat-model at minimum: token theft, malicious/tampered client, replay,
+  - ~~stable Developer ID app identity required before external alpha~~ **superseded by
+    ADR-0010**: no Apple Developer account; v2 keeps v1 ad-hoc distribution;
+  - Stripe/paid enforcement = not part of Phase 5;
+  - ADR-0011 = browser-mediated auth + device pairing;
+  - ADR-0012 = WriterFlow backend is the device-token issuer.
+- [x] Inventory v1 data by location and classification — `Docs/v2-data-inventory.md`,
+  built from direct source inspection (`writerflow.db` tables, `models.json`,
+  `compatibility.json`, UserDefaults keys, the Keychain BYO-key item, DEBUG-only
+  `secrets.env`, diagnostics export, and in-memory field/context/output/clipboard).
+- [x] Define retention and deletion behavior for every new cloud table before its
+  migration is written. — `Docs/v2-data-retention-policy.md`, covering every table
+  Stage 5.1's PostgreSQL baseline actually migrates (retention default, deletion
+  trigger, deletion mechanism per table, plus the account-deletion sequencing across
+  them). Phase 7 tables (Stripe, personalization sync) get their own policy when their
+  migrations are written.
+- [x] Threat-model at minimum: token theft, malicious/tampered client, replay,
   idempotency race, quota race, cross-tenant access, prompt injection, oversized
   context, SSE disconnect/retry, provider failover, usage double-count, Key Vault/DB key
-  loss, log leakage, and v1 migration interruption.
-- [ ] Explicitly document the native-public-client limitation: no embedded shared secret
-  proves app identity; do not invent custom crypto as a workaround.
+  loss, log leakage, and v1 migration interruption — `Docs/v2-threat-model.md`.
+- [x] Explicitly document the native-public-client limitation: no embedded shared secret
+  proves app identity; do not invent custom crypto as a workaround. —
+  `Docs/v2-threat-model.md` §14 and ADR-0002.
 
 ### Contracts
 
-- [ ] Define versioned JSON schemas/OpenAPI for:
-  - authenticated `/v2/bootstrap` and `AccountSnapshot` returned by bootstrap/`/v2/me`;
+- [x] Define versioned JSON schemas/OpenAPI for:
+  - device pairing (`/v2/device/authorize`, `/v2/device/approve`, `/v2/device/token`,
+    `/v2/token/refresh`) and the `AccountSnapshot` returned by approve/`/v2/me`
+    (this replaces the former Mac-authenticated `/v2/bootstrap`; ADR-0011/0012);
   - device list/revoke;
   - a discriminated inference envelope with `mode = explicit|auto`, current
     `WritingAction`, Custom instruction, Prompt Builder analyze/finalize/answers,
@@ -70,37 +82,58 @@ the options flow are Phase 6 work, after the transport is proven independently.
   - style-analysis request/result;
   - safe error codes;
   - logical route and allowance labels exposed to the app.
-- [ ] Require `Authorization`, `Idempotency-Key`, client version, and device ID on
-  inference/style calls.
-- [ ] Cap every text field, total request bytes, context nodes/chars, output tokens,
+
+  See `Docs/contracts/openapi.yaml` (REST) and `Docs/contracts/inference-stream.md` +
+  `Docs/contracts/schemas/*.schema.json` (SSE). Version `2.0.0-alpha.1`; treat as
+  draft until Stage 5.0 architecture review signs off.
+- [x] Require `Authorization`, `Idempotency-Key`, client version, and device ID on
+  inference/style calls — encoded as required parameters in `openapi.yaml`.
+- [x] Cap every text field, total request bytes, context nodes/chars, output tokens,
   operation duration, and concurrent operations. Keep current v1 context caps as the
-  starting baseline until measured.
-- [ ] Decide canonical operation states and transitions:
-  `reserved → running → streaming → completed|failed|cancelled`.
-- [ ] Define retry rules: provider retry/failover only before first delta; preview Retry is
+  starting baseline until measured. — `maxLength`/`maxItems` bounds are in
+  `inference-request.schema.json`; values reuse v1's existing caps as a first pass
+  and must be re-validated against real Stage 5.1 traffic, not treated as final.
+- [x] Decide canonical operation states and transitions:
+  `reserved → running → streaming → completed|failed|cancelled` — documented in
+  `Docs/contracts/inference-stream.md`.
+- [x] Define retry rules: provider retry/failover only before first delta; preview Retry is
   a new explicit operation; the same idempotency key never triggers another model call.
-- [ ] Define broken-stream behavior: partial output cannot Replace/Copy, same-key status
+  — `Docs/contracts/inference-stream.md` "Retry and idempotency rules".
+- [x] Define broken-stream behavior: partial output cannot Replace/Copy, same-key status
   lookup makes no provider call, failed/cancelled delivery debits zero customer units
   while retaining internal provider-cost/abuse accounting, and explicit Retry links a
-  new operation through `retryOf`.
-- [ ] Define strict discriminated-union validation: reject unknown modes/actions/phases,
+  new operation through `retryOf`. — same section.
+- [x] Define strict discriminated-union validation: reject unknown modes/actions/phases,
   require Custom/Prompt Builder fields conditionally, and validate decision/output mode
-  before any preview text becomes replaceable.
-- [ ] Define log fields allowed for inference: request ID, user/org/device IDs in
+  before any preview text becomes replaceable. — encoded in
+  `inference-request.schema.json` (`additionalProperties: false`, conditional
+  required fields) and `sse-events.schema.json` (`oneOf` discriminated union).
+- [x] Define log fields allowed for inference: request ID, user/org/device IDs in
   pseudonymous form, logical route, prompt version, char/token counts, latency, status,
-  and safe error code. Text is forbidden.
+  and safe error code. Text is forbidden. — `Docs/contracts/inference-stream.md`
+  "Allowed log fields".
 
-### Test fixtures
-
-- [ ] Create synthetic fixtures for each current `WritingAction`, empty Reply, Custom
+- [x] Create synthetic fixtures for each current `WritingAction`, empty Reply, Custom
   insert mode, Prompt Builder analyze/finalize, style analysis, cancellation, timeout,
-  429, 5xx, and disconnected SSE.
-- [ ] Create redaction tests with canary secrets in draft/context to prove they never
-  appear in logs, traces, errors, or usage rows.
-- [ ] Create prompt-injection fixtures in conversation, draft, Custom instruction,
+  429, 5xx, and disconnected SSE. — `Docs/contracts/fixtures/requests/*.json` (one
+  envelope per action + empty Reply + Custom insert mode + Prompt Builder
+  analyze/finalize + style analysis, all schema-validated) and
+  `Docs/contracts/fixtures/events/*.json` (happy-path, cancellation, timeout, 429,
+  5xx, disconnected-mid-stream event sequences, all schema-validated against
+  `sse-events.schema.json`). Data-only; the Stage 5.1 TypeScript harness wires them to
+  a runner (`Docs/contracts/fixtures/README.md`).
+- [x] Create redaction tests with canary secrets in draft/context to prove they never
+  appear in logs, traces, errors, or usage rows. — fixture data in
+  `Docs/contracts/fixtures/redaction/canary-secrets.json`; the assertion runs once the
+  Stage 5.1 logging path exists.
+- [x] Create prompt-injection fixtures in conversation, draft, Custom instruction,
   personalization, Prompt Builder answers, and model output. Prove untrusted text cannot
   change authorization, retention, tools, deployment, route allowlist, or output mode
-  outside the validated task contract.
+  outside the validated task contract. — fixture data in
+  `Docs/contracts/fixtures/prompt-injection/injection-vectors.json`, six vectors with a
+  stated `expectedSafeOutcome` each; assertion runs once Stage 5.1's server exists
+  (Phase 5 inherits v1's injection posture per `Docs/v2-threat-model.md` #6 — full
+  mitigation is Stage 6.4).
 
 **Accept:** architecture review signs off on ADRs, threat model, data inventory, API
 schema, retry/idempotency state machine, and privacy/logging contract before cloud code
@@ -188,57 +221,66 @@ PostgreSQL fail.
 
 ## Stage 5.2 — Real-user authentication and account/device state
 
-### Entra External ID
+### Entra External ID (web-side confidential client — ADR-0011)
 
 - [ ] Create separate External ID configurations/app registrations for local development,
-  staging, and production.
-- [ ] Register the macOS app as a public client with an exact callback URI and no secret.
-- [ ] Register the WriterFlow API audience/scope and OIDC metadata consumed by APIM/API.
-- [ ] Configure an initial user flow with email one-time passcode and the selected first
-  social provider.
-- [ ] Document issuer/audience/scope/redirect values as non-secret environment config;
-  never accept arbitrary issuer metadata from a request.
+  staging, and production, all owned by the **web app** (confidential client).
+- [ ] Do **not** register the macOS app as an Entra client. It has no redirect URI and no
+  Entra client ID; it never presents an Entra token.
+- [ ] Register the WriterFlow API audience/scope the web app requests from Entra during
+  sign-in; document issuer/audience/scope as non-secret config and never accept arbitrary
+  issuer metadata from a request.
+- [ ] Configure an initial web user flow with email one-time passcode and the selected
+  first social provider; keep the web client secret server-side only.
 
-### macOS session
+### WriterFlow device-token issuer (ADR-0012)
 
-- [ ] Complete an auth-packaging spike before wiring product UI: pin the exact MSAL SPM
-  package/version, callback scheme, app registration, Keychain access group, required
-  entitlements, broker/no-broker decision, and signing identity. The current v1
-  entitlements contain only network-client access and are not proof this flow works.
-- [ ] Add MSAL through Swift Package Manager and an `AuthCoordinator` using the system
-  browser authentication session on macOS.
-- [ ] Register the callback URL in `Info.plist` and verify it through bundled, installed,
-  relocated, stably Developer ID-signed, and relaunched builds. Ad-hoc identity is for
-  local development only.
-- [ ] Use MSAL's supported app-specific Keychain group for its token cache and verify its
-  backup/sync/accessibility behavior; do not promise a Security-framework accessibility
-  class that MSAL cannot configure. WriterFlow-owned DB keys remain
-  `WhenUnlockedThisDeviceOnly`.
-- [ ] Implement interactive sign-in, silent token acquisition on explicit API need,
-  sign-out, expired/revoked session handling, and cancellation.
-- [ ] Test the documented short refresh-token lifetime for External ID email OTP across
-  app quit/relaunch, relocation, signed update, expiry, revocation, and clock skew; ship
-  accurate reauthentication copy and recommend the social provider if OTP is daily.
-- [ ] Do not refresh/acquire tokens because of passive typing or focus events.
-- [ ] Add account/session state to the dependency container instead of reading global
+- [ ] Generate an asymmetric signing key in Key Vault; publish
+  `api.writerflow.app/.well-known/jwks.json` and mint short-lived access tokens
+  (`iss=https://api.writerflow.app`). Support key rollover.
+- [ ] Issue opaque refresh tokens stored hashed and bound to one `devices` row; rotate on
+  every use with reuse detection (a replayed refresh revokes the session family).
+- [ ] Implement `POST /v2/device/authorize` (unauthenticated, rate-limited, stores a PKCE
+  `code_challenge` against a single-use `device_code` + short `user_code`),
+  `POST /v2/device/approve` (web-session-authenticated device binding + provisioning), and
+  `POST /v2/device/token` (PKCE-bound poll returning tokens), plus `POST /v2/token/refresh`.
+
+### macOS session (no MSAL)
+
+- [ ] Add a `DeviceSessionProviding` implementation using `URLSession` + a small pairing
+  state machine; no MSAL dependency, no OAuth client, no `ASWebAuthenticationSession`.
+- [ ] `beginPairing()` calls `/v2/device/authorize`, shows the `user_code`, and offers to
+  open the browser via `verification_uri_complete` (deep-link happy path) with manual
+  `writerflow.app/pair` code entry as fallback.
+- [ ] Register a `writerflow://paired` scheme in `Info.plist` only as a foreground hint to
+  end the polling wait; verify it carries no token and that pairing succeeds without it.
+- [ ] Store the WriterFlow access + refresh tokens in the app's own Keychain item
+  (`WhenUnlockedThisDeviceOnly`, no access group). Local DB keys remain a separate item.
+- [ ] Implement poll/backoff (`interval`, `slow_down`), refresh on explicit API need,
+  sign-out, expired/revoked/denied handling, and cancellation.
+- [ ] On refresh-token loss/rebuild, present a re-pair action — never silent data loss and
+  never a touch to the local DB key.
+- [ ] Do not begin pairing, poll, or refresh because of passive typing or focus events.
+- [ ] Add device-session state to the dependency container instead of reading global
   Keychain readiness flags from `AppDelegate`.
 
 ### Server provisioning and authorization
 
-- [ ] Configure APIM generic `validate-jwt` against the exact External ID
-  `ciamlogin.com` OIDC metadata, issuer, audience, expiry, and `scp`; do not use
-  `validate-azure-ad-token`, which does not support Entra ID for customers. Cache JWKS
-  while allowing normal signing-key rollover.
-- [ ] Repeat JWT validation/application authorization in the API using a maintained
-  library and immutable `(issuer, subject)` identity key.
-- [ ] `/v2/bootstrap` requires a valid scoped JWT but is the only user route exempt from
-  an existing-device check. In one idempotent transaction it creates the user, auth
-  identity, personal organization, owner membership, and opaque install/device record.
-- [ ] `/v2/me` and device list/revoke operations require the returned non-revoked device
-  ID and can affect only the current user's records.
-- [ ] Every other authenticated request rejects disabled user, inactive membership, and
-  revoked device before business work. Treat device ID as inventory/soft admission, not
-  proof of possession; stolen-token response uses identity-session revoke/account disable.
+- [ ] Configure APIM generic `validate-jwt` against **WriterFlow's own** JWKS/issuer
+  (`https://api.writerflow.app`)/audience/expiry/scope — not Entra metadata, and not
+  `validate-azure-ad-token`. Cache JWKS while allowing normal signing-key rollover.
+- [ ] The web app validates Entra tokens server-side using a maintained library and the
+  immutable `(issuer, subject)` identity key before calling `/v2/device/approve`.
+- [ ] `POST /v2/device/approve` performs the former `/v2/bootstrap` work: in one
+  idempotent transaction it creates the user, auth identity, personal organization, owner
+  membership, and the `devices` record bound to the approved `device_code`.
+- [ ] `/v2/me` and device list/revoke operations require a valid WriterFlow token + the
+  non-revoked device ID and can affect only the current user's records.
+- [ ] Every authenticated request rejects disabled user, inactive membership, and revoked
+  device before business work. Treat the device ID as inventory/soft admission; a stolen
+  token is answered by device/refresh-family revoke or account disable.
+- [ ] `/v2/device/authorize` and `/v2/device/token` are the only bearer-exempt user
+  routes; gate them with the PKCE-bound `device_code` and strict rate/body limits.
 - [ ] Never join login and billing by email.
 
 ### UI
@@ -252,26 +294,30 @@ PostgreSQL fail.
 
 ### Tests
 
-- [ ] Unit/contract tests for state transitions, token-refresh cancellation, callback
-  routing, Keychain access-group failure, and broker/no-broker configuration.
+- [ ] Unit/contract tests for pairing state transitions, poll backoff/`slow_down`,
+  `expired_token`/`access_denied`, refresh rotation + reuse-detection revocation, and
+  Keychain read/write without an access group.
+- [ ] Device-code security tests: single-use `device_code`, PKCE `code_verifier` binding,
+  `user_code` guessing/rate-limit resistance, and expiry.
 - [ ] Integration tests for missing, malformed, wrong-issuer, wrong-audience, wrong-scope,
-  expired, and valid tokens.
+  expired, and valid WriterFlow tokens at the edge; and Entra token validation web-side.
 - [ ] Cross-user tests for `/me` and device read/revoke.
 - [ ] Verify secrets/tokens never appear in macOS/backend logs or diagnostics exports.
 
-**Accept:** a new user signs in through the system browser, `/v2/bootstrap` idempotently
-creates exactly one personal organization/membership/current device, `/v2/me` returns it,
-API calls reject every invalid-token case, revoking the record blocks the cooperative
-installation's next call, identity-session revoke covers stolen-token tests, and local
-data remains available after sign-out/offline.
+**Accept:** a new user signs in in the browser, approves the device, and `/v2/device/token`
+returns a WriterFlow token; `/v2/device/approve` idempotently creates exactly one personal
+organization/membership/current device; `/v2/me` returns it; API calls reject every
+invalid-token case; revoking the device or refresh family blocks the cooperative
+installation's next call; account disable covers stolen-token tests; and local data
+remains available after sign-out/offline.
 
-**Suggested commit:** `phase5.2: add Entra PKCE accounts and device sessions`
+**Suggested commit:** `phase5.2: add browser pairing, device tokens, and account state`
 
 ## Stage 5.3 — Encrypted, account-scoped local data
 
 The SQLCipher packaging spike may run after Stage 5.0 in parallel with backend work.
 Runtime account binding and migration must wait for Stage 5.2's immutable issuer/subject
-identity and bootstrap flow.
+identity and device-approval provisioning flow.
 
 ### SQLCipher feasibility gate
 
@@ -345,8 +391,9 @@ identity and bootstrap flow.
 - [ ] Artifact/string scan confirms representative history/profile plaintext is absent
   from the encrypted DB, UserDefaults, temporary/rollback files, and SQLite WAL/SHM
   artifacts after migration.
-- [ ] Upgrade/key-reopen tests cross at least two builds signed with the intended stable
-  Developer ID identity so Keychain/database continuity is not inferred from debug runs.
+- [ ] Upgrade/key-reopen tests cross at least two ad-hoc-signed release-style builds
+  (ADR-0010, no Developer ID) so Keychain/database continuity — and device-token
+  re-pair-on-loss behavior — is verified for the real distribution shape, not debug runs.
 - [ ] Dashboard search, filters, reactive observations, retention, Clear History, memory,
   app rules, and diagnostics still work.
 

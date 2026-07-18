@@ -12,10 +12,15 @@ Azure models, and replace the action menu with contextual automation.
 
 Build one modular backend before building microservices:
 
-- **Identity:** Microsoft Entra External ID; browser Authorization Code + PKCE from the
-  native Mac app, using MSAL's macOS support and `ASWebAuthenticationSession`.
+- **Identity:** Microsoft Entra External ID, integrated by the **web app** as a
+  confidential client. The Mac app is not an OAuth client; it pairs to a
+  browser-completed session via a device-authorization flow and receives a
+  WriterFlow-minted device token (ADR-0011, ADR-0012). Membership/payment also live in
+  the browser.
 - **Public edge:** Azure API Management Standard v2 at `api.writerflow.app`. Validate
-  Entra tokens, apply request/rate limits, and disable response buffering for SSE.
+  **WriterFlow-issued** device tokens against WriterFlow's own JWKS, apply request/rate
+  limits, and disable response buffering for SSE. Device-pairing routes are
+  unauthenticated-but-rate-limited exceptions.
 - **Private origin:** one TypeScript/Fastify API-orchestrator in a workload-profiles
   Azure Container Apps environment with an internal virtual IP. The API app uses
   app-level `external` ingress (external to its Container Apps environment), but the
@@ -62,21 +67,24 @@ The implementable goal is:
 
 ```mermaid
 flowchart LR
-    Mac["WriterFlow.app\npublic OAuth client"]
+    Mac["WriterFlow.app\nnot an OAuth client"]
+    Web["WriterFlow web app\nconfidential Entra client\n+ Stripe + pairing UI"]
     IDP["Entra External ID\nbrowser sign-in"]
     Edge["API Management\npublic authenticated edge"]
-    API["Container Apps\nprivate API + orchestrator"]
+    API["Container Apps\nprivate API + orchestrator\n+ device-token issuer"]
     PG["PostgreSQL\nprivate endpoint"]
     KV["Key Vault\nprivate endpoint"]
     AOAI["Azure OpenAI pool\nprivate endpoints"]
     Stripe["Stripe\nCheckout, Billing, webhooks"]
 
-    Mac -->|"Authorization Code + PKCE"| IDP
-    Mac -->|"Bearer token + SSE"| Edge
+    Mac -->|"device_code pairing + poll"| Edge
+    Mac -->|"WriterFlow bearer + SSE"| Edge
+    Web -->|"Authorization Code + PKCE"| IDP
+    Web -->|"approve device / Checkout"| Edge
     Stripe -->|"signed webhook only"| Edge
     Edge -->|"VNet-integrated origin call"| API
     API -->|"TLS"| PG
-    API -->|"managed identity"| KV
+    API -->|"managed identity (sign device tokens)"| KV
     API -->|"managed identity + private link"| AOAI
     API -->|"outbound HTTPS"| Stripe
 ```
@@ -92,8 +100,9 @@ Private Link.
 
 | Decision | Choice | Why now | Revisit when |
 |---|---|---|---|
-| Customer identity | Entra External ID | Azure-native consumer identity, OIDC/OAuth, browser and macOS support, MAU model | Required sign-in UX or provider support is materially weaker than alternatives |
-| Native auth flow | Authorization Code + PKCE in system browser | Native apps are public clients; no extractable client secret; follows native OAuth BCP | Do not replace with an embedded web view or custom password flow |
+| Customer identity | Entra External ID (web-side confidential client) | Azure-native consumer identity, OIDC/OAuth, MAU model; server-side client is a better OAuth citizen than an embedded public client | Required sign-in UX or provider support is materially weaker than alternatives |
+| Native auth flow | Browser auth + device-authorization pairing; WriterFlow-minted device token | Keeps Entra browser-only, needs no redirect URI/Keychain access group, works for an unsigned/ad-hoc app (ADR-0011/0012) | Supported native token binding (DPoP/mTLS) plus a reason to make the app an OAuth client |
+| Distribution identity | Ad-hoc signed, no Apple Developer account (ADR-0010) | Auth no longer depends on a stable signing identity; keeps v1's $0 distribution | Gatekeeper friction measurably harms paid conversion, or a channel requires notarization |
 | API gateway | API Management Standard v2 | JWT checks, throttling, private backend access, SSE support | Multi-region/WAF/capacity demands Front Door or Premium tier |
 | Compute | Azure Container Apps | Autoscaling container workload, managed identity, internal environment VIP, simpler than AKS | Sustained scale or specialized networking justifies AKS |
 | Backend language | TypeScript + Fastify | Strong Stripe/Azure/PostgreSQL ecosystem and fast schema/API iteration | Team expertise or measured runtime limits justify a change |
@@ -104,7 +113,7 @@ Private Link.
 | Billing | Stripe-hosted Checkout/Portal + webhook projection | No card handling; reliable subscription primitives | Team invoicing or another region requires additional rails |
 | Usage pricing | Internal ledger first, Stripe meter later | Costs can be measured before setting prices; billing remains replayable | Never meter from client-reported counts |
 | Prompt assets | Version-controlled backend resources | Auditable, testable, protected from client drift | Add an admin authoring surface only with review/version controls |
-| Mac signing identity | Stable Developer ID before external alpha | OAuth callbacks, Keychain continuity, and trusted updates must be tested under the real app identity | Final notarization/Sparkle mechanics remain a Phase 8 gate |
+| Mac signing identity | Ad-hoc (no Developer ID) — ADR-0010 supersedes ADR-0008 | Browser auth removes the redirect-URI/Keychain-access-group dependencies that required a stable identity; device tokens re-pair on loss | Gatekeeper friction harms paid conversion, or a channel requires notarization |
 
 The v1 “no custom API” rule is deliberately superseded by this decision. Keep the
 reason in the repository so a future security review does not mistake the backend for
@@ -119,9 +128,13 @@ accidental scope growth.
 small interfaces:
 
 ```swift
-protocol AuthSessionProviding {
-    var state: AuthSessionState { get }
-    func signIn() async throws
+protocol DeviceSessionProviding {
+    var state: DeviceSessionState { get }
+    // Start browser pairing: returns the user_code + verification URL to show/open.
+    func beginPairing() async throws -> PairingChallenge
+    // Poll /v2/device/token until approved, denied, or expired.
+    func awaitPairedToken() async throws
+    // Valid WriterFlow access token, refreshing via rotating refresh token as needed.
     func accessToken() async throws -> String
     func signOut() async
 }
@@ -191,46 +204,64 @@ data and bind the new account. Do not silently switch stores or merge identities
 
 ## 5. Authentication and authorization
 
-### 5.1 Native flow
+### 5.1 Browser auth + device pairing (ADR-0011, ADR-0012)
 
-Use Entra External ID with two app registrations:
+Use Entra External ID with two registrations, **both owned by the web app**:
 
-1. **WriterFlow macOS public client** — no client secret, registered redirect URI, PKCE.
-2. **WriterFlow API resource** — exposes the API audience/scope accepted by the edge.
+1. **WriterFlow web confidential client** — server-side, runs Entra sign-in and hosts
+   membership/payment. It may hold a client secret because it is a server, not the
+   distributed Mac binary.
+2. **WriterFlow API resource** — the audience/scope the web app requests from Entra to
+   provision the account; it is not presented to the Mac API edge.
 
-Implementation sequence:
+The Mac app is **not** an Entra client. It obtains a WriterFlow session through a
+device-authorization pairing flow re-implemented at WriterFlow's own API layer:
 
-1. `AuthCoordinator` starts an MSAL interactive sign-in, which uses the system web
-   authentication session on macOS.
-2. The browser authenticates through an External ID user flow.
-3. The authorization code is returned to the app and redeemed with the PKCE verifier.
-4. MSAL maintains its token cache in Keychain. WriterFlow never receives a password.
-5. The access token is attached to API calls; the client never logs it or places it in a
-   query string.
-6. The app calls `/v2/bootstrap` with its locally generated opaque install ID. That one
-   route provisions user, personal organization, membership, and device idempotently.
-7. Subsequent `/v2/me` and capability calls include the returned device ID.
-8. Silent refresh runs only when an explicit user action needs the API or when the user
-   opens an account surface. Passive typing does not refresh merely to classify text.
+1. The app calls `POST /v2/device/authorize` (no bearer; strict rate limit; carries
+   client version, opaque install ID, and a PKCE `code_challenge`). It receives
+   `device_code`, a short human `user_code`, `verification_uri`,
+   `verification_uri_complete`, `interval`, and `expires_in`.
+2. The app shows the `user_code` and offers to open the browser. **Happy path:** a deep
+   link / `verification_uri_complete` (`https://writerflow.app/pair?user_code=…`).
+   **Fallback:** the user types the `user_code` at `writerflow.app/pair`.
+3. In the browser, the web app runs Entra sign-in (and Stripe membership if upgrading),
+   provisions user/personal organization/membership idempotently, shows the requesting
+   device, and calls `POST /v2/device/approve` under its authenticated session to bind
+   the `device_code` to the resolved user and create the `devices` record.
+4. The app polls `POST /v2/device/token` with `device_code` + PKCE `code_verifier`,
+   handling `authorization_pending` / `slow_down` / `expired_token` / `access_denied`,
+   until it receives WriterFlow-minted `access_token` + `refresh_token` + `device_id`.
+5. A `writerflow://paired` deep link may foreground the app to end the polling wait, but
+   it carries no token — token transfer is only the polled `/v2/device/token` response.
+6. Tokens are stored in the app's own Keychain item. WriterFlow never receives a
+   password and the Mac never holds an Entra token.
+7. Subsequent `/v2/me` and capability calls carry the WriterFlow bearer + device ID.
+8. The access token is short-lived; the app refreshes via the rotating refresh token
+   only when an explicit user action needs the API or an account surface opens. Passive
+   typing never refreshes merely to classify text.
 
-Start with email one-time passcode and one social provider. Add more identity providers
-through External ID without changing WriterFlow's internal key. Microsoft documents a
-short (currently 24-hour) refresh-token lifetime for email OTP sessions; test expiry in
-the signed app and treat OTP as fallback if daily interactive authentication makes it a
-poor default.
+Start with email one-time passcode and one social provider in the web flow. Entra's
+short (~24h) OTP refresh lifetime is a *web-session* property; because the device holds
+a WriterFlow-minted refresh token, an expired Entra web session does not force the Mac
+to re-pair. Prefer a persistent social provider for the web sign-in default anyway.
 
 ### 5.2 Token validation and authorization layers
 
-For Mac/user routes, APIM uses generic `validate-jwt` against the pinned External ID
-customer-tenant OIDC metadata. Do not use `validate-azure-ad-token`: that APIM policy
-does not support Microsoft Entra ID for customers. A Mac/user route is rejected unless
-all of these are true:
+For Mac/user routes, APIM uses generic `validate-jwt` against **WriterFlow's own** OIDC
+metadata/JWKS (`api.writerflow.app/.well-known/jwks.json`, ADR-0012) — the Mac presents
+a WriterFlow-minted device token, never an Entra token. (Entra tokens are validated only
+server-side by the web app during sign-in; `validate-azure-ad-token` remains unusable for
+Entra ID for customers regardless.) A Mac/user route is rejected unless all of these are
+true:
 
-- JWT signature validates against the configured OIDC metadata/JWKS;
-- issuer and audience match exactly;
+- JWT signature validates against WriterFlow's published JWKS;
+- issuer (`https://api.writerflow.app`) and audience match exactly;
 - token is unexpired;
 - required scope is present; and
 - request size/rate limits pass.
+
+`/v2/device/authorize` and `/v2/device/token` are the pairing exceptions: no bearer, but
+strict method/body/rate policy and a single-use PKCE-bound `device_code`.
 
 `/v2/webhooks/stripe` is the deliberate exception to bearer-token validation. APIM
 applies a strict method/body/rate policy and preserves the raw body; the backend verifies
@@ -248,10 +279,12 @@ The application then performs its own authorization:
 - bind all database work to the resolved organization, never a client-supplied org ID.
 
 API Management's check is defense in depth, not a replacement for application
-authorization. `/v2/bootstrap` is the sole user-route exception to the existing-device
-requirement: it still requires a valid scoped JWT and strict rate/body limits, creates
-the identity/personal organization/membership/device in one idempotent transaction, and
-returns the device ID required everywhere else.
+authorization. Provisioning no longer rides a Mac-presented JWT: the web-authenticated
+`POST /v2/device/approve` creates the identity/personal organization/membership/device in
+one idempotent transaction (the `/v2/bootstrap` responsibility), and `/v2/device/token`
+returns the device token used everywhere else. `/v2/device/authorize` and
+`/v2/device/token` are the only user-facing routes exempt from a bearer token; they are
+gated by the PKCE-bound `device_code` and rate limits instead.
 
 ### 5.3 Native-client limitations
 
@@ -260,11 +293,13 @@ returns the device ID required everywhere else.
 - Do not invent a custom request-signing protocol.
 - If stronger token binding becomes necessary, adopt a supported standard such as DPoP
   or mTLS only after Entra/MSAL support and certificate/key lifecycle are validated.
-- Use Developer ID signing and update integrity to reduce tampered-client distribution,
-  but do not treat code signing as the only backend authorization control.
-- Establish the stable Developer ID identity before any external Phase 5 alpha that
-  migrates local data or stores production auth tokens. Ad-hoc signing is acceptable only
-  for local development; final notarization and updater rollout remain later gates.
+- The app is ad-hoc signed with no Apple Developer account (ADR-0010). Code signing is
+  therefore not even a partial anti-tamper control; all authorization is server-side.
+  This is acceptable because the device token is per-device and revocable and the client
+  was already treated as untrusted.
+- A lost/rebuilt ad-hoc identity may drop the Keychain-stored device token; recovery is a
+  browser re-pair (ADR-0011), never silent data loss, and never touches the separate
+  local DB key (ADR-0004).
 
 ### 5.4 Session and deletion behavior
 
@@ -274,10 +309,11 @@ returns the device ID required everywhere else.
 - **Different identity:** block cloud activation against the bound local profile until
   the user signs into the original account or completes the explicit export/remove/rebind
   flow. Never give the new identity the legacy account's local content.
-- **Revoke device:** backend marks the inventory/admission record revoked; the cooperative
-  registered installation clears tokens after its next rejected call. A copied bearer
-  token/device header is not proof of possession, so identity-session revocation or
-  account disable is required for token theft until supported token binding exists.
+- **Revoke device:** backend marks the `devices` record revoked and invalidates its
+  rotating refresh-token family; the cooperative installation clears tokens after its next
+  rejected call, and a stolen refresh token is caught by reuse detection. Short
+  access-token lifetime bounds the stolen-access-token window; account disable covers the
+  rest until supported token binding exists.
 - **Delete account:** disable inference immediately, cancel scheduled billing according
   to policy, queue live cloud content/wrapped-key deletion, record a deletion tombstone
   that is reapplied after restores until backups expire, and ask separately whether to
@@ -291,7 +327,10 @@ returns the device ID required everywhere else.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/v2/bootstrap` | JWT-authenticated first-run provisioning of user, personal organization/membership, and current install; only user route not requiring an existing device |
+| `POST` | `/v2/device/authorize` | Unauthenticated, rate-limited, PKCE-bound: start pairing; returns `device_code`, `user_code`, verification URLs, `interval`, `expires_in` |
+| `POST` | `/v2/device/approve` | Web-session-authenticated: bind a `user_code` to the signed-in user, provision user/org/membership/device idempotently (the former `/v2/bootstrap` work) |
+| `POST` | `/v2/device/token` | Unauthenticated, PKCE-bound poll: exchange an approved `device_code` for WriterFlow-minted access + refresh tokens |
+| `POST` | `/v2/token/refresh` | Rotate a refresh token for a new access token; reuse detection revokes the family |
 | `GET` | `/v2/me` | User, personal organization, current registered device, privacy, entitlement, and allowance snapshot |
 | `DELETE` | `/v2/devices/{id}` | Revoke one device |
 | `POST` | `/v2/inference/stream` | One explicit-trigger operation over SSE; `explicit` mode preserves v1 actions in Phase 5 and `auto` mode powers Phase 6 |
@@ -895,17 +934,26 @@ Recommended repository additions:
 
 ```text
 WriterFlow/
-  Sources/WriterFlow/                 # existing native app
+  Sources/WriterFlow/                 # existing native app (pairs; not an OAuth client)
+  website/                             # web app: confidential Entra client, Stripe
+                                       #   membership, /pair device-approval UI
   services/
     api/                               # Fastify HTTP/SSE API + orchestration
+                                       #   + device-token issuer (JWKS, refresh rotation)
     worker/                            # outbox, Stripe, reconciliation jobs
     shared/                            # schemas, auth claims, ledger types
   infra/
     bicep/                             # dev/staging/prod Azure resources
-    apim/                              # JWT, limits, SSE policies
+    apim/                              # WriterFlow-JWT, limits, SSE, pairing-route policies
   prompts/                             # versioned model-facing resources/evals
   docs/runbooks/                       # rotation, restore, incident, deletion
 ```
+
+The `website/` app carries the auth/membership responsibility that the Mac app sheds:
+it is the confidential Entra client, hosts Stripe Checkout/Portal, and serves the
+`/pair` approval page that calls `POST /v2/device/approve`. The `services/api` app gains
+device-token issuance: a signing key in Key Vault, a public JWKS endpoint, and
+refresh-token rotation/reuse-detection (ADR-0012).
 
 Start with one deployable API and a worker process from the same codebase. Keep modules
 separate but do not split them into independently operated services until scale or team
@@ -1060,6 +1108,9 @@ Fix two v1 issues before using event data for personalization or billing:
 ### Native authentication
 
 - [IETF RFC 8252 — OAuth 2.0 for Native Apps](https://datatracker.ietf.org/doc/html/rfc8252)
+- [IETF RFC 8628 — OAuth 2.0 Device Authorization Grant](https://datatracker.ietf.org/doc/html/rfc8628) — the shape WriterFlow's device pairing reimplements at its own API layer (ADR-0011)
+- [IETF RFC 7636 — PKCE](https://datatracker.ietf.org/doc/html/rfc7636) — binds the device_code to the requesting app
+- The MSAL/`ASWebAuthenticationSession` references below now apply to the **web app's** Entra integration, not the Mac app:
 - [Apple — ASWebAuthenticationSession](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession)
 - [Microsoft — MSAL redirect URIs for iOS and macOS](https://learn.microsoft.com/en-us/entra/msal/objc/redirect-uris-ios)
 - [Microsoft — MSAL Keychain configuration](https://learn.microsoft.com/en-us/entra/msal/objc/howto-v2-keychain-objc)

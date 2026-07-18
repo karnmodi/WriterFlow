@@ -1,0 +1,621 @@
+openapi: 3.1.0
+info:
+  title: WriterFlow v2 API
+  version: "2.0.0-alpha.1"
+  description: >
+    Stage 5.0 contract draft. Covers every REST endpoint except
+    POST /v2/inference/stream, whose SSE request/event contract is defined
+    separately in Docs/contracts/inference-stream.md because typed
+    Server-Sent-Event streams are not naturally expressed in OpenAPI.
+    Unknown request fields are rejected everywhere; this is a closed contract,
+    not an extensible one, until a new version is published.
+servers:
+  - url: https://api.writerflow.app/v2
+    description: Production (private origin behind APIM)
+  - url: https://api.staging.writerflow.app/v2
+    description: Staging
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        WriterFlow-minted device access token (ADR-0012), validated at APIM against
+        WriterFlow's own JWKS (iss=https://api.writerflow.app). NOT an Entra token —
+        Entra is validated only server-side by the web app. Not required for
+        /v2/webhooks/stripe or the /v2/device/authorize|token pairing routes.
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ClientVersion:
+      name: X-WriterFlow-Version
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: '^\d+\.\d+\.\d+$'
+    DeviceId:
+      name: X-WriterFlow-Device
+      in: header
+      required: false
+      description: >
+        Required on every bearer-authenticated route. The device ID is returned by
+        POST /v2/device/token when pairing completes; the pairing routes themselves
+        do not require it.
+      schema:
+        type: string
+
+  schemas:
+    ErrorCode:
+      type: string
+      enum:
+        - AUTH_REQUIRED
+        - AUTH_INVALID
+        - DEVICE_REVOKED
+        - PLAN_REQUIRED
+        - QUOTA_EXCEEDED
+        - RATE_LIMITED
+        - TARGET_TOO_LARGE
+        - MODEL_UNAVAILABLE
+        - REQUEST_CONFLICT
+        - VALIDATION_FAILED
+        - INTERNAL_ERROR
+
+    Error:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+          description: Safe, user-displayable copy. Never a provider error body.
+        requestId:
+          type: string
+
+    Device:
+      type: object
+      required: [id, createdAt, lastUsedAt, revoked]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+          nullable: true
+          description: Non-identifying display label (e.g. "MacBook Pro"), not a hostname.
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+        revoked:
+          type: boolean
+        current:
+          type: boolean
+          description: True only on the record matching the calling device's ID.
+
+    EntitlementSnapshot:
+      type: object
+      required: [plan, monthlyUnitsIncluded, monthlyUnitsUsed, features]
+      additionalProperties: false
+      properties:
+        plan:
+          type: string
+          enum: [free, pro]
+        monthlyUnitsIncluded:
+          type: integer
+          minimum: 0
+        monthlyUnitsUsed:
+          type: integer
+          minimum: 0
+        resetAt:
+          type: string
+          format: date-time
+        features:
+          type: array
+          items:
+            type: string
+            enum:
+              - auto_write
+              - standard_route
+              - premium_route
+              - prompt_enhancer
+              - personalization_sync
+              - priority_service
+
+    PrivacyPreferences:
+      type: object
+      required: [personalizationSyncEnabled, consentVersion]
+      additionalProperties: false
+      properties:
+        personalizationSyncEnabled:
+          type: boolean
+        consentVersion:
+          type: string
+
+    AccountSnapshot:
+      type: object
+      required: [userId, organizationId, device, entitlement, privacy]
+      additionalProperties: false
+      properties:
+        userId:
+          type: string
+          description: Opaque WriterFlow user ID. Never the IdP subject or email.
+        organizationId:
+          type: string
+        device:
+          $ref: '#/components/schemas/Device'
+        entitlement:
+          $ref: '#/components/schemas/EntitlementSnapshot'
+        privacy:
+          $ref: '#/components/schemas/PrivacyPreferences'
+
+    UsageCurrent:
+      type: object
+      required: [monthlyUnitsIncluded, monthlyUnitsUsed, resetAt]
+      additionalProperties: false
+      properties:
+        monthlyUnitsIncluded:
+          type: integer
+        monthlyUnitsUsed:
+          type: integer
+        resetAt:
+          type: string
+          format: date-time
+
+    CheckoutSessionRequest:
+      type: object
+      required: [priceLookupKey]
+      additionalProperties: false
+      properties:
+        priceLookupKey:
+          type: string
+          description: >
+            Stable WriterFlow-defined price identifier, never a raw Stripe
+            price ID or amount supplied by the client.
+
+    SessionUrl:
+      type: object
+      required: [url, expiresAt]
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
+
+    DeviceAuthorizeRequest:
+      type: object
+      required: [installId, codeChallenge, codeChallengeMethod]
+      additionalProperties: false
+      properties:
+        installId:
+          type: string
+          description: Locally generated opaque install identifier.
+        deviceLabel:
+          type: string
+          nullable: true
+          description: Non-identifying display label; never a hostname.
+        codeChallenge:
+          type: string
+          description: PKCE S256 challenge; the verifier is presented at /device/token.
+        codeChallengeMethod:
+          type: string
+          enum: [S256]
+
+    DeviceAuthorizeResponse:
+      type: object
+      required: [deviceCode, userCode, verificationUri, verificationUriComplete, interval, expiresIn]
+      additionalProperties: false
+      properties:
+        deviceCode:
+          type: string
+          description: Opaque, single-use, short-lived. Presented (with the PKCE verifier) at /device/token.
+        userCode:
+          type: string
+          description: Short human code the user enters/approves in the browser.
+        verificationUri:
+          type: string
+          format: uri
+          description: e.g. https://writerflow.app/pair
+        verificationUriComplete:
+          type: string
+          format: uri
+          description: verificationUri prefilled with userCode (deep-link happy path).
+        interval:
+          type: integer
+          description: Minimum seconds between /device/token polls.
+        expiresIn:
+          type: integer
+          description: Seconds until the deviceCode/userCode expire.
+
+    DeviceTokenRequest:
+      type: object
+      required: [deviceCode, codeVerifier]
+      additionalProperties: false
+      properties:
+        deviceCode:
+          type: string
+        codeVerifier:
+          type: string
+          description: PKCE verifier matching the codeChallenge from /device/authorize.
+
+    DeviceTokenResponse:
+      type: object
+      required: [accessToken, refreshToken, expiresIn, deviceId]
+      additionalProperties: false
+      properties:
+        accessToken:
+          type: string
+          description: Short-lived WriterFlow-minted JWT.
+        refreshToken:
+          type: string
+          description: Opaque, rotating; presented at /token/refresh. Stored hashed server-side.
+        expiresIn:
+          type: integer
+          description: Access-token lifetime in seconds.
+        deviceId:
+          type: string
+          description: The device ID to send as X-WriterFlow-Device on subsequent routes.
+
+    DeviceTokenPending:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [authorization_pending, slow_down, access_denied, expired_token]
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      additionalProperties: false
+      properties:
+        refreshToken:
+          type: string
+
+    StyleAnalysisRequest:
+      type: object
+      required: [samples]
+      additionalProperties: false
+      properties:
+        samples:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 4000
+
+    StyleAnalysisResult:
+      type: object
+      required: [profileVersion, summary]
+      additionalProperties: false
+      properties:
+        profileVersion:
+          type: integer
+        summary:
+          type: string
+          description: Derived style summary only — raw samples are not echoed back.
+
+  responses:
+    Unauthorized:
+      description: Missing/invalid/expired token, revoked device, or disabled user.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Idempotency key reused with a differing payload, or invalid state transition.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+paths:
+  /device/authorize:
+    post:
+      summary: Begin device pairing (ADR-0011). Unauthenticated, rate-limited, PKCE-bound.
+      description: >
+        The Mac app calls this to start pairing. No bearer token. Returns a
+        device_code + short user_code the user approves in the browser. Strictly
+        rate-limited at APIM.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ClientVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceAuthorizeRequest'
+      responses:
+        '200':
+          description: Pairing started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceAuthorizeResponse'
+        '429':
+          description: Rate limited.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /device/token:
+    post:
+      summary: Poll for the paired token (ADR-0012). Unauthenticated, PKCE-bound.
+      description: >
+        The Mac app polls with the device_code and PKCE verifier. Returns a pending
+        status until the browser approval completes, then WriterFlow-minted tokens.
+        This is the only channel that transfers a token — the writerflow://paired
+        deep link carries none.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceTokenRequest'
+      responses:
+        '200':
+          description: Approved — tokens issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceTokenResponse'
+        '202':
+          description: Not yet approved (authorization_pending / slow_down) or terminal (access_denied / expired_token).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceTokenPending'
+        '429':
+          description: Polling too fast.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /device/approve:
+    post:
+      summary: Bind a user_code to the signed-in user and provision the account.
+      description: >
+        Called by the WEB app under its own authenticated session (Entra validated
+        server-side), NOT by the Mac app. Performs the former /v2/bootstrap work:
+        idempotently creates user, auth identity, personal organization, owner
+        membership, and the device record bound to the approved user_code. The
+        bearerAuth here denotes the web session, not a WriterFlow device token.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userCode]
+              additionalProperties: false
+              properties:
+                userCode:
+                  type: string
+      responses:
+        '200':
+          description: Device approved; provisioned (or already-provisioned) account snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSnapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Unknown, expired, or already-consumed user_code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /token/refresh:
+    post:
+      summary: Rotate a refresh token for a new access token (ADR-0012).
+      description: >
+        Rotating refresh with reuse detection — replaying a superseded refresh token
+        revokes the whole device session family.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: New token pair issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceTokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /me:
+    get:
+      summary: Current user, organization, device, entitlement, and privacy snapshot.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSnapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /devices/{id}:
+    delete:
+      summary: Revoke one device.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '204':
+          description: Revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Device does not belong to the calling user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /style/analyze:
+    post:
+      summary: Explicit, non-streaming style analysis.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ClientVersion'
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StyleAnalysisRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StyleAnalysisResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /personalization/profile:
+    get:
+      summary: Fetch the synced derived style/rules profile, if sync is enabled.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: OK (empty object if sync has never run).
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      summary: Upsert the synced derived style/rules profile.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: OK
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /usage/current:
+    get:
+      summary: Current allowance and summarized usage.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageCurrent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /billing/checkout-session:
+    post:
+      summary: Create a short-lived Stripe Checkout URL. Not implemented until Phase 7 (ADR-0009).
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutSessionRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionUrl'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /billing/portal-session:
+    post:
+      summary: Create a short-lived Stripe Customer Portal URL. Not implemented until Phase 7 (ADR-0009).
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionUrl'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /webhooks/stripe:
+    post:
+      summary: Stripe-signed event ingestion. No WriterFlow bearer token accepted.
+      security: []
+      description: >
+        APIM applies a strict method/body/rate policy and preserves the raw
+        body; the backend verifies Stripe's signature before parsing. Not
+        implemented until Phase 7 (ADR-0009).
+      responses:
+        '200':
+          description: Event durably recorded (processing continues asynchronously).
+        '400':
+          description: Invalid signature or malformed payload.
+
+  /account:
+    delete:
+      summary: Begin account deletion workflow.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '202':
+          description: Deletion workflow started.
+        '401':
+          $ref: '#/components/responses/Unauthorized'

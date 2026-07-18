@@ -1,0 +1,37 @@
+{
+  "description": "Prompt Builder finalize phase — same flowId as the analyze fixture, answers supplied, server streams output deltas normally.",
+  "request": {
+    "operationId": "10000000-0000-4000-8000-000000000009",
+    "mode": "explicit",
+    "task": {
+      "requestedAction": "promptBuilder",
+      "customInstruction": null,
+      "promptBuilder": {
+        "phase": "finalize",
+        "flowId": "20000000-0000-4000-8000-000000000001",
+        "brief": "Write a short note declining a meeting invite but offering an alternative time.",
+        "answers": ["Thursday 2pm works instead", "Keep it brief, one paragraph"]
+      },
+      "outputModeHint": "insert_before"
+    },
+    "target": {
+      "bundleId": "com.microsoft.Outlook",
+      "site": null,
+      "windowClass": null,
+      "fieldRevision": "rev-1"
+    },
+    "content": {
+      "targetScope": "field",
+      "draft": "",
+      "selectedText": null,
+      "conversation": null
+    },
+    "signals": {
+      "hasSelection": false,
+      "hasVisibleThread": false,
+      "inputLength": 0,
+      "appTone": null
+    },
+    "personalization": null
+  }
+}

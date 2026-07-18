@@ -45,8 +45,8 @@ Detailed checklist: [`phases/phase-5-v2-cloud-foundation.md`](phases/phase-5-v2-
 |---|---|---|---|
 | 5.0 | ADRs, data inventory, threat model, API/event schemas, environments | v1 baseline | M |
 | 5.1 | TypeScript API/worker skeleton, PostgreSQL migrations, Bicep, CI | 5.0 | L |
-| 5.2 | Entra External ID, macOS PKCE sign-in, `/v2/bootstrap`, users/orgs/devices, `/v2/me` | 5.1 | L |
-| 5.3 | SQLCipher store, pre-store bootstrap, UserDefaults content migration, account scoping/recovery | 5.0 for feasibility; 5.2 for identity-bound migration | L |
+| 5.2 | Web-side Entra sign-in, device pairing + WriterFlow device tokens, `/v2/device/*`, users/orgs/devices, `/v2/me` | 5.1 | L |
+| 5.3 | SQLCipher store, pre-store launch coordination, UserDefaults content migration, account scoping/recovery | 5.0 for feasibility; 5.2 for identity-bound migration | L |
 | 5.4 | Minimum idempotency/reservation/ledger plus APIM → private Container Apps → private Azure OpenAI streaming parity | 5.1, 5.2 | XL |
 | 5.5 | Harden accounting/concurrency/reconciliation and add logical multi-model route pools | 5.4 | L |
 | 5.6 | Native transport abstraction, v1 action parity, migration alpha and rollback | 5.2–5.5 | XL |
@@ -250,10 +250,13 @@ operable service and honest privacy/billing disclosures.
 
 ### Stage 8.4 — Distribution release gate
 
-- Starting from the Developer ID identity already used for Phase 5 external alpha,
-  complete notarization, stapling, and the v2 update plan tracked from v1; no unsigned
-  release deviation is permitted for account-backed v2.
-- Validate OAuth callback after signing/notarization and through update/relocation.
+- Ship the v1 ad-hoc distribution model for v2 (ADR-0010): ARM64 ad-hoc-signed app in a
+  DMG + SHA-256 + documented manual Gatekeeper approval + manual updates. No Apple
+  Developer account, notarization, stapling, or Sparkle auto-update.
+- Prominently disclose install/update Gatekeeper friction in onboarding and on the
+  install page, since v2 is a paid product.
+- Validate device pairing (deep link + manual `user_code` fallback) and Keychain
+  token continuity across ad-hoc update and app relocation; verify re-pair-on-loss.
 - Publish v2 release notes, supported architecture, privacy/security changes, pricing,
   migration behavior, and rollback/support procedure.
 
@@ -284,11 +287,12 @@ Work that can safely run in parallel:
 The smallest meaningful vertical slice is not “build all auth” or “build all backend.”
 It is:
 
-1. one External ID test user signs into a debug Mac build;
-2. `/v2/bootstrap` provisions the user/personal organization/membership/device in one
-   idempotent transaction and `/v2/me` returns that current device;
+1. one External ID test user signs in on the web and approves a debug Mac build;
+2. `/v2/device/approve` provisions the user/personal organization/membership/device in
+   one idempotent transaction, `/v2/device/token` returns a WriterFlow device token, and
+   `/v2/me` returns that current device;
 3. the app sends one existing Fix Grammar action with an idempotency key;
-4. APIM validates the token and relays SSE to a private Container App;
+4. APIM validates the WriterFlow token and relays SSE to a private Container App;
 5. Container Apps uses managed identity to one private Azure OpenAI deployment;
 6. PostgreSQL records request status and one usage-ledger stage without text; and
 7. the existing preview/Replace flow completes.

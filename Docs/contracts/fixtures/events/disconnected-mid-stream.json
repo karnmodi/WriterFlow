@@ -1,0 +1,14 @@
+{
+  "description": "Network drops mid-stream, after at least one output.delta but before usage.summary/completed. No terminal event is ever delivered to the client — the connection simply ends. Distinguishes from cancellation.json only in intent (network failure vs. user action); the server-side handling is identical.",
+  "requestOperationId": "10000000-0000-4000-8000-000000000004",
+  "eventsDeliveredBeforeDrop": [
+    { "type": "request.accepted", "requestId": "30000000-0000-4000-8000-00000000000e" },
+    { "type": "decision", "intent": "grammar", "confidence": null, "outputMode": "replace", "route": "grammar_fast", "reasonCode": null },
+    { "type": "output.delta", "delta": "They're going to the store, " },
+    { "type": "output.delta", "delta": "but they don't have " }
+  ],
+  "thenConnectionDrops": true,
+  "noTerminalEventDelivered": true,
+  "expectedServerOutcome": "Server-side, the operation is still 'streaming' when the connection drop is detected. It transitions to 'failed' (not silently left 'streaming' forever) once the drop is detected, releasing the reservation and committing internal provider cost with zero customer billable units — same accounting outcome as cancellation.json and timeout.json's failure paths.",
+  "expectedClientOutcome": "Client-side: the partial text 'They're going to the store, but they don't have ' is buffered in the preview but MUST NOT be offered for Replace/Copy — per inference-stream.md 'A client that receives ... discard any buffered output' is the invalid-stream case; an incomplete-but-valid-so-far stream that simply ends is handled the same way: no completed event, no apply. Re-sending the same Idempotency-Key after reconnecting returns the now-'failed' terminal state via the SSE stream itself (no provider call), per the Retry-and-idempotency rules; the client's only forward path is an explicit user Retry with a new operation/retryOf."
+}

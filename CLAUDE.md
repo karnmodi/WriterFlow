@@ -18,7 +18,15 @@ and the ARM64 ad-hoc-signed DMG. Its production AI transport is bring-your-own A
 OpenAI endpoint/key/deployment configuration; the user's key is stored in that user's
 Keychain and no publisher-owned/shared credential ships in the app.
 
-**V2.0 is planned; implementation has not started.** The active v2 sources of truth are
+**V2.0 Stage 5.0 (decisions, threat model, and contracts) is complete; Stage 5.1
+(backend/database/infrastructure skeleton) is next.** All Stage 5.0 checklist items are
+checked in `phases/phase-5-v2-cloud-foundation.md`: ADRs 0001–0012, the v1 data
+inventory, the per-cloud-table retention/deletion policy, the threat model, the
+OpenAPI/SSE/JSON-Schema contracts, and the Stage 5.0 test fixtures all live under
+`Docs/` (`Docs/README.md` is the index). Stage 5.0's Accept criterion — architecture
+review sign-off on that package — is the remaining gate before a Stage 5.1 database
+migration becomes a release dependency; nothing under `services/` or `infra/` exists
+yet. The active v2 sources of truth are
 `PRD-V2.md`, `V2-ARCHITECTURE.md`, `V2-ROADMAP.md`, and
 `phases/phase-5-v2-cloud-foundation.md`. The explicit product-policy change for v2 is a
 WriterFlow-operated authenticated backend: Entra External ID, encrypted local data,
@@ -27,6 +35,15 @@ server-authoritative usage/entitlements, Stripe-ready billing, contextual auto s
 prompt enhancement, and server-side multi-model routing. Phase 5 changes transport and
 identity first while preserving the v1 action UI; Phase 6 removes the normal options
 flow only after classifier evaluation passes.
+
+**V2 auth/distribution decision (2026-07-18, ADR-0010/0011/0012):** sign-in, membership,
+and payment happen in the **web app** (the only Entra client, a confidential server-side
+client). The Mac app is not an OAuth client; it obtains a WriterFlow-minted device token
+through a browser device-authorization pairing flow (deep-link happy path + manual
+`user_code` fallback) and calls `api.writerflow.app` with that token. V2 requires **no
+Apple Developer account** and keeps v1's ad-hoc DMG + manual-Gatekeeper + manual-update
+distribution. These supersede the earlier in-app MSAL PKCE (ADR-0002) and mandatory
+Developer ID (ADR-0008) decisions.
 
 Note: this machine has only Command Line Tools. `swift build` works; `swift test` may
 remain unavailable when `xctest` is absent, so tests must run in Xcode/CI where required.
@@ -66,9 +83,10 @@ Never invent requirements — if something isn't specified in these docs, ask or
 - **System integration:** Accessibility API (`AXUIElement*`), passive listen-only `CGEventTap` for typing detection, Carbon `RegisterEventHotKey` for the global hotkey.
 - **Overlay:** non-activating `NSPanel` (`.nonactivatingPanel`, level `.floating`) — focus must NEVER leave the user's text field.
 - **AI:** Production v1 is **bring-your-own-key**: the user configures their Azure OpenAI Responses endpoint, their API key (Keychain only), and deployment names. V2 deliberately replaces this with a WriterFlow authenticated SSE API; Azure credentials/deployments and prompt/model routing are server-side, with managed identity and private endpoints. No publisher-owned/shared reusable service credential may ship in any client.
+- **Auth (v2):** browser-mediated. The web app is the confidential Entra External ID client and hosts membership/payment; the Mac app is not an OAuth client and pairs via a device-authorization flow to receive a WriterFlow-minted, per-device, revocable token (ADR-0011/0012). The Mac never holds an Entra token or client secret.
 - **Storage:** V1 uses local SQLite via GRDB plus UserDefaults. V2 keeps GRDB but encrypts it with SQLCipher, moves user content out of UserDefaults, and adds private managed PostgreSQL for identity/membership/entitlement/usage state. Raw cloud inference content is ephemeral by default.
 - **Backend (v2):** Microsoft Entra External ID · Azure API Management · TypeScript/Fastify on Azure Container Apps · Azure Database for PostgreSQL Flexible Server · Key Vault/App Configuration · Stripe. Do not substitute a different stack without updating the v2 ADR/specs.
-- **Distribution:** V1 = public DMG containing an ad-hoc-signed app + SHA-256 + manual Gatekeeper approval/manual updates, with no Apple membership. V2 = Developer ID + notarization + Sparkle 2. NOT Mac App Store (private AX usage would be rejected).
+- **Distribution:** V1 = public DMG containing an ad-hoc-signed app + SHA-256 + manual Gatekeeper approval/manual updates, with no Apple membership. **V2 keeps this same ad-hoc model — no Apple Developer account, no notarization, no Sparkle (ADR-0010)**, because browser-mediated auth removes the redirect-URI/Keychain-access-group dependencies that had required a Developer ID. NOT Mac App Store (private AX usage would be rejected).
 
 ## Project structure (create in Phase 0, keep to it)
 

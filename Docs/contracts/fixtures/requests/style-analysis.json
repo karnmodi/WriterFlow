@@ -1,0 +1,14 @@
+{
+  "description": "Explicit style analysis via POST /style/analyze — separate non-streaming endpoint, not the inference envelope.",
+  "request": {
+    "samples": [
+      "Hey team, quick update: shipped the fix, tests are green, will monitor overnight.",
+      "Thanks for flagging this — let's sync tomorrow morning before the release goes out.",
+      "Not blocking, but worth a look when you get a chance."
+    ]
+  },
+  "expectedResultShape": {
+    "profileVersion": "integer",
+    "summary": "string — derived summary only, raw samples are never echoed back per StyleAnalysisResult in openapi.yaml"
+  }
+}

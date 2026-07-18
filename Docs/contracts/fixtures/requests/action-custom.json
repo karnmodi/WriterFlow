@@ -1,0 +1,32 @@
+{
+  "description": "Explicit Custom action, default append/replace behavior (no ---INSERT--- marker in the instruction).",
+  "request": {
+    "operationId": "10000000-0000-4000-8000-000000000007",
+    "mode": "explicit",
+    "task": {
+      "requestedAction": "custom",
+      "customInstruction": "Make this sound more confident without being pushy.",
+      "promptBuilder": null,
+      "outputModeHint": "replace"
+    },
+    "target": {
+      "bundleId": "com.google.Chrome",
+      "site": "linkedin.com",
+      "windowClass": null,
+      "fieldRevision": "rev-4"
+    },
+    "content": {
+      "targetScope": "field",
+      "draft": "I think maybe this could possibly be a good fit for the role.",
+      "selectedText": null,
+      "conversation": null
+    },
+    "signals": {
+      "hasSelection": false,
+      "hasVisibleThread": false,
+      "inputLength": 63,
+      "appTone": "formal"
+    },
+    "personalization": null
+  }
+}

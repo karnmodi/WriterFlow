@@ -1,0 +1,37 @@
+{
+  "description": "Prompt Builder analyze phase — server returns clarifying questions instead of output deltas (see events/prompt-builder-analyze-happy-path.json).",
+  "request": {
+    "operationId": "10000000-0000-4000-8000-000000000008",
+    "mode": "explicit",
+    "task": {
+      "requestedAction": "promptBuilder",
+      "customInstruction": null,
+      "promptBuilder": {
+        "phase": "analyze",
+        "flowId": "20000000-0000-4000-8000-000000000001",
+        "brief": "Write a short note declining a meeting invite but offering an alternative time.",
+        "answers": []
+      },
+      "outputModeHint": "insert_before"
+    },
+    "target": {
+      "bundleId": "com.microsoft.Outlook",
+      "site": null,
+      "windowClass": null,
+      "fieldRevision": "rev-1"
+    },
+    "content": {
+      "targetScope": "field",
+      "draft": "",
+      "selectedText": null,
+      "conversation": null
+    },
+    "signals": {
+      "hasSelection": false,
+      "hasVisibleThread": false,
+      "inputLength": 0,
+      "appTone": null
+    },
+    "personalization": null
+  }
+}

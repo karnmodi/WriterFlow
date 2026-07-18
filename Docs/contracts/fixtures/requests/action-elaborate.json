@@ -1,0 +1,32 @@
+{
+  "description": "Explicit Elaborate action on a plain field, no selection.",
+  "request": {
+    "operationId": "10000000-0000-4000-8000-000000000001",
+    "mode": "explicit",
+    "task": {
+      "requestedAction": "elaborate",
+      "customInstruction": null,
+      "promptBuilder": null,
+      "outputModeHint": "replace"
+    },
+    "target": {
+      "bundleId": "com.google.Chrome",
+      "site": "mail.google.com",
+      "windowClass": null,
+      "fieldRevision": "rev-1"
+    },
+    "content": {
+      "targetScope": "field",
+      "draft": "Thanks for the update, will follow up soon.",
+      "selectedText": null,
+      "conversation": null
+    },
+    "signals": {
+      "hasSelection": false,
+      "hasVisibleThread": false,
+      "inputLength": 44,
+      "appTone": "neutral"
+    },
+    "personalization": null
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.writerflow.app/schemas/v2/sse-events.schema.json",
+  "title": "InferenceStreamEvent",
+  "description": "Discriminated union of every event type on POST /v2/inference/stream. See Docs/contracts/inference-stream.md for canonical ordering.",
+  "oneOf": [
+    {
+      "title": "request.accepted",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "requestId"],
+      "properties": {
+        "type": { "const": "request.accepted" },
+        "requestId": { "type": "string", "format": "uuid" }
+      }
+    },
+    {
+      "title": "decision",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "intent", "confidence", "outputMode", "route"],
+      "properties": {
+        "type": { "const": "decision" },
+        "intent": {
+          "type": "string",
+          "enum": ["reply", "grammar", "tone", "elaborate", "custom", "prompt_enhance", "improve"]
+        },
+        "confidence": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Always null for mode = explicit. Measured value for mode = auto (Phase 6)."
+        },
+        "outputMode": { "type": "string", "enum": ["replace", "insert_before"] },
+        "route": {
+          "type": "string",
+          "enum": ["classifier_fast", "grammar_fast", "rewrite_standard", "rewrite_premium", "prompt_enhancer", "style_analyzer"]
+        },
+        "reasonCode": { "type": ["string", "null"] }
+      }
+    },
+    {
+      "title": "prompt_builder.questions",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "flowId", "questions"],
+      "properties": {
+        "type": { "const": "prompt_builder.questions" },
+        "flowId": { "type": "string", "format": "uuid" },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    {
+      "title": "output.delta",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "delta"],
+      "properties": {
+        "type": { "const": "output.delta" },
+        "delta": { "type": "string" }
+      }
+    },
+    {
+      "title": "usage.summary",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "usedUnits", "remainingUnits"],
+      "properties": {
+        "type": { "const": "usage.summary" },
+        "usedUnits": { "type": "integer", "minimum": 0 },
+        "remainingUnits": { "type": "integer", "minimum": 0 }
+      }
+    },
+    {
+      "title": "completed",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "requestId", "promptVersion"],
+      "properties": {
+        "type": { "const": "completed" },
+        "requestId": { "type": "string", "format": "uuid" },
+        "promptVersion": { "type": "string" }
+      }
+    },
+    {
+      "title": "error",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "code", "message"],
+      "properties": {
+        "type": { "const": "error" },
+        "code": {
+          "type": "string",
+          "enum": [
+            "AUTH_REQUIRED", "AUTH_INVALID", "DEVICE_REVOKED", "PLAN_REQUIRED",
+            "QUOTA_EXCEEDED", "RATE_LIMITED", "TARGET_TOO_LARGE",
+            "MODEL_UNAVAILABLE", "REQUEST_CONFLICT", "VALIDATION_FAILED",
+            "INTERNAL_ERROR"
+          ]
+        },
+        "message": { "type": "string" },
+        "requestId": { "type": ["string", "null"] }
+      }
+    }
+  ]
+}

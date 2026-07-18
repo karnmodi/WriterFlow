@@ -1,0 +1,12 @@
+{
+  "description": "Canonical successful completion for requests/action-fix-grammar.json — matches inference-stream.md's canonical order.",
+  "requestOperationId": "10000000-0000-4000-8000-000000000004",
+  "events": [
+    { "type": "request.accepted", "requestId": "30000000-0000-4000-8000-000000000004" },
+    { "type": "decision", "intent": "grammar", "confidence": null, "outputMode": "replace", "route": "grammar_fast", "reasonCode": null },
+    { "type": "output.delta", "delta": "They're going to the store, " },
+    { "type": "output.delta", "delta": "but they don't have their keys with them." },
+    { "type": "usage.summary", "usedUnits": 1, "remainingUnits": 499 },
+    { "type": "completed", "requestId": "30000000-0000-4000-8000-000000000004", "promptVersion": "fix-grammar@2026-07-18" }
+  ]
+}

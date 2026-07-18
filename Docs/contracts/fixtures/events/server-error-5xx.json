@@ -1,0 +1,11 @@
+{
+  "description": "Unexpected internal server error (not a provider/model failure) after request.accepted but before decision — e.g. a database error committing the initial inference_requests/quota_reservation transaction.",
+  "requestOperationId": "10000000-0000-4000-8000-000000000004",
+  "events": [
+    { "type": "request.accepted", "requestId": "30000000-0000-4000-8000-00000000000d" },
+    { "type": "error", "code": "INTERNAL_ERROR", "message": "Something went wrong. Please try again.", "requestId": "30000000-0000-4000-8000-00000000000d" }
+  ],
+  "note": "INTERNAL_ERROR is used for WriterFlow's own unexpected failures (DB, Key Vault, App Configuration, code defects). Provider-side 5xx from Azure OpenAI itself is sanitized as MODEL_UNAVAILABLE instead (see timeout.json) — the distinction lets operators alert differently on the two failure classes without ever exposing which one to the client beyond generic copy.",
+  "expectedLedgerOutcome": "If the failure occurred before the reserve transaction committed, no row exists to clean up. If it occurred after reserve but before provider call, the reservation is released by the same rollback/compensating transaction — never left stuck for the Stage 5.5 reconciliation job to find under normal operation.",
+  "expectedClientOutcome": "Preview shows a generic error; Retry available as a new operation."
+}

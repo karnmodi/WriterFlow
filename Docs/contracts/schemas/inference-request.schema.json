@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.writerflow.app/schemas/v2/inference-request.schema.json",
+  "title": "InferenceRequestEnvelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["operationId", "mode", "task", "target", "content", "signals"],
+  "properties": {
+    "operationId": { "type": "string", "format": "uuid" },
+    "retryOf": { "type": "string", "format": "uuid" },
+    "mode": { "type": "string", "enum": ["explicit", "auto"] },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outputModeHint"],
+      "properties": {
+        "requestedAction": {
+          "type": ["string", "null"],
+          "enum": ["elaborate", "formal", "casual", "fixGrammar", "reply", "custom", "promptBuilder", null],
+          "description": "Required (non-null) when mode = explicit; must be null when mode = auto."
+        },
+        "customInstruction": {
+          "type": ["string", "null"],
+          "maxLength": 2000,
+          "description": "Required when requestedAction = custom."
+        },
+        "promptBuilder": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["phase", "flowId"],
+          "properties": {
+            "phase": { "type": "string", "enum": ["analyze", "finalize"] },
+            "flowId": { "type": "string", "format": "uuid" },
+            "brief": { "type": "string", "maxLength": 2000 },
+            "answers": {
+              "type": "array",
+              "maxItems": 20,
+              "items": { "type": "string", "maxLength": 500 }
+            }
+          }
+        },
+        "outputModeHint": {
+          "type": "string",
+          "enum": ["replace", "insert_before"],
+          "description": "Never authoritative — the validated server decision determines the actual output mode."
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundleId"],
+      "properties": {
+        "bundleId": { "type": "string", "maxLength": 256 },
+        "site": { "type": ["string", "null"], "maxLength": 128 },
+        "windowClass": { "type": ["string", "null"], "maxLength": 64 },
+        "fieldRevision": {
+          "type": ["string", "null"],
+          "maxLength": 128,
+          "description": "Client-opaque correlation value; no server security role."
+        }
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetScope", "draft"],
+      "properties": {
+        "targetScope": { "type": "string", "enum": ["selection", "field", "empty_reply"] },
+        "draft": { "type": "string", "maxLength": 8000 },
+        "selectedText": { "type": ["string", "null"], "maxLength": 8000 },
+        "conversation": { "type": ["string", "null"], "maxLength": 16000 }
+      }
+    },
+    "signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hasSelection", "hasVisibleThread", "inputLength"],
+      "properties": {
+        "hasSelection": { "type": "boolean" },
+        "hasVisibleThread": { "type": "boolean" },
+        "inputLength": { "type": "integer", "minimum": 0 },
+        "appTone": { "type": ["string", "null"], "enum": ["formal", "casual", "neutral", null] }
+      }
+    },
+    "personalization": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "profileVersion": { "type": "integer", "minimum": 0 },
+        "inlineEnabledProfile": { "type": "string", "maxLength": 4000 }
+      }
+    }
+  }
+}

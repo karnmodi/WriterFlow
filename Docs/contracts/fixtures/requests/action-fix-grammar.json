@@ -1,0 +1,32 @@
+{
+  "description": "Explicit Fix Grammar action — the Stage 5.4 first vertical slice fixture.",
+  "request": {
+    "operationId": "10000000-0000-4000-8000-000000000004",
+    "mode": "explicit",
+    "task": {
+      "requestedAction": "fixGrammar",
+      "customInstruction": null,
+      "promptBuilder": null,
+      "outputModeHint": "replace"
+    },
+    "target": {
+      "bundleId": "com.apple.Notes",
+      "site": null,
+      "windowClass": null,
+      "fieldRevision": "rev-1"
+    },
+    "content": {
+      "targetScope": "field",
+      "draft": "Their going to the store, but they dont have they're keys with them.",
+      "selectedText": null,
+      "conversation": null
+    },
+    "signals": {
+      "hasSelection": false,
+      "hasVisibleThread": false,
+      "inputLength": 70,
+      "appTone": null
+    },
+    "personalization": null
+  }
+}

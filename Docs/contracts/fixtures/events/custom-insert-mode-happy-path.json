@@ -1,0 +1,12 @@
+{
+  "description": "Happy path for requests/action-custom-insert-mode.json — decision.outputMode = insert_before is reported before any delta, replacing v1's client-side '---INSERT---' marker parsing. On the native client, OverlayController's insert-mode apply path (prepend at range (0,0), preserve existing content) fires from decision.outputMode, not from marker text in the deltas.",
+  "requestOperationId": "10000000-0000-4000-8000-00000000000a",
+  "events": [
+    { "type": "request.accepted", "requestId": "3000000a-0000-4000-8000-00000000000a" },
+    { "type": "decision", "intent": "custom", "confidence": null, "outputMode": "insert_before", "route": "rewrite_standard", "reasonCode": null },
+    { "type": "output.delta", "delta": "Subject: Q3 Report — " },
+    { "type": "output.delta", "delta": "Review Needed Before Friday" },
+    { "type": "usage.summary", "usedUnits": 1, "remainingUnits": 498 },
+    { "type": "completed", "requestId": "3000000a-0000-4000-8000-00000000000a", "promptVersion": "custom@2026-07-18" }
+  ]
+}

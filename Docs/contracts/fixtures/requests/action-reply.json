@@ -1,0 +1,32 @@
+{
+  "description": "Explicit Reply action with a non-empty draft and visible conversation thread.",
+  "request": {
+    "operationId": "10000000-0000-4000-8000-000000000005",
+    "mode": "explicit",
+    "task": {
+      "requestedAction": "reply",
+      "customInstruction": null,
+      "promptBuilder": null,
+      "outputModeHint": "replace"
+    },
+    "target": {
+      "bundleId": "com.apple.MobileSMS",
+      "site": null,
+      "windowClass": null,
+      "fieldRevision": "rev-2"
+    },
+    "content": {
+      "targetScope": "field",
+      "draft": "sounds good",
+      "selectedText": null,
+      "conversation": "Alex: Are we still on for 3pm tomorrow?\nMe: sounds good"
+    },
+    "signals": {
+      "hasSelection": false,
+      "hasVisibleThread": true,
+      "inputLength": 12,
+      "appTone": "casual"
+    },
+    "personalization": null
+  }
+}

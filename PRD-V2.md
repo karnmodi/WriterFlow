@@ -23,8 +23,16 @@ V2 explicitly reverses v1's “no custom WriterFlow API” constraint.
 
 - V1 remains a local-first BYO Azure product and historical release baseline.
 - V2 uses a WriterFlow account and a WriterFlow-operated, authenticated API.
+- Sign-in, membership, and payment happen in the **web browser**. The Mac app is not
+  an OAuth client; after a browser-completed sign-in (and membership, when upgrading)
+  the app pairs to that session and receives a WriterFlow-minted device token
+  (ADR-0011, ADR-0012).
+- V2 does **not** require an Apple Developer account. The app continues v1's ad-hoc
+  distribution (DMG + SHA-256 + manual Gatekeeper approval + manual updates); there is
+  no notarization or auto-update mechanism (ADR-0010).
 - The Mac app never receives a WriterFlow-owned Azure credential, Azure deployment
-  name, Stripe secret, database credential, or backend service credential.
+  name, Stripe secret, database credential, Entra token, or backend service
+  credential. Its only credential is a per-device, revocable WriterFlow token.
 - The app-facing edge is internet reachable because a consumer desktop app must reach
   it. It is not anonymous: every inference request requires a valid user token,
   entitlement, quota, idempotency key, and server-side authorization.
@@ -146,17 +154,22 @@ The legacy global store is never copied into a second identity. Before the first
 v2 detects it without eagerly opening content stores; after migration, the last-bound
 encrypted store remains locally readable offline or signed out.
 
-### 6.2 Sign in on a new Mac
+### 6.2 Sign in on a new Mac (browser pairing)
 
 1. The user grants Accessibility and Input Monitoring as today.
-2. The user selects **Sign in**. WriterFlow opens the system browser through
-   `ASWebAuthenticationSession`.
-3. The identity provider completes Authorization Code + PKCE and returns to WriterFlow.
-4. Tokens are stored in Keychain; no password or app client secret is handled by
-   WriterFlow.
-5. WriterFlow calls authenticated `/v2/bootstrap` once to provision the user, personal
-   organization, membership, and current opaque install record, then fetches account,
-   entitlement, privacy, and usage state from `/v2/me`.
+2. The user selects **Sign in**. WriterFlow requests a pairing
+   (`POST /v2/device/authorize`) and shows a short `user_code`, then offers to open
+   the browser (happy path: a deep link / `verification_uri_complete`) with a manual
+   `writerflow.app/pair` code-entry fallback.
+3. In the browser, the web app completes Entra sign-in (and membership, if upgrading),
+   confirms the device, and approves the pairing under its authenticated session.
+   `/v2/bootstrap`-equivalent provisioning of the user, personal organization,
+   membership, and device happens on the web/backend side during this step.
+4. WriterFlow polls `POST /v2/device/token` and receives WriterFlow-minted access and
+   refresh tokens, stored in its own Keychain item. No password, Entra token, or app
+   client secret is handled by the Mac app.
+5. WriterFlow then fetches account, entitlement, privacy, and usage state from
+   `/v2/me` using its device token.
 
 ### 6.3 Automatic writing action
 
@@ -187,26 +200,37 @@ encrypted store remains locally readable offline or signed out.
 ### 7.1 Authentication and sessions
 
 - Use a managed customer identity provider. The v2 recommendation is Microsoft Entra
-  External ID, integrated through browser-delegated OAuth/OIDC and PKCE.
+  External ID, integrated **in the web app** through browser-delegated OAuth/OIDC + PKCE
+  as a confidential client.
 - Initial sign-in methods: email one-time passcode plus one social provider. Apple,
   Google, Microsoft, MFA, and enterprise federation may be enabled as product needs
   justify, without changing WriterFlow's internal user key.
-- Treat email OTP as a fallback until its External ID refresh-session behavior is tested
-  in the signed app; if it requires reauthentication about every 24 hours, disclose that
-  plainly and make the social provider the recommended persistent sign-in path.
-- The Mac app is a public OAuth client and contains no client secret.
-- Keep MSAL token material in its supported app-specific Keychain group; verify and
-  document backup/sync/accessibility semantics. Never persist it in UserDefaults,
-  Application Support, diagnostics, or logs.
-- Validate issuer, audience, signature, expiry, and required scopes at the API edge and
-  again in the application authorization layer.
+- Email OTP's short (~24h) refresh lifetime is a web-session concern; because the Mac
+  holds a WriterFlow-minted refresh token rather than an Entra token, daily Entra
+  reauthentication does not force daily device re-pairing. Still disclose reauth copy
+  plainly and prefer a persistent social provider in the web flow.
+- The Mac app is **not** an OAuth client, embeds no client secret and no Entra client
+  ID, and pairs to a browser-completed session via a device-authorization flow
+  (ADR-0011).
+- Store only the WriterFlow-minted device token in the app's own Keychain item
+  (no shared access group). Never persist it in UserDefaults, Application Support,
+  diagnostics, or logs. Token loss is recoverable by re-pairing and never affects the
+  local database key.
+- The API edge validates **WriterFlow-issued** device tokens (issuer, audience,
+  signature, expiry, scope); the web app validates Entra tokens server-side. The
+  application authorization layer re-checks user/membership/device/entitlement.
 - Support sign-out, device list/revocation, global account disable, and account deletion.
+  Revocation invalidates the device's rotating refresh-token family.
 - A network outage must not make the encrypted local database unreadable. Authentication
   controls cloud operations, not local key availability.
 
 ### 7.2 WriterFlow API
 
 - Provide a versioned HTTPS API at `api.writerflow.app`.
+- Provide device-pairing endpoints (`/v2/device/authorize`, `/v2/device/token`) and a
+  refresh endpoint; these mint/rotate WriterFlow device tokens (ADR-0012). Pairing
+  endpoints are unauthenticated but rate-limited and PKCE-bound; every other route
+  requires a WriterFlow bearer token.
 - The app-facing contract is capability based: Phase 5 sends existing actions through
   inference `mode=explicit`; Phase 6 uses `mode=auto`; separate capabilities cover
   `style_analyze`, account state, personalization sync, and billing sessions.
@@ -340,7 +364,7 @@ encrypted store remains locally readable offline or signed out.
 
 | Data | Mac | WriterFlow cloud | AI provider |
 |---|---|---|---|
-| Auth tokens | Keychain only | Token validation metadata | No |
+| Auth tokens | WriterFlow device token in Keychain only; no Entra token on device | Entra validated web-side; WriterFlow token issuance/validation metadata | No |
 | Local history input/output | Encrypted, default 90-day retention | No by default | Request-time use plus disclosed provider retention/configuration |
 | Voice profile/rules | Encrypted | Optional encrypted sync | Enabled request-time subset plus disclosed provider retention/configuration |
 | Field/context/output | In memory + encrypted local event after outcome | Transient in WriterFlow, no content logs | Request-time processing under disclosed provider contract/configuration |
@@ -405,8 +429,9 @@ encrypted store remains locally readable offline or signed out.
 - Pricing, allowances, privacy/retention copy, subprocessor disclosure, support path, and
   account deletion are public and tested.
 - Provider resource, database, and origin public-network access are verified disabled.
-- Developer ID/notarization/update requirements are completed or explicitly tracked by
-  the separate distribution release gate.
+- Distribution follows the v1 ad-hoc model (DMG + SHA-256 + documented manual Gatekeeper
+  approval + manual updates); no Apple Developer account, notarization, or auto-update is
+  required (ADR-0010). Install/update friction is disclosed on the install page.
 
 ## 11. Risks and mitigations
 

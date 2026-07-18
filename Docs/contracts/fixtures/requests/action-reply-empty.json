@@ -1,0 +1,32 @@
+{
+  "description": "Explicit Reply action with an empty field — targetScope = empty_reply, draft is empty string, server composes a full reply from conversation context only.",
+  "request": {
+    "operationId": "10000000-0000-4000-8000-000000000006",
+    "mode": "explicit",
+    "task": {
+      "requestedAction": "reply",
+      "customInstruction": null,
+      "promptBuilder": null,
+      "outputModeHint": "insert_before"
+    },
+    "target": {
+      "bundleId": "com.apple.MobileSMS",
+      "site": null,
+      "windowClass": null,
+      "fieldRevision": "rev-1"
+    },
+    "content": {
+      "targetScope": "empty_reply",
+      "draft": "",
+      "selectedText": null,
+      "conversation": "Alex: Are we still on for 3pm tomorrow?"
+    },
+    "signals": {
+      "hasSelection": false,
+      "hasVisibleThread": true,
+      "inputLength": 0,
+      "appTone": "casual"
+    },
+    "personalization": null
+  }
+}

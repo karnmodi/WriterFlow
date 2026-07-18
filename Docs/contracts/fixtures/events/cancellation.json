@@ -1,0 +1,12 @@
+{
+  "description": "User cancels (e.g. invokes a new action, or explicit Discard) after streaming has started but before completion. Cancellation is client-driven: the client closes the SSE connection rather than the server emitting a terminal 'error' event — per Stage 5.4's 'Cancel provider work promptly when the client cancels/disconnects'. The server never learns of a clean cancel via an application event; it observes the same connection-close signal as an unintended disconnect and must not distinguish them when deciding ledger/reservation outcome.",
+  "requestOperationId": "10000000-0000-4000-8000-000000000004",
+  "eventsReceivedByClientBeforeItDisconnects": [
+    { "type": "request.accepted", "requestId": "30000000-0000-4000-8000-00000000000b" },
+    { "type": "decision", "intent": "grammar", "confidence": null, "outputMode": "replace", "route": "grammar_fast", "reasonCode": null },
+    { "type": "output.delta", "delta": "They're going to the store, " }
+  ],
+  "thenClientClosesConnection": true,
+  "expectedServerOutcome": "State transitions streaming → cancelled on connection close. Provider call is aborted promptly where the SDK/platform permit. Internal provider cost is committed if any tokens were generated before cancel; zero customer billable units are debited. Reservation is released, not left stuck (Stage 5.5 reconciliation job is the backstop, not the primary path).",
+  "expectedClientOutcome": "Preview discards the partial 'They're going to the store, ' text — Replace/Copy stay disabled, matching the disconnected-mid-stream.json fixture's client behavior. A subsequent user action gets a brand-new operationId/Idempotency-Key; this cancelled operation's key is never reused for a second provider call."
+}

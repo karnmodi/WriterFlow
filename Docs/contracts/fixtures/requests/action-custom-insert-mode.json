@@ -1,0 +1,33 @@
+{
+  "description": "Explicit Custom action whose instruction asks for a derived, shorter artifact (a subject line) rather than a rewrite of the source — the v1 '---INSERT---' insert-mode case (Sources/WriterFlow/Engine/Prompts.swift, CustomOutputParser.swift).",
+  "request": {
+    "operationId": "10000000-0000-4000-8000-00000000000a",
+    "mode": "explicit",
+    "task": {
+      "requestedAction": "custom",
+      "customInstruction": "Write a short subject line for this email, keep the body as-is.",
+      "promptBuilder": null,
+      "outputModeHint": "insert_before"
+    },
+    "target": {
+      "bundleId": "com.google.Chrome",
+      "site": "mail.google.com",
+      "windowClass": null,
+      "fieldRevision": "rev-9"
+    },
+    "content": {
+      "targetScope": "field",
+      "draft": "Hi team, the Q3 report is attached. Let me know if you have questions before Friday's review.",
+      "selectedText": null,
+      "conversation": null
+    },
+    "signals": {
+      "hasSelection": false,
+      "hasVisibleThread": false,
+      "inputLength": 93,
+      "appTone": "formal"
+    },
+    "personalization": null
+  },
+  "note": "In v1 the model itself prefixed its response with a literal '---INSERT---' marker line, parsed client-side (Sources/WriterFlow/Engine/CustomOutputParser.swift) to choose prepend-vs-replace at apply time. In the v2 contract this decision is made server-side and reported once, up front, as decision.outputMode = insert_before before any output.delta (Docs/contracts/inference-stream.md canonical order: decision precedes deltas) — see events/custom-insert-mode-happy-path.json. The wire deltas carry only the generated subject line text, not the raw marker."
+}

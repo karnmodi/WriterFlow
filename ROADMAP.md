@@ -131,7 +131,8 @@ The delivery order is:
    Customer Portal, webhook reconciliation, optional encrypted personalization sync,
    and shadow metered-overage readiness.
 4. **Phase 8 — v2 release:** security/privacy/load gates, v1 migration rollout,
-   operational runbooks, and the separate Developer ID/notarization/update gate.
+   operational runbooks, and the distribution gate — which per ADR-0010 keeps v1's
+   ad-hoc DMG model (no Apple Developer account, notarization, or Sparkle).
 
 V2 keeps the provider plane private and secrets server-side, but it does not pretend the
 consumer app can reach a literally non-public service. The only internet-facing path is

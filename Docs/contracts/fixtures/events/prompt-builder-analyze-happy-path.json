@@ -1,0 +1,18 @@
+{
+  "description": "Prompt Builder analyze phase for requests/action-prompt-builder-analyze.json — prompt_builder.questions replaces output.delta/usage.summary per inference-stream.md's canonical order for analyze phase.",
+  "requestOperationId": "10000000-0000-4000-8000-000000000008",
+  "events": [
+    { "type": "request.accepted", "requestId": "30000000-0000-4000-8000-000000000008" },
+    { "type": "decision", "intent": "prompt_enhance", "confidence": null, "outputMode": "insert_before", "route": "prompt_enhancer", "reasonCode": null },
+    {
+      "type": "prompt_builder.questions",
+      "flowId": "20000000-0000-4000-8000-000000000001",
+      "questions": [
+        "What alternative time should be offered?",
+        "How formal should the tone be?"
+      ]
+    },
+    { "type": "completed", "requestId": "30000000-0000-4000-8000-000000000008", "promptVersion": "prompt-builder-analyze@2026-07-18" }
+  ],
+  "note": "No output.delta or usage.summary events for the analyze phase — analyze produces questions, not billable output. The matching finalize request (requests/action-prompt-builder-finalize.json) gets the normal delta/usage.summary/completed sequence like fix-grammar-happy-path.json."
+}

@@ -1,0 +1,10 @@
+{
+  "description": "Client exceeds per-user/org rate limit (APIM burst protection or Stage 5.5 per-user request-rate limit) — rejected before a quota reservation or provider call is made.",
+  "requestOperationId": "10000000-0000-4000-8000-000000000004",
+  "events": [
+    { "type": "error", "code": "RATE_LIMITED", "message": "Too many requests. Please wait a moment and try again.", "requestId": null }
+  ],
+  "note": "requestId is null because this is rejected before request.accepted — no inference_requests row is created for a rate-limited call rejected at the edge. If APIM rejects it, the response is a REST 429 with the same ErrorCode body (Docs/contracts/openapi.yaml), not an SSE stream at all; this fixture represents the case where the API layer itself rejects after the stream has started to open but before request.accepted.",
+  "expectedLedgerOutcome": "No inference_requests row, no quota_reservation, no usage_ledger entry — nothing to reconcile.",
+  "expectedClientOutcome": "Preview shows 'Too many requests, try again shortly'; the client must back off rather than immediately retrying with a new operationId."
+}
