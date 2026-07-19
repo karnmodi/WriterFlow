@@ -1,10 +1,21 @@
 /**
  * V2-ARCHITECTURE.md §8: FORCE ROW LEVEL SECURITY as defense in depth on
- * every tenant-owned table. `current_setting('app.tenant_id', true)` reads
- * the transaction-local value set by services/api/src/db.ts's
- * withTenantContext(); the `true` (missing_ok) makes it NULL rather than an
- * error when unset, so an unset tenant context fails closed (no rows match)
- * rather than open.
+ * every tenant-owned table. `current_tenant_id()` (defined below) reads the
+ * transaction-local `app.tenant_id` value set by services/api/src/db.ts's
+ * withTenantContext().
+ *
+ * Real bug found via integration testing, fixed here rather than papered
+ * over: `current_setting(name, true)` returns NULL only the first time a
+ * custom GUC is referenced in a session. Once ANY transaction on a pooled
+ * connection has SET LOCAL'd `app.tenant_id`, Postgres's post-COMMIT reset
+ * value for that custom parameter is an EMPTY STRING, not NULL — so a later
+ * transaction on the same reused connection that does NOT set app.tenant_id
+ * (e.g. withDeviceBootstrapLookup, migration 010) would crash every tenant
+ * policy's `::uuid` cast with "invalid input syntax for type uuid: ''"
+ * instead of safely evaluating to false. current_tenant_id() wraps the read
+ * in NULLIF(..., '') so both the never-set and the reset-after-use cases
+ * produce a real NULL, which safely fails the `=` comparison instead of
+ * erroring the cast.
  *
  * writerflow_app is NOT the owner of these tables (migration 001 creates it
  * with no ownership) and RLS applies even to it via FORCE ROW LEVEL SECURITY
@@ -26,13 +37,19 @@ const TENANT_ID_TABLES = [
 ];
 
 exports.up = (pgm) => {
+  pgm.sql(`
+    CREATE OR REPLACE FUNCTION current_tenant_id() RETURNS uuid AS $$
+      SELECT NULLIF(current_setting('app.tenant_id', true), '')::uuid;
+    $$ LANGUAGE sql STABLE;
+  `);
+
   pgm.sql(`ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;`);
   pgm.sql(`ALTER TABLE organizations FORCE ROW LEVEL SECURITY;`);
   pgm.sql(`
     CREATE POLICY organizations_tenant_isolation ON organizations
     FOR ALL
-    USING (id = current_setting('app.tenant_id', true)::uuid)
-    WITH CHECK (id = current_setting('app.tenant_id', true)::uuid);
+    USING (id = current_tenant_id())
+    WITH CHECK (id = current_tenant_id());
   `);
 
   for (const table of TENANT_ID_TABLES) {
@@ -41,8 +58,8 @@ exports.up = (pgm) => {
     pgm.sql(`
       CREATE POLICY ${table}_tenant_isolation ON ${table}
       FOR ALL
-      USING (organization_id = current_setting('app.tenant_id', true)::uuid)
-      WITH CHECK (organization_id = current_setting('app.tenant_id', true)::uuid);
+      USING (organization_id = current_tenant_id())
+      WITH CHECK (organization_id = current_tenant_id());
     `);
   }
 
@@ -60,8 +77,8 @@ exports.up = (pgm) => {
   pgm.sql(`
     CREATE POLICY usage_ledger_tenant_isolation ON usage_ledger
     FOR ALL
-    USING (organization_id = current_setting('app.tenant_id', true)::uuid)
-    WITH CHECK (organization_id = current_setting('app.tenant_id', true)::uuid);
+    USING (organization_id = current_tenant_id())
+    WITH CHECK (organization_id = current_tenant_id());
   `);
 
   const allTenantTables = ["organizations", ...TENANT_ID_TABLES, "usage_ledger"];
@@ -81,4 +98,5 @@ exports.down = (pgm) => {
     pgm.sql(`DROP POLICY IF EXISTS ${table}_tenant_isolation ON ${table};`);
     pgm.sql(`ALTER TABLE ${table} DISABLE ROW LEVEL SECURITY;`);
   }
+  pgm.sql(`DROP FUNCTION IF EXISTS current_tenant_id();`);
 };

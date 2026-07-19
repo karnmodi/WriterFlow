@@ -341,40 +341,64 @@ container builds/smoke-run, Bicep validation — is done and verified above.
   `services/api/test/integration/pairing.integration.test.ts`, run against a live
   `postgres:17-alpine` container as the `writerflow_app` role — not mocked).
 - [x] Implement `POST /v2/device/authorize` (unauthenticated, rate-limited, stores a PKCE
-  `code_challenge` against a single-use `device_code` + short `user_code`), and
+  `code_challenge` against a single-use `device_code` + short `user_code`),
+  `POST /v2/device/approve` (web-session-authenticated device binding + provisioning), and
   `POST /v2/device/token` (PKCE-bound poll returning tokens), plus `POST /v2/token/refresh`.
   — `services/api/src/routes/device.ts`, `services/api/migrations/009_device_pairing.cjs`
   (`device_authorizations` table). Verified end to end against real Postgres: pending →
   wrong-PKCE (`invalid_grant`) → issued → single-use replay (`expired_token`) →
   `slow_down` rate limiting → revoked-device rejection.
-  **`POST /v2/device/approve` is deliberately NOT implemented this stage** — see the note
-  below; it is a genuine open design question, not a deferred-for-time item.
-  **Deviation discovered and fixed while implementing this**: `devices` has
-  `FORCE ROW LEVEL SECURITY` keyed on `organization_id` (Stage 5.1, migration 008), but
-  `/device/token` and `/token/refresh` must resolve a `devices` row from a bare device ID
-  *before* any tenant context exists — that's what they're establishing. Unaddressed,
-  this would have silently returned zero rows under `writerflow_app` in a real deployment
-  despite working in every local test that happened not to exercise it. Fixed with
-  `services/api/migrations/010_device_bootstrap_lookup_policy.cjs` (an additional
-  session-flag-gated RLS policy, OR'd with the tenant policy — no role gets `BYPASSRLS`,
-  the phase-wide non-negotiable holds) and `services/api/src/db.ts`'s
-  `withDeviceBootstrapLookup`. Proven with a dedicated integration test that queries
-  `devices` directly as `writerflow_app` with neither tenant context nor the bootstrap
-  flag set and asserts zero rows.
 
-  **Open design question for `/v2/device/approve`** (blocks implementing it): the OpenAPI
-  contract says this route's `bearerAuth` "denotes the web session, not a WriterFlow
-  device token," but no ADR or architecture section specifies what a web-session token
-  actually is, how the website (a separate confidential-client app) authenticates its
-  server-to-server call to this API, or what audience/issuer distinguishes it from a
-  device token at APIM's `validate-jwt`. Implementing this without resolving it would mean
-  inventing a new trust boundary silently. Candidate shapes: (a) a second token
-  type/issuer the API mints for web sessions, analogous to ADR-0012's device-token issuer;
-  (b) a shared service-to-service credential between website and API (weighed against
-  "no shared/provider secret in any client" — the website is server-side, so this is a
-  different risk class, but still needs an explicit decision); (c) mTLS or Azure managed
-  identity between the two backend services once both run in Container Apps. Needs a
-  decision (ideally a short ADR) before `/device/approve` is built.
+  **`/v2/device/approve`'s open design question is resolved** (user decision, 2026-07-19):
+  a second WriterFlow-minted token issuer, distinct audience
+  (`https://api.writerflow.app/web-session`) from the device access token, same
+  signing/JWKS infrastructure as ADR-0012. New `POST /v2/web-session/token`: the website
+  forwards the Entra ID token it already validated; `services/api/src/entra/
+  verifier.ts`'s `EntraIdTokenVerifier` independently re-validates it against Entra's own
+  JWKS (never trusts the website's say-so alone) and, only then, mints a 5-minute
+  web-session token carrying the raw `(entra_issuer, entra_subject)` pair. `/device/approve`
+  requires that token specifically — a device access token is structurally rejected
+  (wrong audience), proven by a dedicated cross-audience test. `services/api/src/pairing/
+  approve.ts` performs the idempotent provisioning transaction (user, auth identity,
+  personal organization, owner membership, device, privacy preferences, a free-alpha
+  `entitlement_grants`/`entitlement_projection` row) — verified against real Postgres:
+  new identity, idempotent retry of an already-approved `user_code`, a returning identity
+  reusing its existing user/org while getting a new device, unknown/expired `user_code`
+  rejection, and RLS-invisibility of the freshly created organization without tenant
+  context. **Code complete; cloud apply pending**: `EntraIdTokenVerifier.remote(...)` (the
+  production path, fetching a real tenant's JWKS) is wired in `services/api/src/index.ts`
+  behind `ENTRA_TENANT_ISSUER`/`ENTRA_JWKS_URI`/`ENTRA_WEB_CLIENT_ID`, all optional and
+  unset — `/web-session/token` returns a safe 503 until the Entra tenant exists and those
+  are configured; verified this exact behavior against the containerized image.
+
+  **Two real bugs found and fixed while implementing this** (not just written — caught by
+  testing against real Postgres, not mocks):
+  1. `devices` has `FORCE ROW LEVEL SECURITY` keyed on `organization_id` (Stage 5.1,
+     migration 008), but `/device/token` and `/token/refresh` must resolve a `devices` row
+     from a bare device ID *before* any tenant context exists — that's what they're
+     establishing. Unaddressed, this would have silently returned zero rows under
+     `writerflow_app` in a real deployment despite working in every local test that
+     happened not to exercise it. Fixed with `services/api/migrations/
+     010_device_bootstrap_lookup_policy.cjs` (an additional session-flag-gated RLS policy,
+     OR'd with the tenant policy — no role gets `BYPASSRLS`, the phase-wide non-negotiable
+     holds) and `services/api/src/db.ts`'s `withDeviceBootstrapLookup`. Proven with a
+     dedicated integration test that queries `devices` directly as `writerflow_app` with
+     neither tenant context nor the bootstrap flag set and asserts zero rows.
+  2. `current_setting('app.tenant_id', true)` does **not** reliably return `NULL` when
+     unset: PostgreSQL resets a custom GUC to an empty string (not `NULL`) after the
+     transaction that first `SET LOCAL`'d it commits, and that reset value persists on
+     the pooled physical connection for any later transaction that doesn't set it again
+     — exactly what happens when a `withTenantContext` call (e.g. inside `/device/approve`)
+     is followed by a `withDeviceBootstrapLookup` call (e.g. inside `/device/token`) on a
+     connection the pool reused. Every tenant-isolation RLS policy's `::uuid` cast then
+     crashed with `invalid input syntax for type uuid: ""` instead of safely evaluating to
+     false. Fixed in migration 008 with a `current_tenant_id()` SQL function that wraps
+     the read in `NULLIF(..., '')` before casting; reproduced and confirmed against a real
+     `psql` session before fixing, and the full test suite (including the exact
+     approve-then-poll connection-reuse sequence that surfaces it) passes after the fix.
+     `services/shared`/`services/api`'s own tests don't defend against this class of bug by
+     construction — only exercising the real database, as the integration suite does, could
+     have caught it.
 
 ### macOS session (no MSAL)
 
@@ -402,14 +426,24 @@ container builds/smoke-run, Bicep validation — is done and verified above.
   `validate-azure-ad-token`. Cache JWKS while allowing normal signing-key rollover.
 - [ ] The web app validates Entra tokens server-side using a maintained library and the
   immutable `(issuer, subject)` identity key before calling `/v2/device/approve`.
-- [ ] `POST /v2/device/approve` performs the former `/v2/bootstrap` work: in one
+- [x] `POST /v2/device/approve` performs the former `/v2/bootstrap` work: in one
   idempotent transaction it creates the user, auth identity, personal organization, owner
-  membership, and the `devices` record bound to the approved `device_code`.
+  membership, and the `devices` record bound to the approved `device_code`. —
+  `services/api/src/pairing/approve.ts`; see the device-token-issuer bullet above for the
+  full verification summary and the two bugs it caught.
 - [ ] `/v2/me` and device list/revoke operations require a valid WriterFlow token + the
-  non-revoked device ID and can affect only the current user's records.
+  non-revoked device ID and can affect only the current user's records. — not
+  implemented; neither endpoint exists yet.
 - [ ] Every authenticated request rejects disabled user, inactive membership, and revoked
   device before business work. Treat the device ID as inventory/soft admission; a stolen
-  token is answered by device/refresh-family revoke or account disable.
+  token is answered by device/refresh-family revoke or account disable. — **partially
+  done**: `/device/approve` now rejects a returning identity whose `users.status` isn't
+  `active` (tested against real Postgres). `pollDeviceToken`/`rotateRefreshToken` still
+  check only `devices.revoked_at`, not `users.status` — a disabled user's existing device
+  can still refresh/receive tokens until that device is separately revoked. Inactive
+  membership has nothing to check yet (only one membership role model exists, no
+  suspend-membership action implemented). Close this gap before treating the stage as
+  done.
 - [x] `/v2/device/authorize` and `/v2/device/token` are the only bearer-exempt user
   routes; gate them with the PKCE-bound `device_code` and strict rate/body limits. —
   `services/api/src/routes/device.ts` requires no bearer for any of `/device/authorize`,

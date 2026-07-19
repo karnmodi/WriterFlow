@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { SignJWT } from "jose";
 import { LocalDevSigningKeyProvider } from "../src/jwt/keys.js";
-import { mintAccessToken, verifyAccessToken } from "../src/jwt/issuer.js";
+import {
+  mintAccessToken,
+  mintWebSessionToken,
+  verifyAccessToken,
+  verifyWebSessionToken
+} from "../src/jwt/issuer.js";
 
 describe("device-token issuer", () => {
   it("mints a token that verifies with the correct claims", async () => {
@@ -105,5 +110,43 @@ describe("device-token issuer", () => {
     expect(key?.kid).toBeDefined();
     expect(key?.alg).toBe("ES256");
     expect(key?.use).toBe("sig");
+  });
+});
+
+describe("web-session token (Stage 5.2 second-issuer decision)", () => {
+  it("mints a token that verifies with the entra identity claims", async () => {
+    const keys = new LocalDevSigningKeyProvider();
+    const { token, expiresIn } = await mintWebSessionToken(keys, {
+      entraIssuer: "https://writerflow.ciamlogin.com/tenant-id/v2.0",
+      entraSubject: "entra-user-1"
+    });
+    expect(expiresIn).toBe(300);
+    const result = await verifyWebSessionToken(keys, token);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.claims.entra_issuer).toBe("https://writerflow.ciamlogin.com/tenant-id/v2.0");
+      expect(result.claims.entra_subject).toBe("entra-user-1");
+      expect(result.claims.aud).toBe("https://api.writerflow.app/web-session");
+    }
+  });
+
+  it("a device access token is never valid as a web-session token, and vice versa", async () => {
+    const keys = new LocalDevSigningKeyProvider();
+    const { token: deviceToken } = await mintAccessToken(keys, {
+      userId: "user-1",
+      deviceId: "device-1",
+      organizationId: "org-1",
+      scope: "device"
+    });
+    const { token: webSessionToken } = await mintWebSessionToken(keys, {
+      entraIssuer: "https://writerflow.ciamlogin.com/tenant-id/v2.0",
+      entraSubject: "entra-user-1"
+    });
+
+    const deviceTokenAsWebSession = await verifyWebSessionToken(keys, deviceToken);
+    expect(deviceTokenAsWebSession.ok).toBe(false);
+
+    const webSessionAsDeviceToken = await verifyAccessToken(keys, webSessionToken);
+    expect(webSessionAsDeviceToken.ok).toBe(false);
   });
 });

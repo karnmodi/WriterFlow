@@ -40,23 +40,31 @@ yet been extended into the confidential Entra client + `/pair` device-approval U
 Stage 5.2 needs; that conversion necessarily drops static export for those routes and is
 still to be scoped when Stage 5.2 starts.
 
-**Stage 5.2 (real-user authentication) is in progress: the WriterFlow device-token
-issuer core (ADR-0012) is built and verified against real Postgres — everything else in
-the stage is not started.** `services/api/src/jwt/` (ES256 signing, JWKS, dev-only
-in-memory key — Key Vault-backed signing is cloud-apply-pending), `services/api/src/
-pairing/service.ts`, and migrations `009`–`010` implement `POST /v2/device/authorize`,
-`POST /v2/device/token`, and `POST /v2/token/refresh` with PKCE, single-use device
-codes, poll rate-limiting, and rotating refresh tokens with reuse detection — all
-proven end to end against a real local Postgres container as the unprivileged
-`writerflow_app` role, including a real RLS bootstrap-lookup bug (migration 008's
-`devices` policy fails closed for a bare device-ID lookup) found and fixed with
-migration 010. **`POST /v2/device/approve` is not implemented — it's blocked on a real
-open design question**: the OpenAPI contract says its bearer token "denotes the web
-session, not a WriterFlow device token," but nothing specifies what that web-session
-token actually is or how the website authenticates its server-to-server call to this
-API. See `phases/phase-5-v2-cloud-foundation.md` Stage 5.2 for candidate shapes. The
-macOS `DeviceSessionProviding` client, the Dashboard Account/Devices UI, and the Entra
-tenant itself (manual portal step, not yet done) are all still outstanding. The active
+**Stage 5.2 (real-user authentication) is in progress: the full WriterFlow-side pairing
+and provisioning backend (ADR-0012 device tokens + a second web-session token issuer)
+is built and verified against real Postgres — the macOS client, Dashboard UI, and the
+Entra tenant itself are not started.** `services/api/src/jwt/` (ES256 signing, JWKS,
+dev-only in-memory key — Key Vault-backed signing is cloud-apply-pending),
+`services/api/src/pairing/{service,approve}.ts`, and migrations `009`–`011` implement
+`POST /v2/device/authorize`, `POST /v2/device/token`, `POST /v2/token/refresh`, and
+`POST /v2/device/approve` with PKCE, single-use device codes, poll rate-limiting,
+rotating refresh tokens with reuse detection, and idempotent user/org/membership/device
+provisioning — all proven end to end against a real local Postgres container as the
+unprivileged `writerflow_app` role. Two real bugs were found this way and fixed, not
+just discovered and left: migration 008's `devices` RLS policy failed closed for a bare
+device-ID lookup (fixed with migration 010's session-flag-gated policy), and
+`current_setting('app.tenant_id', true)` turned out to reset to an empty string rather
+than `NULL` on a reused pooled connection, crashing every tenant policy's `::uuid` cast
+(fixed with migration 008's `current_tenant_id()` SQL function). `/device/approve`'s
+open design question — how the website authenticates its backend call to this API — is
+resolved (user decision, 2026-07-19): a second WriterFlow-minted token audience
+(`services/api/src/entra/verifier.ts` + `POST /v2/web-session/token`), wired to a real
+Entra tenant's JWKS behind optional `ENTRA_*` config that's cloud-apply-pending. A known
+remaining gap: token issuance/refresh check `devices.revoked_at` but not `users.status`,
+so a disabled user's existing device can still refresh until separately revoked — see
+Stage 5.2's checklist. The macOS `DeviceSessionProviding` client, the Dashboard
+Account/Devices UI, and the Entra tenant itself (manual portal step, not yet done) are
+all still outstanding. The active
 v2 sources of truth are
 `PRD-V2.md`, `V2-ARCHITECTURE.md`, `V2-ROADMAP.md`, and
 `phases/phase-5-v2-cloud-foundation.md`. The explicit product-policy change for v2 is a

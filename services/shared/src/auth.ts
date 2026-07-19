@@ -26,3 +26,29 @@ export interface AuthenticatedRequestContext {
   organizationId: string;
   scopes: readonly string[];
 }
+
+/**
+ * WriterFlow-minted web-session token (Stage 5.2 "second token issuer"
+ * decision). Distinct `aud` from WriterFlowAccessTokenClaims — same
+ * signing/JWKS infrastructure (ADR-0012's issuer), but a device token and a
+ * web-session token can never be confused for one another at verification
+ * time because the audience check alone rejects the wrong one.
+ *
+ * Minted by POST /v2/web-session/token after the website has independently
+ * validated the user's Entra ID token server-side and forwarded it here.
+ * Carries the raw (entra_issuer, entra_subject) pair, NOT a WriterFlow user
+ * id — the account may not exist yet; POST /v2/device/approve is what
+ * resolves/creates it, keyed on this immutable identity pair.
+ */
+export const WRITERFLOW_WEB_SESSION_TOKEN_AUDIENCE = "https://api.writerflow.app/web-session";
+export const WRITERFLOW_WEB_SESSION_TOKEN_TTL_SECONDS = 5 * 60;
+
+export interface WriterFlowWebSessionTokenClaims {
+  iss: "https://api.writerflow.app";
+  aud: "https://api.writerflow.app/web-session";
+  entra_issuer: string;
+  entra_subject: string;
+  iat: number;
+  exp: number;
+  jti: string;
+}

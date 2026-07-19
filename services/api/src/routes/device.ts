@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
+import { z } from "zod";
 import {
   DeviceAuthorizeRequestSchema,
   DeviceTokenRequestSchema,
@@ -8,20 +9,24 @@ import {
 import { ApiError, sendError } from "../errors.js";
 import type { SigningKeyProvider } from "../jwt/keys.js";
 import { authorizeDevice, pollDeviceToken, rotateRefreshToken } from "../pairing/service.js";
+import { approveDevice } from "../pairing/approve.js";
+import { verifyWebSessionToken } from "../jwt/issuer.js";
+
+const DeviceApproveRequestSchema = z.strictObject({
+  userCode: z.string().min(1)
+});
 
 /**
  * Docs/contracts/openapi.yaml /device/authorize, /device/token,
- * /token/refresh — the three bearer-exempt pairing routes (ADR-0011,
- * ADR-0012). Registered without a /v2 prefix to match what
- * infra/apim/modules/apim.bicep's 'writerflow-v2' API forwards to the
- * backend once its own 'v2' path segment is stripped at the gateway.
- *
- * /device/approve is deliberately NOT implemented here yet — it requires
- * resolving how the website (a separate confidential-client app) proves its
- * own authenticated session to this API, which isn't specified anywhere in
- * V2-ARCHITECTURE.md/ADR-0011/ADR-0012 beyond "the bearerAuth here denotes
- * the web session, not a WriterFlow device token." That's a real open
- * design question, not something to invent silently on a security boundary.
+ * /token/refresh, /device/approve (ADR-0011, ADR-0012, and Stage 5.2's
+ * "second token issuer" decision for /device/approve). The first three are
+ * bearer-exempt; /device/approve requires a WriterFlow web-session token
+ * (POST /v2/web-session/token), never a device access token — enforced here
+ * by verifying against the web-session audience specifically, so a device
+ * token can never be replayed against this endpoint. Registered without a
+ * /v2 prefix to match what infra/apim/modules/apim.bicep's 'writerflow-v2'
+ * API forwards to the backend once its own 'v2' path segment is stripped at
+ * the gateway.
  */
 export function registerDeviceRoutes(
   app: FastifyInstance,
@@ -76,5 +81,39 @@ export function registerDeviceRoutes(
       expiresIn: result.expiresIn,
       deviceId: result.deviceId
     });
+  });
+
+  app.post("/device/approve", async (request, reply) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      sendError(reply, new ApiError("AUTH_REQUIRED", 401, "A web-session token is required."));
+      return;
+    }
+    const webSessionToken = authHeader.slice("Bearer ".length);
+    const verified = await verifyWebSessionToken(keys, webSessionToken);
+    if (!verified.ok) {
+      sendError(reply, new ApiError("AUTH_INVALID", 401, "Invalid or expired web-session token."));
+      return;
+    }
+
+    const parsed = DeviceApproveRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new ApiError("VALIDATION_FAILED", 400, "Invalid device approve request.");
+    }
+
+    const result = await approveDevice(
+      pool,
+      { issuer: verified.claims.entra_issuer, subject: verified.claims.entra_subject },
+      parsed.data.userCode
+    );
+    if (result.kind === "invalid_user_code") {
+      sendError(reply, new ApiError("VALIDATION_FAILED", 404, "Unknown, expired, or already-consumed user code."));
+      return;
+    }
+    if (result.kind === "account_disabled") {
+      sendError(reply, new ApiError("AUTH_INVALID", 403, "This account is disabled."));
+      return;
+    }
+    reply.code(200).send(result.snapshot);
   });
 }
