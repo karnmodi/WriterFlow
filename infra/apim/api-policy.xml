@@ -1,0 +1,60 @@
+<!--
+  Base API-level policy — applies to every operation on the WriterFlow v2 API
+  except where an operation-level policy (pairing-operations-policy.xml,
+  webhook-operations-policy.xml) explicitly overrides it.
+
+  V2-ARCHITECTURE.md §5.2: validates WriterFlow's OWN JWKS/issuer, never Entra
+  metadata, never validate-azure-ad-token. Stage 5.1's "CI and observability"
+  + Stage 5.4's SSE requirements: no response caching, no request/response
+  body logging, response buffering disabled for streaming operations.
+
+  Status: code complete; cloud apply pending — {{writerflow-jwks-uri}} and
+  {{writerflow-issuer}} are APIM named values populated once services/api's
+  device-token issuer (ADR-0012, Stage 5.2) exists and is deployed.
+-->
+<policies>
+  <inbound>
+    <base />
+    <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized" require-scheme="Bearer" output-token-variable-name="jwt">
+      <openid-config url="{{writerflow-jwks-uri}}" />
+      <audiences>
+        <audience>https://api.writerflow.app</audience>
+      </audiences>
+      <issuers>
+        <issuer>{{writerflow-issuer}}</issuer>
+      </issuers>
+      <required-claims>
+        <claim name="device_id" match="any" />
+      </required-claims>
+    </validate-jwt>
+    <rate-limit-by-key calls="120" renewal-period="60" counter-key="@(context.Request.Headers.GetValueOrDefault("X-WriterFlow-Device",""))" />
+    <set-header name="X-WriterFlow-Device" exists-action="skip">
+      <value>@(context.Variables.GetValueOrDefault<string>("jwt") != null ? ((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("device_id", "") : "")</value>
+    </set-header>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+    <set-header name="Cache-Control" exists-action="override">
+      <value>no-store</value>
+    </set-header>
+    <!-- No request/response body diagnostics/logging for this API — content
+         (draft/conversation/output) must never reach APIM diagnostic logs. -->
+  </outbound>
+  <on-error>
+    <base />
+    <set-header name="Content-Type" exists-action="override">
+      <value>application/json</value>
+    </set-header>
+    <set-body>@{
+      return new JObject(
+        new JProperty("error", new JObject(
+          new JProperty("code", context.LastError.Source == "validate-jwt" ? "AUTH_INVALID" : "INTERNAL_ERROR"),
+          new JProperty("message", "Request could not be completed.")
+        ))
+      ).ToString();
+    }</set-body>
+  </on-error>
+</policies>

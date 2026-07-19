@@ -1,0 +1,148 @@
+name: services-ci
+
+# Stage 5.1 "CI and observability". Deliberately does NOT run `az deployment
+# ... create` — production/staging deployment is disabled until later phase
+# gates (V2-ROADMAP.md Stage 5.1 Accept criteria); this workflow only builds,
+# tests, and validates artifacts that would be deployed.
+
+on:
+  pull_request:
+    paths:
+      - "services/**"
+      - "infra/**"
+      - "prompts/**"
+      - "Docs/contracts/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.base.json"
+      - "eslint.config.mjs"
+      - "docker-compose.yml"
+      - ".github/workflows/ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/**"
+      - "infra/**"
+      - "prompts/**"
+      - "Docs/contracts/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build-lint-test:
+    name: TypeScript build, lint, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24.x"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run test
+
+  migrations:
+    name: PostgreSQL migration up/down/forward
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: writerflow
+          POSTGRES_USER: writerflow_migrator
+          POSTGRES_PASSWORD: writerflow_migrator_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U writerflow_migrator -d writerflow"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://writerflow_migrator:writerflow_migrator_ci_only@localhost:5432/writerflow
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24.x"
+          cache: "npm"
+      - run: npm ci
+      - name: Migrate up
+        working-directory: services/api
+        run: npx node-pg-migrate up -m migrations
+      - name: Migrate down (full reversibility check)
+        working-directory: services/api
+        run: npx node-pg-migrate down -m migrations 0
+      - name: Migrate up again (forward-after-down check)
+        working-directory: services/api
+        run: npx node-pg-migrate up -m migrations
+
+  bicep-validate:
+    name: Bicep build validation (no deployment)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-bicep@v1
+      - run: bicep build infra/bicep/main.bicep --stdout > /dev/null
+      - run: bicep lint infra/bicep/main.bicep
+
+  contracts-and-prompts-integrity:
+    name: OpenAPI/schema and prompt-manifest integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24.x"
+          cache: "npm"
+      - run: npm ci
+      - name: Validate Docs/contracts/openapi.yaml parses
+        run: node scripts/check-yaml.mjs Docs/contracts/openapi.yaml
+      - name: Validate every JSON Schema is valid JSON
+        run: |
+          for f in Docs/contracts/schemas/*.schema.json prompts/schemas/*.json; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1
+          done
+      - name: Validate prompts/manifest.yaml references exist on disk
+        run: node scripts/check-prompt-manifest.mjs
+
+  container-scan:
+    name: Container image vulnerability scan
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api, worker]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build ${{ matrix.service }} image
+        run: docker build -f services/${{ matrix.service }}/Dockerfile -t writerflow-${{ matrix.service }}:ci .
+      - name: Scan with Trivy
+        uses: aquasecurity/trivy-action@0.32.0
+        with:
+          image-ref: writerflow-${{ matrix.service }}:ci
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/dependency-review-action@v4

@@ -1,0 +1,30 @@
+<!--
+  Operation-level override for the two bearer-exempt pairing routes:
+  POST /v2/device/authorize and POST /v2/device/token
+  (V2-ARCHITECTURE.md §5.2: "the only user-facing routes exempt from a bearer
+  token; they are gated by the PKCE-bound device_code and rate limits
+  instead"). Removes the base policy's validate-jwt and applies a strict,
+  IP-keyed rate limit plus a body-size cap since these are unauthenticated.
+
+  Status: code complete; cloud apply pending.
+-->
+<policies>
+  <inbound>
+    <rate-limit-by-key calls="10" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
+    <validate-content unspecified-content-type-action="prevent" max-size="4096" size-exceeded-action="prevent">
+      <content-type-map any-content-type="application/json" missing-content-type="application/json" />
+    </validate-content>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+    <set-header name="Cache-Control" exists-action="override">
+      <value>no-store</value>
+    </set-header>
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

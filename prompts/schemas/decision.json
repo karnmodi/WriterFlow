@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.writerflow.app/schemas/v2/prompt-decision.schema.json",
+  "title": "PromptDecision",
+  "description": "Server-side decision compiled before any provider call — the source the SSE 'decision' event (Docs/contracts/schemas/sse-events.schema.json) is populated from. Closed enums only; never influenced by untrusted content (V2-ARCHITECTURE.md §12.1, §12.3's typed PromptPlan). Phase 5 sets these deterministically from the explicit requestedAction; Phase 6 (Stage 6.3's classifier_fast) is the first caller that derives them from ambiguous signals.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["intent", "outputMode", "route", "promptVersion"],
+  "properties": {
+    "intent": {
+      "type": "string",
+      "enum": ["reply", "grammar", "tone", "elaborate", "custom", "prompt_enhance", "improve"]
+    },
+    "outputMode": {
+      "type": "string",
+      "enum": ["replace", "insert_before"]
+    },
+    "tone": {
+      "type": ["string", "null"],
+      "enum": ["formal", "casual", "neutral", null]
+    },
+    "route": {
+      "type": "string",
+      "enum": ["classifier_fast", "grammar_fast", "rewrite_standard", "rewrite_premium", "prompt_enhancer", "style_analyzer"]
+    },
+    "promptVersion": {
+      "type": "string",
+      "description": "Matches a promptVersion value in manifest.yaml, e.g. 'grammar@5.1.0'."
+    },
+    "includeConversation": {
+      "type": "boolean"
+    },
+    "confidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Always null for mode = explicit (Phase 5). Measured value for mode = auto (Phase 6)."
+    },
+    "reasonCode": {
+      "type": ["string", "null"]
+    }
+  }
+}

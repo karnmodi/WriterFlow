@@ -145,28 +145,53 @@ or database migrations become release dependencies.
 
 ### Repository structure
 
-- [ ] Add `services/api`, `services/worker`, and `services/shared` as one TypeScript
-  workspace with strict type checking, linting, unit tests, and locked dependencies.
-- [ ] Use Fastify for HTTP/SSE and a migration/query layer that preserves explicit SQL,
-  transactions, constraints, and migration review.
-- [ ] Add `infra/bicep` modules for dev/staging/prod and `infra/apim` policy files.
-- [ ] Add `prompts/` backend resources seeded with behavior-equivalent copies of the v1
+- [x] Add `services/api`, `services/worker`, and `services/shared` as one TypeScript
+  workspace with strict type checking, linting, unit tests, and locked dependencies. —
+  npm workspaces, `tsconfig.base.json` (strict + `noUncheckedIndexedAccess` +
+  `exactOptionalPropertyTypes`), `eslint.config.mjs` (`strictTypeChecked`), vitest per
+  package. `npm run check` (lint + typecheck + build + test) passes.
+- [x] Use Fastify for HTTP/SSE and a migration/query layer that preserves explicit SQL,
+  transactions, constraints, and migration review. — `services/api/src/app.ts` (Fastify
+  5); `services/api/migrations/*.cjs` are hand-written `pgm.sql(...)` migrations run
+  through `node-pg-migrate`, not an ORM/query-builder abstraction.
+- [x] Add `infra/bicep` modules for dev/staging/prod and `infra/apim` policy files. —
+  `infra/bicep/main.bicep` + 10 modules; `infra/apim/*.xml` (base, pairing-exempt, SSE
+  operation policies). `az bicep build`/`az bicep lint` pass with zero errors/warnings.
+- [x] Add `prompts/` backend resources seeded with behavior-equivalent copies of the v1
   prompt policy. Preserve behavior in Phase 5, but separate reviewed policy/task rules,
   explicit user instruction, personalization, and quoted untrusted field/conversation
-  content into distinct messages/content parts. Quality changes wait for Phase 6.
-- [ ] Prohibit provider tools and arbitrary client-selected URLs/models/templates; apply
+  content into distinct messages/content parts. Quality changes wait for Phase 6. —
+  `prompts/manifest.yaml` (trust-class documentation) + `prompts/intents/*.md` +
+  `prompts/common/**/*.md`, ported verbatim from `Sources/WriterFlow/Engine/{Prompts,
+  PromptBuilder}.swift`. Deviation: Custom's `---INSERT---` marker instruction text is
+  kept verbatim (model behavior unchanged); only its *parsing* relocates server-side
+  per `Docs/contracts/fixtures/requests/action-custom-insert-mode.json`'s note, since
+  the SSE contract requires `decision.outputMode` before any delta.
+- [x] Prohibit provider tools and arbitrary client-selected URLs/models/templates; apply
   closed schema/enum validation to classifier, Prompt Builder, output mode, and route
-  outputs before they affect orchestration or preview behavior.
-- [ ] Add container health/readiness endpoints that disclose no secrets or dependency
-  details.
+  outputs before they affect orchestration or preview behavior. — no tool/URL/model
+  field exists anywhere in `services/shared`'s Zod schemas or `prompts/schemas/
+  decision.json`; every enum is closed (`z.enum`/`z.discriminatedUnion`, JSON Schema
+  `enum`). Enforcement code (the router that reads these types) lands in Stage 5.4.
+- [x] Add container health/readiness endpoints that disclose no secrets or dependency
+  details. — `GET /healthz` (always ok, no dependency touch) / `GET /readyz` (checks
+  the DB pool, returns only `{status}` — unit-tested to prove a DB error's connection
+  string/host string never appears in the response body).
 
 ### PostgreSQL baseline
 
 - [ ] Provision Azure Database for PostgreSQL Flexible Server with private connectivity,
-  enforced TLS, backups/PITR, and environment-specific sizing.
+  enforced TLS, backups/PITR, and environment-specific sizing. — code complete; cloud
+  apply pending: no Azure subscription connected yet. `infra/bicep/modules/postgres.bicep`
+  (private-only network by default outside dev, `require_secure_transport=on`,
+  environment-sized SKU/storage/backup-retention) is written and `bicep build`-clean.
 - [ ] Decide and provision the production CMK mode before production server creation;
-  configure Key Vault protection, rotation/expiry alerts, and recovery ownership.
-- [ ] Create initial migrations for:
+  configure Key Vault protection, rotation/expiry alerts, and recovery ownership. — open
+  decision, not yet made (tracked here, not just cloud-apply-pending): `postgres.bicep`
+  currently defaults to platform-managed keys with an inline TODO; needs an explicit
+  ADR before a real prod server is created, since Azure documents the mode cannot change
+  after creation.
+- [x] Create initial migrations for:
   - `users`, `auth_identities`;
   - `organizations`, `organization_memberships`;
   - `devices`;
@@ -175,47 +200,103 @@ or database migrations become release dependencies.
   - `usage_ledger`, `usage_balances`, `pricing_versions`;
   - `entitlement_grants`, `entitlement_projection` with a free-alpha grant source;
   - `outbox_events`.
-- [ ] Add foreign keys, unique constraints, check constraints, immutable/append-only
-  enforcement for ledger records, and indexes for request/entitlement paths.
-- [ ] Add `organization_id` and row-level security to tenant-owned tables; set tenant
+
+  `services/api/migrations/001`–`008`. **Verified, not cloud-apply-pending**: ran the
+  full `up` → `down 0` → `up` cycle against a real local `postgres:17-alpine` container
+  (Docker) — all 8 migrations apply and reverse cleanly.
+- [x] Add foreign keys, unique constraints, check constraints, immutable/append-only
+  enforcement for ledger records, and indexes for request/entitlement paths. —
+  `usage_ledger`/`pricing_versions` reject `DELETE` and reject `UPDATE` of any
+  financial column via triggers (verified: a live `DELETE FROM usage_ledger` raised the
+  expected `usage_ledger is append-only` error); `usage_ledger`'s `UPDATE` trigger
+  carves out exactly one exception — nulling `user_id`/`organization_id` — for the
+  account-deletion anonymization path in `Docs/v2-data-retention-policy.md`.
+- [x] Add `organization_id` and row-level security to tenant-owned tables; set tenant
   context transaction-locally and retain explicit tenant predicates in queries. Apply
-  `FORCE ROW LEVEL SECURITY` and test pooled connections for tenant-context bleed.
-- [ ] Use separate application and migration DB identities with least privilege. The
-  runtime role neither owns tenant tables nor has `BYPASSRLS`.
+  `FORCE ROW LEVEL SECURITY` and test pooled connections for tenant-context bleed. —
+  `services/api/migrations/008_row_level_security.cjs`; `services/api/src/db.ts`'s
+  `withTenantContext` sets `app.tenant_id` via `SET LOCAL` inside one transaction per
+  pooled connection checkout. Verified live: connecting as `writerflow_app` with a
+  freshly generated random tenant id returns zero rows from `organizations` (RLS denies
+  by construction — no matching predicate — rather than by an app-level filter).
+- [x] Use separate application and migration DB identities with least privilege. The
+  runtime role neither owns tenant tables nor has `BYPASSRLS`. —
+  `services/api/migrations/001_roles.cjs` creates `writerflow_app`
+  (`NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`, no table ownership, grants only);
+  `writerflow_migrator` (the Postgres superuser locally; a dedicated least-privilege
+  migrator role via Bicep in staging/prod) owns every table and runs migrations.
 
 ### Azure skeleton
 
 - [ ] Provision a VNet/subnets, private DNS, Container Apps environment, Container
   Registry, API Management Standard v2, PostgreSQL, Key Vault, App Configuration,
   a separate least-privilege Azure Storage deletion registry outside PostgreSQL's
-  restore domain, monitoring, and budget/alert resources through Bicep.
+  restore domain, monitoring, and budget/alert resources through Bicep. — code
+  complete; cloud apply pending: no Azure subscription connected yet, and the user has
+  Azure/Entra access but no Entra External ID (CIAM) tenant created yet (manual portal
+  step). All modules exist under `infra/bicep/modules/` and `main.bicep` wires them
+  together; `az bicep build`/`az bicep lint` both pass with zero errors/warnings.
 - [ ] Create a workload-profiles Container Apps environment on a custom VNet with an
   internal VIP/public network disabled. Configure the API app with app-level
   `external=true` ingress (external to the environment) and managed identity; do not use
-  app-level internal ingress, which APIM cannot reach from outside that environment.
+  app-level internal ingress, which APIM cannot reach from outside that environment. —
+  code complete; cloud apply pending. `container-apps-env.bicep` (`vnetConfiguration.
+  internal = true`) + `container-app-api.bicep` (`ingress.external = true`, user-assigned
+  managed identity for ACR pull + future Key Vault access).
 - [ ] Put APIM Standard v2 outbound VNet integration in its delegated subnet and link
   private DNS so the Container Apps environment wildcard domain resolves to its internal
-  static IP.
+  static IP. — code complete; cloud apply pending. `apim.bicep` (`virtualNetworkType:
+  External`, VNet integration into the delegated `apim-outbound` subnet from
+  `network.bicep`); private DNS zone + link for the Container Apps default domain is in
+  `network.bicep`.
 - [ ] Keep dev/staging/prod identity, data, secrets, Stripe mode, and provider resources
-  isolated.
-- [ ] Ensure deployed configuration contains no credential in source/Bicep parameters;
-  use workload identity/managed identity and secret references where necessary.
+  isolated. — partially addressed in code (`environmentName` parameterizes SKU/sizing/
+  backup retention per environment in `postgres.bicep`/`budget.bicep`); full isolation
+  (separate subscriptions/resource groups/Entra app registrations per environment) is a
+  cloud-apply-time decision, not something the Bicep alone proves.
+- [x] Ensure deployed configuration contains no credential in source/Bicep parameters;
+  use workload identity/managed identity and secret references where necessary. — no
+  `@secure()` parameter in any module has a real default value; `postgres.bicep`'s
+  `administratorPassword` defaults to `newGuid()` (dev-only, regenerates every deploy)
+  with an inline comment that staging/prod must pass a Key-Vault-sourced value instead.
+  `container-app-api.bicep` uses only user-assigned managed identity for registry pull.
 
 ### CI and observability
 
-- [ ] CI runs TypeScript build/lint/unit tests, DB migration up/down/forward tests,
+- [x] CI runs TypeScript build/lint/unit tests, DB migration up/down/forward tests,
   OpenAPI/schema compatibility, Bicep validation, container/dependency/secret scans, and
-  prompt-resource integrity checks.
+  prompt-resource integrity checks. — `.github/workflows/ci.yml`, 6 jobs. **Verified
+  locally** (not just written): `npm run check` (build/lint/typecheck/test) passes;
+  the exact migration up→down→up cycle the `migrations` job runs was run by hand against
+  a real local Postgres container and passed; `az bicep build`/`lint` pass; both
+  `services/api/Dockerfile` and `services/worker/Dockerfile` build successfully and the
+  API image was smoke-run against the real local Postgres (`/healthz`/`/readyz` both
+  200). `gitleaks`/`dependency-review`/`trivy` steps themselves were not run locally
+  (they need the GitHub Actions environment) but reference well-established actions.
 - [ ] Deploy dev automatically and staging through approval; production deployment is
-  disabled until later phase gates.
-- [ ] Add structured logging with content keys rejected by a logger allowlist.
+  disabled until later phase gates. — not built this stage. No CD/deploy workflow
+  exists yet; writing one now would be unverifiable without a connected Azure
+  subscription/service principal, so it's deferred rather than shipped untested. Next
+  concrete step once the Entra tenant + a target subscription exist.
+- [x] Add structured logging with content keys rejected by a logger allowlist. — Fastify/
+  pino `redact` paths in `services/api/src/app.ts` (defense-in-depth, keyed off
+  `services/shared`'s `FORBIDDEN_LOG_FIELD_NAMES`) plus `services/shared/src/
+  logging.ts`'s `toSafeInferenceLogFields` allowlist for the structured operation-log
+  call sites Stage 5.4 will add.
 - [ ] Add metrics for request states, auth failures, latency, provider calls, token/cost
-  counts, quota reservations, and DB health without request content.
+  counts, quota reservations, and DB health without request content. — not built this
+  stage; there are no request-state/auth/provider code paths to measure yet (those land
+  in Stage 5.2/5.4). Revisit once those handlers exist rather than instrumenting empty
+  routes now.
 
 **Accept:** a clean dev deployment creates the full private skeleton from IaC; an APIM
 smoke test reaches the Container App through private DNS; the API reaches PostgreSQL;
 migration/health checks pass; and direct internet attempts to the Container App or
-PostgreSQL fail.
+PostgreSQL fail. — **not yet met**: this requires an actual cloud deployment, which is
+cloud-apply-pending end to end (Azure/Entra credentials now available per the user, but
+no Entra External ID tenant created yet and no `az deployment` has been run). Everything
+gate-able without cloud access — code, migrations against a real local Postgres,
+container builds/smoke-run, Bicep validation — is done and verified above.
 
 **Suggested commit:** `phase5.1: scaffold private API platform and PostgreSQL`
 

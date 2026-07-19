@@ -1,0 +1,98 @@
+# WriterFlow v2 prompt asset manifest.
+#
+# Stage 5.1 "Add prompts/ backend resources seeded with behavior-equivalent
+# copies of the v1 prompt policy" (phases/phase-5-v2-cloud-foundation.md).
+# Ported verbatim from Sources/WriterFlow/Engine/Prompts.swift and
+# PromptBuilder.swift — content is unchanged from v1; only its trust-class
+# separation is new (V2-ARCHITECTURE.md §12.1). Quality changes wait for
+# Phase 6 Stage 6.4's typed PromptPlan/eval-gated prompts.
+#
+# Every deployed inference request records promptVersion from this manifest,
+# never the prompt text itself (Docs/contracts/inference-stream.md "Allowed
+# log fields").
+
+version: "5.1.0"
+
+# V2-ARCHITECTURE.md §12.1 trust classes. Prompt compilation (Stage 5.4) must
+# place each asset/input in a distinct provider message/content part matching
+# its class — never concatenate classes 3-5 into the reviewed policy text.
+trustClasses:
+  reviewedPolicy: "class 1 — this manifest's files. Server-authored, Git-reviewed, never influenced by request content."
+  serverConstraints: "class 2 — server-resolved intent/output-mode/route decisions. Closed enums only."
+  explicitUserInstruction: "class 3 — task.customInstruction / task.promptBuilder.{brief,answers}. Shapes text, never authorization/retention/tools/route."
+  personalization: "class 4 — personalization.inlineEnabledProfile. Style/content preference only."
+  untrustedContent: "class 5 — content.draft/selectedText/conversation. Always quoted as data; never control text (Docs/contracts/fixtures/prompt-injection/injection-vectors.json)."
+
+systemPreambles:
+  default:
+    path: common/system-preamble.md
+    usedBy: [elaborate, formal, casual, fixGrammar, custom]
+  reply:
+    path: common/reply-system-preamble.md
+    usedBy: [reply]
+  promptBuilder:
+    path: common/prompt-builder-system-preamble.md
+    usedBy: [promptBuilder]
+  styleAnalysis:
+    path: intents/style-analysis.md
+    usedBy: [styleAnalysis]
+
+intents:
+  elaborate:
+    path: intents/elaborate.md
+    promptVersion: "elaborate@5.1.0"
+    contextualTransform: true
+  formal:
+    path: intents/formal.md
+    promptVersion: "formal@5.1.0"
+    contextualTransform: true
+  casual:
+    path: intents/casual.md
+    promptVersion: "casual@5.1.0"
+    contextualTransform: true
+  fixGrammar:
+    path: intents/grammar.md
+    promptVersion: "grammar@5.1.0"
+    contextualTransform: true
+    strictSuffix: "Strict rule: change only clear errors in spelling, grammar, punctuation, or capitalization. Never rephrase."
+  reply:
+    path: intents/reply.md
+    promptVersion: "reply@5.1.0"
+    contextualTransform: false
+    replyFormat: common/reply-format/
+  custom:
+    path: intents/custom.md
+    promptVersion: "custom@5.1.0"
+    contextualTransform: false
+    note: >-
+      Output-mode decision (insert_before vs replace, the v1 '---INSERT---'
+      marker) moves server-side per Docs/contracts/fixtures/requests/
+      action-custom-insert-mode.json — reported once via decision.outputMode
+      before any delta, not parsed from streamed text client-side.
+  promptBuilder:
+    path: intents/prompt-builder.md
+    promptVersion: "prompt-builder@5.1.0"
+    contextualTransform: false
+    modeVariants: common/prompt-builder-mode/
+    outputFormatVariants: common/prompt-builder-output-format/
+
+shared:
+  contextualTransform: common/contextual-transform.md
+  continuationSite: common/continuation-site/
+  variantInstruction:
+    note: >-
+      Ported from Prompts.variantInstruction (Sources/WriterFlow/Engine/
+      Prompts.swift). Preview-variants wiring is Stage 5.4 "Expand parity" —
+      this manifest entry exists so promptVersion tracking is ready; the
+      per-variant strategy text itself lives with the intent file it modifies
+      until Stage 5.4 wires multi-variant generation through the server.
+
+schemas:
+  decision: schemas/decision.json
+
+evals:
+  cases: evals/cases.jsonl
+  note: >-
+    Smoke-test cases only. The 300-case labeled eval corpus spanning Gmail,
+    Outlook, Slack, WhatsApp, Notes, LinkedIn, ChatGPT, Claude, Cursor,
+    Notion is Stage 6.1 work (V2-ROADMAP.md) — out of Stage 5.1 scope.

@@ -18,15 +18,27 @@ and the ARM64 ad-hoc-signed DMG. Its production AI transport is bring-your-own A
 OpenAI endpoint/key/deployment configuration; the user's key is stored in that user's
 Keychain and no publisher-owned/shared credential ships in the app.
 
-**V2.0 Stage 5.0 (decisions, threat model, and contracts) is complete; Stage 5.1
-(backend/database/infrastructure skeleton) is next.** All Stage 5.0 checklist items are
-checked in `phases/phase-5-v2-cloud-foundation.md`: ADRs 0001–0012, the v1 data
-inventory, the per-cloud-table retention/deletion policy, the threat model, the
-OpenAPI/SSE/JSON-Schema contracts, and the Stage 5.0 test fixtures all live under
-`Docs/` (`Docs/README.md` is the index). Stage 5.0's Accept criterion — architecture
-review sign-off on that package — is the remaining gate before a Stage 5.1 database
-migration becomes a release dependency; nothing under `services/` or `infra/` exists
-yet. The active v2 sources of truth are
+**V2.0 Stage 5.0 is complete. Stage 5.1 (backend/database/infrastructure skeleton) is
+code-complete and locally verified; its Accept criterion still needs a real cloud
+deployment.** All Stage 5.0 checklist items are checked in
+`phases/phase-5-v2-cloud-foundation.md`: ADRs 0001–0012, the v1 data inventory, the
+per-cloud-table retention/deletion policy, the threat model, the OpenAPI/SSE/JSON-Schema
+contracts, and the Stage 5.0 test fixtures all live under `Docs/` (`Docs/README.md` is
+the index). For Stage 5.1: `services/api` (Fastify + health/ready endpoints),
+`services/worker`, and `services/shared` (Zod contract schemas validated against the
+Stage 5.0 fixtures) exist as one npm-workspaces TypeScript project — `npm run check`
+passes. `services/api/migrations/001`–`008` (users/orgs/devices/inference/usage-ledger/
+entitlements/outbox, RLS, append-only triggers, least-privilege roles) have been run
+up→down→up against a real local Postgres container. `infra/bicep` (10 modules) and
+`infra/apim` (JWT/pairing/SSE policies) are written and `az bicep build`/`lint`-clean.
+Both service Dockerfiles build and the API image was smoke-run against local Postgres.
+None of this has been applied to real Azure yet — the user has Azure/Entra CLI access
+but no Entra External ID tenant created yet, and no `az deployment` has run — so Stage
+5.1's Accept criterion (a live private-network deployment reachable through APIM) is
+still open. The website's static launch site (`website/`, `output: "export"`) has not
+yet been extended into the confidential Entra client + `/pair` device-approval UI that
+Stage 5.2 needs; that conversion necessarily drops static export for those routes and is
+still to be scoped when Stage 5.2 starts. The active v2 sources of truth are
 `PRD-V2.md`, `V2-ARCHITECTURE.md`, `V2-ROADMAP.md`, and
 `phases/phase-5-v2-cloud-foundation.md`. The explicit product-policy change for v2 is a
 WriterFlow-operated authenticated backend: Entra External ID, encrypted local data,

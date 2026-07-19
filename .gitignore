@@ -21,9 +21,15 @@ packaging/AppIcon.iconset/
 # Secrets
 .env
 .env.local
+.env.services
 *.p8
 *.p12
 *.provisionprofile
+
+# TypeScript services workspace
+node_modules/
+dist/
+*.tsbuildinfo
 
 # Editor
 .vscode/

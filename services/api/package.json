@@ -1,0 +1,34 @@
+{
+  "name": "@writerflow/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fastify HTTP/SSE API + device-token issuer + orchestration. Public edge is APIM; this app has no public ingress in staging/prod (infra/bicep).",
+  "main": "./dist/src/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/src/index.js",
+    "migrate:up": "node-pg-migrate up -m migrations --envPath ../../.env.services",
+    "migrate:down": "node-pg-migrate down -m migrations --envPath ../../.env.services",
+    "migrate:create": "node-pg-migrate create -m migrations -j js"
+  },
+  "dependencies": {
+    "@fastify/sensible": "^6.0.4",
+    "@writerflow/shared": "0.1.0",
+    "close-with-grace": "^2.5.0",
+    "fastify": "^5.10.0",
+    "pg": "^8.22.0",
+    "pino": "^10.3.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "node-pg-migrate": "^9.0.0",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

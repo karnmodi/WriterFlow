@@ -1,0 +1,8 @@
+{"id": "smoke-elaborate-01", "intent": "elaborate", "input": "can you review my pr today", "expectedOutputModeHint": "replace", "note": "Stage 5.1 smoke case only. Full 300-case labeled eval corpus is Stage 6.1 (V2-ROADMAP.md)."}
+{"id": "smoke-formal-01", "intent": "formal", "input": "hey just checking if u saw my last email lol", "expectedOutputModeHint": "replace"}
+{"id": "smoke-casual-01", "intent": "casual", "input": "Please be advised that I am unable to attend the meeting.", "expectedOutputModeHint": "replace"}
+{"id": "smoke-grammar-01", "intent": "grammar", "input": "Their going to the store, but they dont have they're keys.", "expectedOutputModeHint": "replace"}
+{"id": "smoke-reply-empty-01", "intent": "reply", "input": "", "conversation": "Alex: Are we still on for 3pm tomorrow?", "expectedOutputModeHint": "insert_before"}
+{"id": "smoke-custom-insert-01", "intent": "custom", "input": "Hi team, the Q3 report is attached.", "customInstruction": "Write a short subject line for this email, keep the body as-is.", "expectedOutputModeHint": "insert_before"}
+{"id": "smoke-custom-rewrite-01", "intent": "custom", "input": "I think maybe this could possibly be a good fit.", "customInstruction": "Make this sound more confident without being pushy.", "expectedOutputModeHint": "replace"}
+{"id": "smoke-prompt-builder-analyze-01", "intent": "promptBuilder", "phase": "analyze", "brief": "Write a short note declining a meeting invite but offering an alternative time.", "expectedEvent": "prompt_builder.questions"}

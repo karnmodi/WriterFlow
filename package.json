@@ -1,0 +1,36 @@
+{
+  "name": "writerflow-services",
+  "private": true,
+  "version": "0.1.0",
+  "description": "WriterFlow v2 cloud backend workspace (services/api, services/worker, services/shared).",
+  "packageManager": "npm@11.11.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=11.0.0"
+  },
+  "workspaces": [
+    "services/shared",
+    "services/api",
+    "services/worker"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "migrate:up": "npm run migrate:up --workspace services/api",
+    "migrate:down": "npm run migrate:down --workspace services/api",
+    "check": "npm run lint && npm run typecheck && npm run build && npm run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^26.1.1",
+    "eslint": "^9.39.5",
+    "js-yaml": "^5.2.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.64.0",
+    "vitest": "^4.1.10"
+  }
+}
