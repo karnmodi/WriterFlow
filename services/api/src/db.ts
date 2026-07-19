@@ -49,3 +49,31 @@ export async function withoutTenantContext<T>(
     client.release();
   }
 }
+
+/**
+ * Narrow escape hatch for the handful of code paths that must resolve a
+ * `devices` row by bare ID *before* any tenant context exists — pairing
+ * (POST /v2/device/token) and refresh (POST /v2/token/refresh). Backed by
+ * migration 010's devices_bootstrap_lookup RLS policy, gated on this exact
+ * session-local flag. Never derive `fn`'s queries from client-controlled
+ * WHERE clauses beyond an exact primary-key match — this flag removes the
+ * tenant filter for the whole transaction.
+ */
+export async function withDeviceBootstrapLookup<T>(
+  pool: pg.Pool,
+  fn: (client: pg.PoolClient) => Promise<T>
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.allow_device_bootstrap_lookup', 'true', true)");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}

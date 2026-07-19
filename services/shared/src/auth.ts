@@ -3,6 +3,11 @@
  * Entra token — the Mac app never holds one. Issuer is always
  * https://api.writerflow.app; validated against WriterFlow's own JWKS.
  */
+export const WRITERFLOW_TOKEN_ISSUER = "https://api.writerflow.app";
+export const WRITERFLOW_TOKEN_AUDIENCE = "https://api.writerflow.app";
+export const WRITERFLOW_ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+export const WRITERFLOW_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 export interface WriterFlowAccessTokenClaims {
   iss: "https://api.writerflow.app";
   aud: "https://api.writerflow.app";

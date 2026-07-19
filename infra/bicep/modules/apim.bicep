@@ -54,4 +54,40 @@ resource apiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-06-01-pre
   }
 }
 
+// ADR-0012: JWKS is a fixed RFC 8615 well-known path at the issuer's true
+// root (api.writerflow.app/.well-known/jwks.json), not under /v2 — a
+// separate root-path API forwarding to the same backend, bypassing the
+// 'writerflow-v2' API's validate-jwt policy entirely (this endpoint is what
+// makes validate-jwt possible in the first place).
+resource wellKnownApi 'Microsoft.ApiManagement/service/apis@2024-06-01-preview' = {
+  parent: apim
+  name: 'writerflow-well-known'
+  properties: {
+    displayName: 'WriterFlow well-known endpoints'
+    path: '.well-known'
+    protocols: ['https']
+    serviceUrl: 'https://${apiAppFqdn}/.well-known'
+    subscriptionRequired: false
+  }
+}
+
+resource jwksOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
+  parent: wellKnownApi
+  name: 'jwks'
+  properties: {
+    displayName: 'Get JWKS'
+    method: 'GET'
+    urlTemplate: '/jwks.json'
+  }
+}
+
+resource jwksOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2024-06-01-preview' = {
+  parent: jwksOperation
+  name: 'policy'
+  properties: {
+    format: 'rawxml'
+    value: '<policies><inbound><base /><rate-limit-by-key calls="600" renewal-period="60" counter-key="@(context.Request.IpAddress)" /></inbound><backend><base /></backend><outbound><base /><set-header name="Cache-Control" exists-action="override"><value>public, max-age=300</value></set-header></outbound><on-error><base /></on-error></policies>'
+  }
+}
+
 output gatewayUrl string = apim.properties.gatewayUrl

@@ -64,6 +64,8 @@ jobs:
           --health-retries 20
     env:
       DATABASE_URL: postgres://writerflow_migrator:writerflow_migrator_ci_only@localhost:5432/writerflow
+      TEST_DATABASE_URL_MIGRATOR: postgres://writerflow_migrator:writerflow_migrator_ci_only@localhost:5432/writerflow
+      TEST_DATABASE_URL_APP: postgres://writerflow_app:writerflow_app_dev_only@localhost:5432/writerflow
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -74,6 +76,8 @@ jobs:
       - name: Migrate up
         working-directory: services/api
         run: npx node-pg-migrate up -m migrations
+      - name: Device-pairing integration tests against real Postgres (writerflow_app role, proves RLS)
+        run: npm run test:integration --workspace services/api
       - name: Migrate down (full reversibility check)
         working-directory: services/api
         run: npx node-pg-migrate down -m migrations 0

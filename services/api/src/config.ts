@@ -5,7 +5,8 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   DATABASE_URL: z.url(),
-  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10)
+  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
+  WEBSITE_BASE_URL: z.url().default("https://writerflow.app")
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;

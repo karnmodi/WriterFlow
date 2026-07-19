@@ -4,10 +4,15 @@ import { FORBIDDEN_LOG_FIELD_NAMES } from "@writerflow/shared";
 import type pg from "pg";
 import type { AppConfig } from "./config.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerDeviceRoutes } from "./routes/device.js";
+import { registerJwksRoutes } from "./routes/jwks.js";
+import { ApiError, sendError, type ErrorBody } from "./errors.js";
+import type { SigningKeyProvider } from "./jwt/keys.js";
 
 export interface AppDependencies {
   config: AppConfig;
   pool: pg.Pool;
+  signingKeys: SigningKeyProvider;
 }
 
 /**
@@ -44,16 +49,23 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
 
   void app.register(sensible);
   registerHealthRoutes(app, deps.pool);
+  registerJwksRoutes(app, deps.signingKeys);
+  registerDeviceRoutes(app, deps.pool, deps.signingKeys, deps.config.WEBSITE_BASE_URL);
 
-  app.setErrorHandler((error: FastifyError, request, reply) => {
+  app.setErrorHandler((error: FastifyError | ApiError, request, reply) => {
+    if (error instanceof ApiError) {
+      request.log.error({ err: { message: error.message, code: error.code } });
+      sendError(reply, error);
+      return;
+    }
     request.log.error({ err: { message: error.message, code: error.code } });
     const statusCode = error.statusCode ?? 500;
-    reply.code(statusCode).send({
-      error: {
-        code: statusCode >= 500 ? "INTERNAL_ERROR" : "VALIDATION_FAILED",
-        message: statusCode >= 500 ? "Something went wrong. Please try again." : error.message
-      }
-    });
+    const body: ErrorBody = {
+      code: statusCode >= 500 ? "INTERNAL_ERROR" : "VALIDATION_FAILED",
+      message: statusCode >= 500 ? "Something went wrong. Please try again." : error.message,
+      requestId: request.id
+    };
+    reply.code(statusCode).send(body);
   });
 
   return app;

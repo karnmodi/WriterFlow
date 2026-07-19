@@ -316,15 +316,65 @@ container builds/smoke-run, Bicep validation — is done and verified above.
 
 ### WriterFlow device-token issuer (ADR-0012)
 
-- [ ] Generate an asymmetric signing key in Key Vault; publish
+- [x] Generate an asymmetric signing key in Key Vault; publish
   `api.writerflow.app/.well-known/jwks.json` and mint short-lived access tokens
-  (`iss=https://api.writerflow.app`). Support key rollover.
-- [ ] Issue opaque refresh tokens stored hashed and bound to one `devices` row; rotate on
-  every use with reuse detection (a replayed refresh revokes the session family).
-- [ ] Implement `POST /v2/device/authorize` (unauthenticated, rate-limited, stores a PKCE
-  `code_challenge` against a single-use `device_code` + short `user_code`),
-  `POST /v2/device/approve` (web-session-authenticated device binding + provisioning), and
+  (`iss=https://api.writerflow.app`). Support key rollover. — `services/api/src/jwt/keys.ts`
+  defines the `SigningKeyProvider` seam (kid-based, ready for multiple concurrently-valid
+  keys during rollover) and `LocalDevSigningKeyProvider` (ES256, in-memory, dev-only —
+  clearly documented as unsafe for any deployed environment). **Code complete; cloud
+  apply pending**: the Key Vault-backed provider (private key never leaves Key Vault,
+  signs via Key Vault's sign operation) isn't implemented — no Key Vault exists yet.
+  `GET /.well-known/jwks.json` is live and verified (`services/api/src/routes/jwks.ts`,
+  containerized smoke test returned a correct public-only ES256 JWK). Added the missing
+  APIM piece this stage exposed: `infra/bicep/modules/apim.bicep`'s `writerflow-v2` API
+  is mounted at path `v2`, but JWKS is a fixed RFC 8615 root path — added a second
+  `writerflow-well-known` API at APIM's true root forwarding `/.well-known/jwks.json` to
+  the same backend (`az bicep build`-clean; cloud apply pending).
+- [x] Issue opaque refresh tokens stored hashed and bound to one `devices` row; rotate on
+  every use with reuse detection (a replayed refresh revokes the session family). —
+  `services/api/migrations/009_device_pairing.cjs` (`refresh_tokens` table, replacing
+  migration 003's vestigial `devices.refresh_token_hash`/`refresh_token_family_id`
+  columns with real per-token history) + `services/api/src/pairing/service.ts`'s
+  `rotateRefreshToken`. **Verified against real Postgres**: rotation issues a new token
+  and marks the old one superseded; replaying the superseded token is rejected AND
+  revokes the whole family, invalidating the token that replaced it too (all covered by
+  `services/api/test/integration/pairing.integration.test.ts`, run against a live
+  `postgres:17-alpine` container as the `writerflow_app` role — not mocked).
+- [x] Implement `POST /v2/device/authorize` (unauthenticated, rate-limited, stores a PKCE
+  `code_challenge` against a single-use `device_code` + short `user_code`), and
   `POST /v2/device/token` (PKCE-bound poll returning tokens), plus `POST /v2/token/refresh`.
+  — `services/api/src/routes/device.ts`, `services/api/migrations/009_device_pairing.cjs`
+  (`device_authorizations` table). Verified end to end against real Postgres: pending →
+  wrong-PKCE (`invalid_grant`) → issued → single-use replay (`expired_token`) →
+  `slow_down` rate limiting → revoked-device rejection.
+  **`POST /v2/device/approve` is deliberately NOT implemented this stage** — see the note
+  below; it is a genuine open design question, not a deferred-for-time item.
+  **Deviation discovered and fixed while implementing this**: `devices` has
+  `FORCE ROW LEVEL SECURITY` keyed on `organization_id` (Stage 5.1, migration 008), but
+  `/device/token` and `/token/refresh` must resolve a `devices` row from a bare device ID
+  *before* any tenant context exists — that's what they're establishing. Unaddressed,
+  this would have silently returned zero rows under `writerflow_app` in a real deployment
+  despite working in every local test that happened not to exercise it. Fixed with
+  `services/api/migrations/010_device_bootstrap_lookup_policy.cjs` (an additional
+  session-flag-gated RLS policy, OR'd with the tenant policy — no role gets `BYPASSRLS`,
+  the phase-wide non-negotiable holds) and `services/api/src/db.ts`'s
+  `withDeviceBootstrapLookup`. Proven with a dedicated integration test that queries
+  `devices` directly as `writerflow_app` with neither tenant context nor the bootstrap
+  flag set and asserts zero rows.
+
+  **Open design question for `/v2/device/approve`** (blocks implementing it): the OpenAPI
+  contract says this route's `bearerAuth` "denotes the web session, not a WriterFlow
+  device token," but no ADR or architecture section specifies what a web-session token
+  actually is, how the website (a separate confidential-client app) authenticates its
+  server-to-server call to this API, or what audience/issuer distinguishes it from a
+  device token at APIM's `validate-jwt`. Implementing this without resolving it would mean
+  inventing a new trust boundary silently. Candidate shapes: (a) a second token
+  type/issuer the API mints for web sessions, analogous to ADR-0012's device-token issuer;
+  (b) a shared service-to-service credential between website and API (weighed against
+  "no shared/provider secret in any client" — the website is server-side, so this is a
+  different risk class, but still needs an explicit decision); (c) mTLS or Azure managed
+  identity between the two backend services once both run in Container Apps. Needs a
+  decision (ideally a short ADR) before `/device/approve` is built.
 
 ### macOS session (no MSAL)
 
@@ -360,8 +410,16 @@ container builds/smoke-run, Bicep validation — is done and verified above.
 - [ ] Every authenticated request rejects disabled user, inactive membership, and revoked
   device before business work. Treat the device ID as inventory/soft admission; a stolen
   token is answered by device/refresh-family revoke or account disable.
-- [ ] `/v2/device/authorize` and `/v2/device/token` are the only bearer-exempt user
-  routes; gate them with the PKCE-bound `device_code` and strict rate/body limits.
+- [x] `/v2/device/authorize` and `/v2/device/token` are the only bearer-exempt user
+  routes; gate them with the PKCE-bound `device_code` and strict rate/body limits. —
+  `services/api/src/routes/device.ts` requires no bearer for any of `/device/authorize`,
+  `/device/token`, `/token/refresh` (matching `security: []` on all three in
+  `Docs/contracts/openapi.yaml`); `/device/token` and `/token/refresh` are instead gated
+  by their own opaque, single-use/rotating credentials. `infra/apim/pairing-operations-
+  policy.xml` (Stage 5.1) still needs wiring to the actual APIM operations once those
+  exist in Bicep — tracked as a Stage 5.2 infra follow-up alongside the JWKS API just
+  added, not done this stage (no APIM operations resources exist for the `v2` API yet,
+  only the API-level base policy).
 - [ ] Never join login and billing by email.
 
 ### UI
@@ -377,13 +435,34 @@ container builds/smoke-run, Bicep validation — is done and verified above.
 
 - [ ] Unit/contract tests for pairing state transitions, poll backoff/`slow_down`,
   `expired_token`/`access_denied`, refresh rotation + reuse-detection revocation, and
-  Keychain read/write without an access group.
-- [ ] Device-code security tests: single-use `device_code`, PKCE `code_verifier` binding,
-  `user_code` guessing/rate-limit resistance, and expiry.
+  Keychain read/write without an access group. — **backend half done**: pairing state
+  transitions, `slow_down`, `expired_token`, and refresh rotation + reuse-detection are
+  all covered by `services/api/test/integration/pairing.integration.test.ts` against real
+  Postgres (`access_denied` — the "denied" device_authorizations status — has a code path
+  in `pollDeviceToken` but no dedicated test yet, since nothing sets that status without
+  `/device/approve`'s deny action existing). Keychain read/write is Stage 5.2's macOS
+  `DeviceSessionProviding` work, not started this stage.
+- [x] Device-code security tests: single-use `device_code`, PKCE `code_verifier` binding,
+  and expiry. — all three verified against real Postgres (replay after issuance returns
+  `expired_token`; wrong verifier returns `invalid_grant`; a `device_code` past its
+  `expires_at` returns `expired_token` even while otherwise still pending).
+  `user_code` guessing/rate-limit resistance is APIM's job
+  (`infra/apim/pairing-operations-policy.xml`'s IP-keyed rate limit, Stage 5.1) — not
+  independently testable without a deployed APIM.
 - [ ] Integration tests for missing, malformed, wrong-issuer, wrong-audience, wrong-scope,
-  expired, and valid WriterFlow tokens at the edge; and Entra token validation web-side.
-- [ ] Cross-user tests for `/me` and device read/revoke.
-- [ ] Verify secrets/tokens never appear in macOS/backend logs or diagnostics exports.
+  expired, and valid WriterFlow tokens at the edge; and Entra token validation web-side. —
+  **code-level half done**: `services/api/test/jwt.test.ts` covers malformed,
+  unknown-kid, wrong-issuer, wrong-audience, and expired tokens against
+  `verifyAccessToken` (the application-layer check). The APIM `validate-jwt` edge itself
+  can't be tested without a deployed APIM (cloud apply pending); Entra token validation
+  web-side doesn't exist yet (no website work this stage) and there's no `scope` claim
+  differentiation yet to test wrong-scope against.
+- [ ] Cross-user tests for `/me` and device read/revoke. — not started; neither endpoint
+  is implemented yet.
+- [ ] Verify secrets/tokens never appear in macOS/backend logs or diagnostics exports. —
+  Stage 5.1's redact-path tests cover the generic mechanism; no new test specifically
+  proves a `deviceCode`/`refreshToken`/`accessToken` value from these new routes never
+  reaches a log line. Worth adding before this stage is called done, not done yet.
 
 **Accept:** a new user signs in in the browser, approves the device, and `/v2/device/token`
 returns a WriterFlow token; `/v2/device/approve` idempotently creates exactly one personal

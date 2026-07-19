@@ -38,7 +38,26 @@ but no Entra External ID tenant created yet, and no `az deployment` has run — 
 still open. The website's static launch site (`website/`, `output: "export"`) has not
 yet been extended into the confidential Entra client + `/pair` device-approval UI that
 Stage 5.2 needs; that conversion necessarily drops static export for those routes and is
-still to be scoped when Stage 5.2 starts. The active v2 sources of truth are
+still to be scoped when Stage 5.2 starts.
+
+**Stage 5.2 (real-user authentication) is in progress: the WriterFlow device-token
+issuer core (ADR-0012) is built and verified against real Postgres — everything else in
+the stage is not started.** `services/api/src/jwt/` (ES256 signing, JWKS, dev-only
+in-memory key — Key Vault-backed signing is cloud-apply-pending), `services/api/src/
+pairing/service.ts`, and migrations `009`–`010` implement `POST /v2/device/authorize`,
+`POST /v2/device/token`, and `POST /v2/token/refresh` with PKCE, single-use device
+codes, poll rate-limiting, and rotating refresh tokens with reuse detection — all
+proven end to end against a real local Postgres container as the unprivileged
+`writerflow_app` role, including a real RLS bootstrap-lookup bug (migration 008's
+`devices` policy fails closed for a bare device-ID lookup) found and fixed with
+migration 010. **`POST /v2/device/approve` is not implemented — it's blocked on a real
+open design question**: the OpenAPI contract says its bearer token "denotes the web
+session, not a WriterFlow device token," but nothing specifies what that web-session
+token actually is or how the website authenticates its server-to-server call to this
+API. See `phases/phase-5-v2-cloud-foundation.md` Stage 5.2 for candidate shapes. The
+macOS `DeviceSessionProviding` client, the Dashboard Account/Devices UI, and the Entra
+tenant itself (manual portal step, not yet done) are all still outstanding. The active
+v2 sources of truth are
 `PRD-V2.md`, `V2-ARCHITECTURE.md`, `V2-ROADMAP.md`, and
 `phases/phase-5-v2-cloud-foundation.md`. The explicit product-policy change for v2 is a
 WriterFlow-operated authenticated backend: Entra External ID, encrypted local data,
