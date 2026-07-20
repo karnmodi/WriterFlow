@@ -18,6 +18,8 @@ export interface AppDependencies {
   signingKeys: SigningKeyProvider;
   /** null when ENTRA_* env vars are unset — no tenant exists yet (cloud apply pending). */
   entraVerifier: EntraIdTokenVerifier | null;
+  /** Test-only seam: capture log output instead of writing to stdout. */
+  logStream?: NodeJS.WritableStream;
 }
 
 /**
@@ -47,7 +49,8 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       redact: {
         paths: buildRedactPaths(),
         censor: "[redacted]"
-      }
+      },
+      ...(deps.logStream ? { stream: deps.logStream } : {})
     },
     trustProxy: true
   });

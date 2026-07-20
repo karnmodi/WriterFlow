@@ -536,7 +536,13 @@ note (updated in the same commit as this stage's work).
   exist in Bicep — tracked as a Stage 5.2 infra follow-up alongside the JWKS API just
   added, not done this stage (no APIM operations resources exist for the `v2` API yet,
   only the API-level base policy).
-- [ ] Never join login and billing by email.
+- [x] Never join login and billing by email. — true by construction: identity is
+  resolved solely by the immutable `(issuer, subject)` pair in `auth_identities`
+  (`services/api/src/pairing/approve.ts`); no code path in `pairing/`, `account/`, or any
+  migration through `011` reads, stores, or joins on an email address. Billing/Stripe
+  itself is out of Phase 5 scope (see the phase-wide scope note above), so there is
+  nothing yet to join against — revisit this item when Stripe customer linkage is built,
+  to confirm it also keys off `organization_id`/`user_id`, not email.
 
 ### UI
 
@@ -576,10 +582,24 @@ note (updated in the same commit as this stage's work).
 - [x] Cross-user tests for `/me` and device read/revoke. — covered by
   `account.integration.test.ts`'s cross-device (same user) and cross-user revoke cases
   above, run against real Postgres.
-- [ ] Verify secrets/tokens never appear in macOS/backend logs or diagnostics exports. —
-  Stage 5.1's redact-path tests cover the generic mechanism; no new test specifically
-  proves a `deviceCode`/`refreshToken`/`accessToken` value from these new routes never
-  reaches a log line. Worth adding before this stage is called done, not done yet.
+- [x] Verify secrets/tokens never appear in macOS/backend logs or diagnostics exports. —
+  backend: `services/api/test/integration/logSafety.integration.test.ts` captures the
+  real pino output (a custom Fastify `logger.stream`, wired via a new test-only
+  `AppDependencies.logStream` seam in `src/app.ts`) across `/me`, `/token/refresh`, and
+  `/devices/:id` calls carrying a real `deviceCode`/`userCode`/PKCE verifier/access
+  token/refresh token, and asserts none of those values appear anywhere in the captured
+  text. **Finding**: Fastify's default request-log serializer only ever includes
+  `method`/`url`/`host`/`remoteAddress` on the request and `statusCode` on the response —
+  headers and bodies are never serialized into a log line at all, verified by printing
+  the actual captured output during development. So the real protection right now is
+  structural (nothing feeds secrets into the logger), not the `buildRedactPaths()` rules
+  in `app.ts`, which currently redact paths (`req.headers.authorization`,
+  `req.body.<forbidden field>`) that the default serializer never populates — those rules
+  are correct defense-in-depth for if a future custom serializer or debug log call adds
+  headers/body to the log record, not proof of current protection on their own. macOS
+  diagnostics export doesn't handle device tokens (v1's diagnostics export predates
+  Stage 5.2 and only covers local app state) — revisit if that export is extended to
+  include auth state.
 
 **Accept:** a new user signs in in the browser, approves the device, and `/v2/device/token`
 returns a WriterFlow token; `/v2/device/approve` idempotently creates exactly one personal
