@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
     private var statusMenuItem: NSMenuItem?
     private let permissions = PermissionsCoordinator()
     private lazy var onboarding = OnboardingWindowController(permissions: permissions, modelsConfig: modelsConfig)
-    private lazy var dashboardWindow = DashboardWindowController(modelsConfig: modelsConfig)
+    private lazy var dashboardWindow = DashboardWindowController(modelsConfig: modelsConfig, deviceSession: deviceSession)
     private let focusMonitor = FocusMonitor()
     private let overlay = OverlayController()
     private let globalHotkey = GlobalHotkey()

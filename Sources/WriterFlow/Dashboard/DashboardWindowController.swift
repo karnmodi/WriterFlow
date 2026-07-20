@@ -10,11 +10,13 @@ protocol AppWindowVisibilityDelegate: AnyObject {
 final class DashboardWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let modelsConfig: AzureModelsConfig
+    private let deviceSession: DeviceSessionProviding
     private(set) var isVisible = false
     weak var visibilityDelegate: AppWindowVisibilityDelegate?
 
-    init(modelsConfig: AzureModelsConfig) {
+    init(modelsConfig: AzureModelsConfig, deviceSession: DeviceSessionProviding) {
         self.modelsConfig = modelsConfig
+        self.deviceSession = deviceSession
         super.init()
     }
 
@@ -27,7 +29,7 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        let view = DashboardView(modelsConfig: modelsConfig)
+        let view = DashboardView(modelsConfig: modelsConfig, deviceSession: deviceSession)
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)
         window.delegate = self

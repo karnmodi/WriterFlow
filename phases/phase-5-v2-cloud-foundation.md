@@ -547,11 +547,59 @@ note (updated in the same commit as this stage's work).
 ### UI
 
 - [ ] Replace the BYO-Azure readiness onboarding card with Sign in/Account status for the
-  v2 feature-flag cohort; permission onboarding remains separate and non-blocking.
-- [ ] Add Dashboard Account and Devices cards with sign-in, sign-out, last-used device,
-  revoke, and safe error states.
+  v2 feature-flag cohort; permission onboarding remains separate and non-blocking. —
+  **deliberately not done this way**: no real cohort-assignment mechanism exists yet (that's
+  entitlement-driven, Stage 5.4 territory), and swapping out v1's primary onboarding gate
+  before sign-in can actually complete end to end (no Entra tenant, no website `/pair` page
+  yet) would risk breaking v1 BYO-Azure users for no working replacement. Built the Account
+  card (next item) as a new, additive Dashboard tab instead — v1's onboarding flow
+  (`OnboardingView`/`OnboardingWindowController`, the `needsAzureSetup` gate in
+  `AppDelegate.applicationDidFinishLaunching`) is completely untouched. Revisit this
+  specific item once there's a real cohort flag to gate the replacement on.
+- [x] Add Dashboard Account and Devices cards with sign-in, sign-out, last-used device,
+  revoke, and safe error states. — `Sources/WriterFlow/Dashboard/{AccountView,
+  AccountViewModel}.swift` + `Sources/WriterFlow/Store/AccountService.swift` (new — composes
+  `DeviceSessionProviding` token lifecycle with `WriterFlowAPIClient`'s new `me()`/
+  `revokeDevice()` calls, kept separate from `DeviceSessionProviding` itself since that's
+  only about token state, not account data). Added as a new "Account" tab in
+  `DashboardChrome.DashboardTab`/`DashboardView`, threaded through
+  `DashboardWindowController`/`AppDelegate` via the existing `deviceSession` property (no
+  new dependency-injection plumbing needed). Only a single **device** card, not a **devices**
+  list — `Docs/contracts/openapi.yaml`'s `AccountSnapshot`/`/me` only ever describes the
+  calling device itself (`device: Device`, singular; there is no list-devices endpoint in
+  the contract), so a multi-device list would be inventing API surface that doesn't exist
+  server-side. States covered: idle/loading, signed-out (Sign In button), pairing
+  (`user_code` shown, browser auto-opened via `NSWorkspace`, re-open/cancel actions),
+  signed-in (device label, plan, monthly units, sync status, Sign Out, and a destructive
+  "Revoke This Device" that also always signs out locally even if the server call fails —
+  see `AccountService.revokeCurrentDeviceAndSignOut()`), needsRePair (re-sign-in prompt),
+  and a generic error state with retry. Every button action is `async` on `AccountViewModel`
+  (not an internal fire-and-forget `Task`), so `AccountView` wraps each in its own
+  `Task { await ... }` — this made cancellation trivial to get right: `cancelSignIn()`
+  calling `session.cancelPairing()` interrupts an in-flight `beginSignIn()`'s suspended
+  `awaitPairedToken()` await via the MainActor's normal cooperative scheduling, no separate
+  task-handle bookkeeping needed (contrast with the more complex `activeSleepTask` machinery
+  `DeviceSessionStore` itself needed at the actor layer). Verified with 13 new unit tests
+  (5 in `WriterFlowAPIClientAccountTests.swift` for the new `me()`/`revokeDevice()` HTTP
+  calls — bearer header, GET has no body, 401/404 map to `httpError`; 8 in
+  `AccountViewModelTests.swift` against a real `DeviceSessionStore` + `MockURLProtocol`,
+  covering signed-out/signed-in refresh, refresh-token-failure → needsRePair, sign-out,
+  revoke-then-signed-out on both success and server failure, full pairing → loaded, and
+  mid-pairing cancellation) — full suite 69/69 (2 skipped live-integration tests, as
+  before). `swift build`/`swiftlint` clean on every new/changed file. **Not verified**:
+  actual on-screen rendering/click-through of `AccountView` in the running app — this
+  session has no interactive display tooling to drive a native macOS UI (unlike the
+  browser-automation tools available for web UI), so this is compile+unit-test verified
+  only, not visually verified. Flag for manual verification.
 - [ ] Keep local history/personalization readable when signed out; inference is disabled
-  with a clear sign-in action.
+  with a clear sign-in action. — the "readable when signed out" half is true by
+  construction and unaffected by this stage's work (`HistoryView`/`PersonalizationView`
+  read straight from the local GRDB store regardless of `DeviceSessionProviding.state`,
+  and nothing added this stage touches them). The "inference is disabled with a clear
+  sign-in action" half does not exist yet: v1's `ActionEngine` still calls BYO-Azure
+  directly and has no dependency on `DeviceSessionProviding` at all — there is no v2
+  inference path yet to gate on sign-in state. That wiring is Stage 5.3/5.4 territory
+  (encrypted local data model, server-side model routing), not this stage.
 
 ### Tests
 

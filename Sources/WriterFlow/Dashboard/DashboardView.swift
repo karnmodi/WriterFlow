@@ -6,12 +6,14 @@ struct DashboardView: View {
     @StateObject private var historyViewModel = HistoryViewModel()
     @StateObject private var personalizationViewModel: PersonalizationViewModel
     @StateObject private var usageViewModel: UsageViewModel
+    @StateObject private var accountViewModel: AccountViewModel
     private let modelsConfig: AzureModelsConfig
 
-    init(modelsConfig: AzureModelsConfig) {
+    init(modelsConfig: AzureModelsConfig, deviceSession: DeviceSessionProviding) {
         self.modelsConfig = modelsConfig
         _personalizationViewModel = StateObject(wrappedValue: PersonalizationViewModel(modelsConfig: modelsConfig))
         _usageViewModel = StateObject(wrappedValue: UsageViewModel(modelsConfig: modelsConfig))
+        _accountViewModel = StateObject(wrappedValue: AccountViewModel(session: deviceSession))
     }
 
     var body: some View {
@@ -61,6 +63,8 @@ struct DashboardView: View {
             HistoryView(viewModel: historyViewModel)
         case .personalization:
             PersonalizationView(viewModel: personalizationViewModel)
+        case .account:
+            AccountView(viewModel: accountViewModel)
         case .settings:
             SettingsTabView(modelsConfig: modelsConfig)
         case .usage:

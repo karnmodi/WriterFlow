@@ -5,6 +5,7 @@ import SwiftUI
 enum DashboardTab: String, CaseIterable, Identifiable {
     case history
     case personalization
+    case account
     case settings
     case usage
 
@@ -14,6 +15,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         switch self {
         case .history: return "History"
         case .personalization: return "Personalization"
+        case .account: return "Account"
         case .settings: return "Settings"
         case .usage: return "Usage"
         }
@@ -23,6 +25,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         switch self {
         case .history: return "clock.arrow.circlepath"
         case .personalization: return "person.text.rectangle"
+        case .account: return "person.crop.circle.badge.checkmark"
         case .settings: return "gearshape"
         case .usage: return "chart.bar.xaxis"
         }

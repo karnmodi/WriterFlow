@@ -113,16 +113,79 @@ actor WriterFlowAPIClient {
         return try await post(path: "/token/refresh", body: Body(refreshToken: refreshToken))
     }
 
+    // Siblings of AccountSnapshot rather than nested inside it — swiftlint
+    // caps type nesting at 1 level, and these are already nested once inside
+    // the actor.
+    struct AccountDevice: Decodable, Sendable {
+        let id: String
+        let label: String?
+        let createdAt: String
+        let lastUsedAt: String
+        let revoked: Bool
+        let current: Bool
+    }
+    struct AccountEntitlement: Decodable, Sendable {
+        let plan: String
+        let monthlyUnitsIncluded: Int
+        let monthlyUnitsUsed: Int
+        let features: [String]
+    }
+    struct AccountPrivacy: Decodable, Sendable {
+        let personalizationSyncEnabled: Bool
+        let consentVersion: String
+    }
+
+    /// Docs/contracts/openapi.yaml `AccountSnapshot` — field names match the
+    /// JSON response verbatim (the API already emits camelCase).
+    struct AccountSnapshot: Decodable, Sendable {
+        let userId: String
+        let organizationId: String
+        let device: AccountDevice
+        let entitlement: AccountEntitlement
+        let privacy: AccountPrivacy
+    }
+
+    /// `GET /v2/me` — requires a bearer WriterFlow access token (not the
+    /// bearer-exempt pairing routes above).
+    func me(accessToken: String) async throws -> AccountSnapshot {
+        try await get(path: "/me", accessToken: accessToken)
+    }
+
+    /// `DELETE /v2/devices/{id}` — 204 on success; 404 if `deviceId` isn't
+    /// one of the calling user's own devices.
+    func revokeDevice(deviceId: String, accessToken: String) async throws {
+        let request = makeRequest(path: "/devices/\(deviceId)", method: "DELETE", accessToken: accessToken)
+        let (_, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw DeviceSessionError.decodingFailed }
+        guard http.statusCode == 204 else { throw DeviceSessionError.httpError(http.statusCode) }
+    }
+
     // MARK: - Plumbing
 
-    private func makeRequest(path: String) -> URLRequest {
+    private func makeRequest(path: String, method: String = "POST", accessToken: String? = nil) -> URLRequest {
         let url = config.baseURL.appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path)
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(clientVersion, forHTTPHeaderField: "X-WriterFlow-Version")
+        if let accessToken {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
         request.timeoutInterval = 15
         return request
+    }
+
+    private func get<Response: Decodable>(path: String, accessToken: String) async throws -> Response {
+        let request = makeRequest(path: path, method: "GET", accessToken: accessToken)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw DeviceSessionError.decodingFailed }
+        guard (200...299).contains(http.statusCode) else {
+            throw DeviceSessionError.httpError(http.statusCode)
+        }
+        guard let decoded = try? JSONDecoder().decode(Response.self, from: data) else {
+            throw DeviceSessionError.decodingFailed
+        }
+        return decoded
     }
 
     private func send<Body: Encodable>(_ request: URLRequest, body: Body) async throws -> (Data, URLResponse) {
