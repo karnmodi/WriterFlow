@@ -156,12 +156,19 @@ export async function pollDeviceToken(
       return { kind: "invalid_grant" };
     }
 
-    const deviceResult = await client.query<{ user_id: string; organization_id: string; revoked_at: Date | null }>(
-      `SELECT user_id, organization_id, revoked_at FROM devices WHERE id = $1`,
+    const deviceResult = await client.query<{
+      user_id: string;
+      organization_id: string;
+      revoked_at: Date | null;
+      user_status: string;
+    }>(
+      `SELECT d.user_id, d.organization_id, d.revoked_at, u.status AS user_status
+       FROM devices d JOIN users u ON u.id = d.user_id
+       WHERE d.id = $1`,
       [deviceId]
     );
     const device = deviceResult.rows[0];
-    if (!device || device.revoked_at) {
+    if (!device || device.revoked_at || device.user_status !== "active") {
       return { kind: "invalid_grant" };
     }
 
@@ -239,12 +246,19 @@ export async function rotateRefreshToken(
       return { kind: "invalid" };
     }
 
-    const deviceResult = await client.query<{ user_id: string; organization_id: string; revoked_at: Date | null }>(
-      `SELECT user_id, organization_id, revoked_at FROM devices WHERE id = $1`,
+    const deviceResult = await client.query<{
+      user_id: string;
+      organization_id: string;
+      revoked_at: Date | null;
+      user_status: string;
+    }>(
+      `SELECT d.user_id, d.organization_id, d.revoked_at, u.status AS user_status
+       FROM devices d JOIN users u ON u.id = d.user_id
+       WHERE d.id = $1`,
       [row.device_id]
     );
     const device = deviceResult.rows[0];
-    if (!device || device.revoked_at) {
+    if (!device || device.revoked_at || device.user_status !== "active") {
       return { kind: "invalid" };
     }
 

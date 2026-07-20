@@ -7,6 +7,7 @@ import { registerHealthRoutes } from "./routes/health.js";
 import { registerDeviceRoutes } from "./routes/device.js";
 import { registerJwksRoutes } from "./routes/jwks.js";
 import { registerWebSessionRoutes } from "./routes/webSession.js";
+import { registerAccountRoutes } from "./routes/account.js";
 import { ApiError, sendError, type ErrorBody } from "./errors.js";
 import type { SigningKeyProvider } from "./jwt/keys.js";
 import type { EntraIdTokenVerifier } from "./entra/verifier.js";
@@ -56,6 +57,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
   registerJwksRoutes(app, deps.signingKeys);
   registerDeviceRoutes(app, deps.pool, deps.signingKeys, deps.config.WEBSITE_BASE_URL);
   registerWebSessionRoutes(app, deps.signingKeys, deps.entraVerifier);
+  registerAccountRoutes(app, deps.pool, deps.signingKeys);
 
   app.setErrorHandler((error: FastifyError | ApiError, request, reply) => {
     if (error instanceof ApiError) {

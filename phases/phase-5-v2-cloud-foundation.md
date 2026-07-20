@@ -491,19 +491,41 @@ note (updated in the same commit as this stage's work).
   membership, and the `devices` record bound to the approved `device_code`. —
   `services/api/src/pairing/approve.ts`; see the device-token-issuer bullet above for the
   full verification summary and the two bugs it caught.
-- [ ] `/v2/me` and device list/revoke operations require a valid WriterFlow token + the
-  non-revoked device ID and can affect only the current user's records. — not
-  implemented; neither endpoint exists yet.
-- [ ] Every authenticated request rejects disabled user, inactive membership, and revoked
+- [x] `/v2/me` and device list/revoke operations require a valid WriterFlow token + the
+  non-revoked device ID and can affect only the current user's records. —
+  `services/api/src/auth/guard.ts`'s `requireDeviceAuth` (verifies the bearer token, then
+  re-checks `devices.revoked_at`/`users.status` live against the DB, not just at
+  token-mint time) backs both `services/api/src/routes/account.ts` routes: `GET /me`
+  (`account/service.ts`'s `getAccountSnapshot`) and `DELETE /devices/:id`
+  (`revokeDevice`, scoped by `user_id = ctx.userId` so ownership is enforced in the query
+  itself, not just checked after the fact). `revokeDevice` also revokes any still-active
+  `refresh_tokens` row for that device, so a stolen refresh token stops working
+  immediately rather than only once its access token expires. Verified against real
+  Postgres by 7 new tests in `services/api/test/integration/account.integration.test.ts`:
+  happy-path `/me` (including that the device label captured at `/device/authorize` was
+  actually persisted — see the bug note below), missing/garbage-token 401s, cross-device
+  revoke within the same user (revoked device's own token now rejected, the revoking
+  device's token still works), revoke-also-kills-refresh-token (subsequent
+  `/token/refresh` returns 401), and cross-user revoke returning 404 without touching the
+  victim's device. **Bug found and fixed while building this**: `install_metadata` (and
+  therefore the device label) was never actually written during provisioning even though
+  `/device/authorize` captured it — `approveDevice`'s two provisioning paths
+  (`provisionDeviceForExistingUser`/`provisionNewUser` in `services/api/src/pairing/
+  approve.ts`) now thread `device_authorizations.device_label` through to
+  `devices.install_metadata`, read back via `install_metadata->>'label'`.
+- [x] Every authenticated request rejects disabled user, inactive membership, and revoked
   device before business work. Treat the device ID as inventory/soft admission; a stolen
-  token is answered by device/refresh-family revoke or account disable. — **partially
-  done**: `/device/approve` now rejects a returning identity whose `users.status` isn't
-  `active` (tested against real Postgres). `pollDeviceToken`/`rotateRefreshToken` still
-  check only `devices.revoked_at`, not `users.status` — a disabled user's existing device
-  can still refresh/receive tokens until that device is separately revoked. Inactive
-  membership has nothing to check yet (only one membership role model exists, no
-  suspend-membership action implemented). Close this gap before treating the stage as
-  done.
+  token is answered by device/refresh-family revoke or account disable. — the previously
+  noted gap is closed: `pollDeviceToken` and `rotateRefreshToken`
+  (`services/api/src/pairing/service.ts`) now JOIN `users` and reject
+  (`invalid_grant`/`invalid` respectively) when `user_status !== "active"`, not only when
+  `devices.revoked_at` is set, and `requireDeviceAuth` performs the same live check on
+  every `/me`/`/devices/:id` call. Verified against real Postgres: a device paired while
+  the user was active, then the user is set to `disabled` directly in the DB — `/me`
+  correctly returns 403 `AUTH_INVALID` rather than succeeding on the still-valid access
+  token. Inactive membership still has nothing to check (only one membership role model
+  exists, no suspend-membership action implemented) — not a regression, just not yet a
+  feature that exists to gate on.
 - [x] `/v2/device/authorize` and `/v2/device/token` are the only bearer-exempt user
   routes; gate them with the PKCE-bound `device_code` and strict rate/body limits. —
   `services/api/src/routes/device.ts` requires no bearer for any of `/device/authorize`,
@@ -551,8 +573,9 @@ note (updated in the same commit as this stage's work).
   can't be tested without a deployed APIM (cloud apply pending); Entra token validation
   web-side doesn't exist yet (no website work this stage) and there's no `scope` claim
   differentiation yet to test wrong-scope against.
-- [ ] Cross-user tests for `/me` and device read/revoke. — not started; neither endpoint
-  is implemented yet.
+- [x] Cross-user tests for `/me` and device read/revoke. — covered by
+  `account.integration.test.ts`'s cross-device (same user) and cross-user revoke cases
+  above, run against real Postgres.
 - [ ] Verify secrets/tokens never appear in macOS/backend logs or diagnostics exports. —
   Stage 5.1's redact-path tests cover the generic mechanism; no new test specifically
   proves a `deviceCode`/`refreshToken`/`accessToken` value from these new routes never
