@@ -402,22 +402,82 @@ container builds/smoke-run, Bicep validation — is done and verified above.
 
 ### macOS session (no MSAL)
 
-- [ ] Add a `DeviceSessionProviding` implementation using `URLSession` + a small pairing
-  state machine; no MSAL dependency, no OAuth client, no `ASWebAuthenticationSession`.
-- [ ] `beginPairing()` calls `/v2/device/authorize`, shows the `user_code`, and offers to
+**Note on tooling**: this machine now has full Xcode installed (not just Command Line
+Tools) as of this stage — `swift test`/`xctest` work and were used for real automated
+coverage below, superseding CLAUDE.md's earlier "swift test may remain unavailable"
+note (updated in the same commit as this stage's work).
+
+- [x] Add a `DeviceSessionProviding` implementation using `URLSession` + a small pairing
+  state machine; no MSAL dependency, no OAuth client, no `ASWebAuthenticationSession`. —
+  `Sources/WriterFlow/Store/DeviceSession.swift` (protocol + `DeviceSessionState`/
+  `PairingChallenge`/`DeviceSessionError`) and `DeviceSessionStore.swift` (the `actor`
+  implementation), `WriterFlowAPIClient.swift` (plain `URLSession`, mirrors
+  `AzureOpenAIClient`'s existing actor/async-await pattern). 21 unit tests in
+  `Tests/WriterFlowTests/{DeviceSessionStoreTests,PKCETests,MacHardwareModelTests}.swift`
+  pass via real `swift test` (mocked network via a new `MockURLProtocol` test helper).
+- [x] `beginPairing()` calls `/v2/device/authorize`, shows the `user_code`, and offers to
   open the browser via `verification_uri_complete` (deep-link happy path) with manual
-  `writerflow.app/pair` code entry as fallback.
-- [ ] Register a `writerflow://paired` scheme in `Info.plist` only as a foreground hint to
-  end the polling wait; verify it carries no token and that pairing succeeds without it.
-- [ ] Store the WriterFlow access + refresh tokens in the app's own Keychain item
+  `writerflow.app/pair` code entry as fallback. — the underlying mechanism is built and
+  verified (`beginPairing()` returns a `PairingChallenge` with both URLs; a `#if DEBUG`
+  menu item added to `AppDelegate` for this stage's manual verification calls
+  `NSWorkspace.shared.open(challenge.verificationURIComplete)` successfully). **Actually
+  showing the `user_code` to the user in production UI does not exist yet** — that's
+  Stage 5.2's separate "UI" checklist (Sign in/Account status card), not started.
+- [x] Register a `writerflow://paired` scheme in `Info.plist` only as a foreground hint to
+  end the polling wait; verify it carries no token and that pairing succeeds without it. —
+  `Info.plist`'s new `CFBundleURLTypes`; `AppDelegate.application(_:open:)` only checks
+  `scheme`/`host` and never reads `url.query`/`url.fragment`. Verified by two tests:
+  `testForegroundHintEndsThePollingWaitEarly` (a 5s poll interval ends in <4s once the
+  hint fires) and `testPairingSucceedsWithoutEverCallingTheForegroundHint`.
+  **Deviation, found and fixed mid-implementation**: the first version raced a
+  `withCheckedContinuation` against `Task.sleep` inside `withTaskGroup` to implement the
+  early-wake — cancelling the continuation's child task via `group.cancelAll()` never
+  actually resumed it (cancellation doesn't force-resume a checked continuation), and
+  `withTaskGroup` waits for every child task before returning, so the whole thing
+  deadlocked forever. Caught because `swift test` really hung (~6 hours of wall-clock
+  before being noticed and killed — a real lesson in checking on backgrounded test runs,
+  not just trusting them to finish). Rewritten using a stored, cancellable `Task<Void,
+  Never>` wrapping `Task.sleep` directly — cancellation of a sleeping `Task` correctly
+  throws and lets it finish, with no dangling continuation.
+- [x] Store the WriterFlow access + refresh tokens in the app's own Keychain item
   (`WhenUnlockedThisDeviceOnly`, no access group). Local DB keys remain a separate item.
-- [ ] Implement poll/backoff (`interval`, `slow_down`), refresh on explicit API need,
-  sign-out, expired/revoked/denied handling, and cancellation.
-- [ ] On refresh-token loss/rebuild, present a re-pair action — never silent data loss and
-  never a touch to the local DB key.
-- [ ] Do not begin pairing, poll, or refresh because of passive typing or focus events.
-- [ ] Add device-session state to the dependency container instead of reading global
-  Keychain readiness flags from `AppDelegate`.
+  — `Sources/WriterFlow/Store/DeviceTokenKeychain.swift`, a distinct Keychain
+  service/account from `KeychainStore`'s BYO Azure key item. **Deviation, found and
+  fixed**: the first version added `kSecUseDataProtectionKeychain: true` to every query,
+  which isn't used anywhere in the existing (working) `KeychainStore.swift` pattern —
+  read-after-write silently failed under `swift test`'s unsigned CLI binary (three tests
+  failed with `notPaired` despite writing tokens immediately before reading them).
+  Removed to match `KeychainStore`'s proven-working pattern exactly; all tests pass
+  after.
+- [x] Implement poll/backoff (`interval`, `slow_down`), refresh on explicit API need,
+  sign-out, expired/revoked/denied handling, and cancellation. — all covered by
+  `DeviceSessionStoreTests.swift`: `slow_down` extends the interval and still succeeds,
+  `access_denied`/`expired_token` throw and reset to `.signedOut`, `accessToken()`
+  refreshes only when within `expiryLeeway` of expiry (and proves zero network calls
+  when the cached token is still valid), `signOut()` clears Keychain + state, and a new
+  `cancelPairing()` method (added to `DeviceSessionProviding` this stage — the checklist
+  explicitly named "cancellation" and there was no way to stop an in-flight poll before
+  this) stops `awaitPairedToken()` early with a dedicated `.pairingCancelled` error.
+- [x] On refresh-token loss/rebuild, present a re-pair action — never silent data loss and
+  never a touch to the local DB key. — the state-machine half is done: `accessToken()`
+  never clears the Keychain item on refresh failure (only an explicit `signOut()` does),
+  and moves to a distinct `.needsRePair` state rather than silently reverting to
+  `.signedOut` (tested). **The "present a re-pair action" UI does not exist yet** — same
+  Stage 5.2 UI checklist gap as `beginPairing()`'s user_code display above. There is no
+  separate local DB key concept yet either (that's Stage 5.3).
+- [x] Do not begin pairing, poll, or refresh because of passive typing or focus events. —
+  true by construction: every `DeviceSessionProviding` entry point requires an explicit
+  caller; nothing in `FocusMonitor`/`OverlayController` references `DeviceSessionStore`,
+  and `init` performs a local Keychain read only, no network call.
+- [x] Add device-session state to the dependency container instead of reading global
+  Keychain readiness flags from `AppDelegate`. — `AppDelegate` now holds one
+  `deviceSession: DeviceSessionProviding` property and would query `deviceSession.state`
+  wherever v2 auth-gated UI needs it, rather than the scattered ad hoc
+  `KeychainStore.hasConfiguredAPIKey()`-style checks the existing v1 BYO-key path still
+  uses (that v1 path is unchanged — out of scope for this stage). No broader
+  `AppDelegate` dependency-injection refactor was attempted; that's Stage 5.3's
+  `LaunchCoordinator`/account-scoped-store work (V2-ARCHITECTURE.md §4.2), a different
+  and larger scope than this checklist item asks for.
 
 ### Server provisioning and authorization
 

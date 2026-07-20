@@ -6,4 +6,5 @@ enum Log {
     static let overlay = Logger(subsystem: "com.karan.writerflow", category: "overlay")
     static let engine = Logger(subsystem: "com.karan.writerflow", category: "engine")
     static let store = Logger(subsystem: "com.karan.writerflow", category: "store")
+    static let auth = Logger(subsystem: "com.karan.writerflow", category: "auth")
 }

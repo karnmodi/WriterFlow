@@ -40,5 +40,19 @@
     <string>WriterFlow needs Accessibility permission so it can read the text field you're typing in and (only when you ask it to) rewrite that text in place. It never reads password fields.</string>
     <key>NSInputMonitoringUsageDescription</key>
     <string>WriterFlow uses Input Monitoring only as a local "you are typing" signal to show the floating icon. Key contents are never stored, logged, or sent anywhere.</string>
+    <!-- Stage 5.2 (ADR-0011): foreground hint only for the browser device-pairing
+         flow. Carries no token — the only channel that transfers a token is the
+         polled POST /v2/device/token response. See DeviceSessionStore.swift. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.karan.writerflow.paired</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>writerflow</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

@@ -42,8 +42,8 @@ still to be scoped when Stage 5.2 starts.
 
 **Stage 5.2 (real-user authentication) is in progress: the full WriterFlow-side pairing
 and provisioning backend (ADR-0012 device tokens + a second web-session token issuer)
-is built and verified against real Postgres — the macOS client, Dashboard UI, and the
-Entra tenant itself are not started.** `services/api/src/jwt/` (ES256 signing, JWKS,
+and the macOS `DeviceSessionProviding` client are built and verified — the Dashboard UI
+and the Entra tenant itself are not started.** `services/api/src/jwt/` (ES256 signing, JWKS,
 dev-only in-memory key — Key Vault-backed signing is cloud-apply-pending),
 `services/api/src/pairing/{service,approve}.ts`, and migrations `009`–`011` implement
 `POST /v2/device/authorize`, `POST /v2/device/token`, `POST /v2/token/refresh`, and
@@ -62,9 +62,21 @@ resolved (user decision, 2026-07-19): a second WriterFlow-minted token audience
 Entra tenant's JWKS behind optional `ENTRA_*` config that's cloud-apply-pending. A known
 remaining gap: token issuance/refresh check `devices.revoked_at` but not `users.status`,
 so a disabled user's existing device can still refresh until separately revoked — see
-Stage 5.2's checklist. The macOS `DeviceSessionProviding` client, the Dashboard
-Account/Devices UI, and the Entra tenant itself (manual portal step, not yet done) are
-all still outstanding. The active
+Stage 5.2's checklist. `Sources/WriterFlow/Store/{DeviceSession,DeviceSessionStore,
+DeviceTokenKeychain,WriterFlowAPIClient,PKCE,MacHardwareModel}.swift` implement the Mac
+side (URLSession + Keychain, no MSAL) — pairing state machine, poll/backoff, rotating
+refresh, sign-out, cancellation, and the `writerflow://paired` foreground-hint deep
+link — proven both by 21 new XCTest unit tests (real `swift test`, now that Xcode is
+installed — see below) and by a live run against `services/api`'s real dev server on
+real local Postgres. Two real bugs were found and fixed this way too: an early
+`writerflow://paired` implementation deadlocked `swift test` for hours (a cancelled
+`withCheckedContinuation` inside a `withTaskGroup` never actually resumed, and the group
+waits for every child task), and the Keychain token item silently failed read-after-write
+under `swift test`'s unsigned binary until a stray `kSecUseDataProtectionKeychain` was
+removed to match the already-proven `KeychainStore` pattern. Only the `#if DEBUG` manual
+verification menu item calls any of this so far — no production "Sign in" UI exists yet.
+The Dashboard Account/Devices UI and the Entra tenant itself (manual portal step, not yet
+done) are still outstanding. The active
 v2 sources of truth are
 `PRD-V2.md`, `V2-ARCHITECTURE.md`, `V2-ROADMAP.md`, and
 `phases/phase-5-v2-cloud-foundation.md`. The explicit product-policy change for v2 is a
@@ -84,12 +96,20 @@ Apple Developer account** and keeps v1's ad-hoc DMG + manual-Gatekeeper + manual
 distribution. These supersede the earlier in-app MSAL PKCE (ADR-0002) and mandatory
 Developer ID (ADR-0008) decisions.
 
-Note: this machine has only Command Line Tools. `swift build` works; `swift test` may
-remain unavailable when `xctest` is absent, so tests must run in Xcode/CI where required.
+Note: Xcode is now installed on this machine (as of Stage 5.2) — both `swift build` and
+`swift test` work directly; `make test` runs the real XCTest suite, no CI/Xcode-only
+dependency remains. (Historically this machine had only Command Line Tools, which is why
+the sections below still describe the Package.swift-based build system rather than an
+Xcode project — that deviation stands on its own merits and hasn't been revisited.)
 
 ### Build system deviation from original spec
 
-The spec called for an Xcode project. This machine has only Command Line Tools installed. Build system is **Swift Package Manager** (`Package.swift`) with a bundle-wrapper script (`scripts/bundle.sh`) that produces `build/WriterFlow.app`. Info.plist lives at the repo root (SPM disallows it as a top-level resource). Everything else in the spec (AppKit + SwiftUI, `LSUIElement=YES`, folder layout, min macOS 14) is honoured. If Xcode is installed later, `Package.swift` opens in Xcode directly.
+The spec called for an Xcode project. Build system is **Swift Package Manager**
+(`Package.swift`) with a bundle-wrapper script (`scripts/bundle.sh`) that produces
+`build/WriterFlow.app`. Info.plist lives at the repo root (SPM disallows it as a
+top-level resource). Everything else in the spec (AppKit + SwiftUI, `LSUIElement=YES`,
+folder layout, min macOS 14) is honoured. `Package.swift` opens directly in Xcode if
+preferred.
 
 Common commands:
 
