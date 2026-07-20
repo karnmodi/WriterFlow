@@ -59,10 +59,17 @@ than `NULL` on a reused pooled connection, crashing every tenant policy's `::uui
 open design question — how the website authenticates its backend call to this API — is
 resolved (user decision, 2026-07-19): a second WriterFlow-minted token audience
 (`services/api/src/entra/verifier.ts` + `POST /v2/web-session/token`), wired to a real
-Entra tenant's JWKS behind optional `ENTRA_*` config that's cloud-apply-pending. A known
-remaining gap: token issuance/refresh check `devices.revoked_at` but not `users.status`,
-so a disabled user's existing device can still refresh until separately revoked — see
-Stage 5.2's checklist. `Sources/WriterFlow/Store/{DeviceSession,DeviceSessionStore,
+Entra tenant's JWKS behind optional `ENTRA_*` config that's cloud-apply-pending.
+`GET /v2/me` and `DELETE /v2/devices/:id` (`services/api/src/routes/account.ts`,
+`src/account/service.ts`, `src/auth/guard.ts`) are also live: a shared
+`requireDeviceAuth` guard re-verifies the bearer token and re-checks
+`devices.revoked_at`/`users.status` live against Postgres on every call, device revoke
+also kills that device's active refresh-token family, and ownership is scoped by
+`user_id` so one user can never see or revoke another's device — all proven against real
+Postgres (7 integration tests: happy path, missing/garbage token, cross-device revoke,
+revoke-kills-refresh, cross-user 404, disabled-user 403). The previously-noted gap —
+`pollDeviceToken`/`rotateRefreshToken` checking only `devices.revoked_at`, not
+`users.status` — is now closed the same way. `Sources/WriterFlow/Store/{DeviceSession,DeviceSessionStore,
 DeviceTokenKeychain,WriterFlowAPIClient,PKCE,MacHardwareModel}.swift` implement the Mac
 side (URLSession + Keychain, no MSAL) — pairing state machine, poll/backoff, rotating
 refresh, sign-out, cancellation, and the `writerflow://paired` foreground-hint deep
