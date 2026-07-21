@@ -20,3 +20,12 @@ review sign-off on this package before any Stage 5.1 database migration or backe
 code becomes a release dependency. All Stage 5.0 checklist items are now written; the
 architecture-review sign-off itself is the remaining gate before Stage 5.1 database
 migrations become a release dependency.
+
+## Runbooks
+
+Not Stage 5.0 contract deliverables — operational docs added as later stages needed
+them. See `V2-ARCHITECTURE.md` §14's planned `docs/runbooks/` location.
+
+| Path | What it is |
+|---|---|
+| `runbooks/v2-setup-testing.md` | Stage 5.2: personal step-by-step plan to stand up an Entra External ID tenant, run the stack locally, and pair a real device end to end for free, plus the optional paid Azure deployment. |
