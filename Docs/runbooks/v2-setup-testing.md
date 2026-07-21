@@ -65,7 +65,12 @@ makes token verification fail silently.
 https://<your-tenant-subdomain>.ciamlogin.com/<your-tenant-subdomain>.onmicrosoft.com/v2.0/.well-known/openid-configuration
 ```
 
-Open that URL and note two fields from the JSON: `issuer` and `jwks_uri`.
+Open that URL and note two fields from the JSON: `issuer` and `jwks_uri`. Copy both from
+this **one** fetch — don't mix an `issuer` copied from one request with a `jwks_uri`
+copied from another; Entra's token verification checks `issuer` for an exact string
+match, and a hostname-format mismatch between the two (tenant-ID-based vs.
+tenant-name-based subdomain) is a real, silent way to get 401s later with no useful
+error.
 
 - [ ] Copied `issuer`
 - [ ] Copied `jwks_uri`
@@ -88,19 +93,38 @@ Runs all 11 migrations (users/orgs/devices/pairing/RLS through
 
 ### 5. Start the API with your tenant wired in
 
+Create `.env.services` at the **repository root** (already gitignored) so you don't have
+to re-export these on every shell session — `npm run dev --workspace services/api` loads
+it automatically (`services/api/package.json`'s `dev` script uses Node's
+`--env-file-if-exists`, harmless if the file doesn't exist):
+
+```
+# .env.services — repo root
+DATABASE_URL=postgres://writerflow_app:writerflow_app_dev_only@localhost:5432/writerflow
+ENTRA_TENANT_ISSUER=<issuer from step 3>
+ENTRA_JWKS_URI=<jwks_uri from step 3>
+ENTRA_WEB_CLIENT_ID=<client ID from step 2>
+```
+
 ```bash
 # services/api/
-DATABASE_URL="postgres://writerflow_app:writerflow_app_dev_only@localhost:5432/writerflow" \
-ENTRA_TENANT_ISSUER="<issuer from step 3>" \
-ENTRA_JWKS_URI="<jwks_uri from step 3>" \
-ENTRA_WEB_CLIENT_ID="<client ID from step 2>" \
-  npm run dev --workspace services/api
+npm run dev --workspace services/api
 ```
 
 Leave this running. It listens on `:8080`. If it exits immediately, one of the four env
-vars above is missing or malformed — the error names the exact field.
+vars above is missing or malformed — the error names the exact field. A quick way to
+confirm Entra is actually wired in (not just that the process started): a bad token
+should get a real rejection, not "not configured":
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/web-session/token \
+  -X POST -H "Content-Type: application/json" -d '{"idToken":"not-a-real-token"}'
+# 401 = Entra verifier is configured and rejected the token (correct)
+# 503 = ENTRA_* isn't actually loaded — check .env.services
+```
 
 - [ ] Server logs show it listening, no startup error
+- [ ] The check above returns 401, not 503
 
 ### 6. Point the Mac app at your local API
 
@@ -130,40 +154,83 @@ ignore that tab, it's the `/pair` stub and doesn't do anything yet.
 Open **Console.app**, filter for subsystem `com.karan.writerflow`, category `auth`. Find
 the line `Pairing started — user_code: XXXX-XXXX` and copy that code.
 
+The code expires (~15 minutes) if steps 8–9 take too long — if `/device/approve`
+comes back `404 Unknown, expired, or already-consumed user code`, click **Debug: Test
+Device Pairing** again for a fresh one rather than reusing the stale code.
+
 - [ ] Got the `user_code` from Console.app
 
 ### 8. Sign in with Microsoft — the real thing
 
-Build this URL with your own tenant subdomain and client ID from steps 1–2, then open it
-in a browser:
+**This step needs PKCE.** `jwt.ms` only *decodes* a token you give it — it has no
+backend, so it can't complete an authorization-code exchange. Modern Entra External ID
+SPA registrations issue an authorization **code**, not an `id_token` directly, so you
+need one extra manual step (exactly what the real `/pair` page will do in code once it
+exists) between "sign in" and "have a token."
+
+Generate a fresh PKCE pair — do this **once per attempt**; a `code_verifier` only
+matches the `code` from the *same* authorize round trip, so don't reuse an old verifier
+with a new sign-in or vice versa (that's the "code_verifier mismatch" error):
+
+```bash
+node -e "
+const c = require('crypto');
+const verifier = c.randomBytes(32).toString('base64url');
+const challenge = c.createHash('sha256').update(verifier).digest('base64url');
+console.log('code_verifier=' + verifier);
+console.log('code_challenge=' + challenge);
+"
+```
+
+Build the authorize URL with that `code_challenge`, your tenant subdomain, and client ID
+from steps 1–2, then open it in a browser:
 
 ```
-https://<tenant-subdomain>.ciamlogin.com/<tenant-subdomain>.onmicrosoft.com/oauth2/v2.0/authorize?client_id=<CLIENT_ID>&response_type=id_token&redirect_uri=https%3A%2F%2Fjwt.ms&scope=openid&response_mode=fragment&nonce=test123
+https://<tenant-subdomain>.ciamlogin.com/<tenant-subdomain>.onmicrosoft.com/oauth2/v2.0/authorize?client_id=<CLIENT_ID>&response_type=code&redirect_uri=https%3A%2F%2Fjwt.ms&scope=openid&response_mode=fragment&code_challenge=<CODE_CHALLENGE>&code_challenge_method=S256&nonce=test123
 ```
 
 Sign in or sign up with any email — this is Microsoft's own hosted UI, genuinely the
 same experience the real `/pair` page will eventually embed. You land on
-[jwt.ms](https://jwt.ms), which decodes your token on screen. Copy the raw encoded token
-(the long `eyJ...` string, shown under "Encoded" or in the address bar after
-`id_token=`).
+[jwt.ms](https://jwt.ms) with an **empty body — that's expected**, it has nothing to
+decode. What you need is in the address bar: `https://jwt.ms/#code=<long value>`. Copy
+that `code` value immediately — it's single-use and short-lived.
 
-- [ ] Signed in successfully, landed on jwt.ms
-- [ ] Copied the raw `id_token` value
+- [ ] Signed in successfully, redirected to `jwt.ms/#code=...`
+- [ ] Copied the `code` value from the URL
 
-### 9. Stand in for `/pair`: exchange and approve
+### 9. Exchange the code, then stand in for `/pair`
 
-These are the two calls the real sign-in page will make automatically once it's built.
-Run them yourself, in order.
+Three calls now — the first two are what the real sign-in page will do in code once it
+exists; the third (`/device/approve`) it already does.
 
 ```bash
-# exchange the Entra token for a WriterFlow web-session token
+# exchange the authorization code for an Entra ID token — needs the SAME
+# code_verifier generated in step 8, and the code before it expires (a couple minutes)
+curl -s -X POST "https://<tenant-subdomain>.ciamlogin.com/<tenant-subdomain>.onmicrosoft.com/oauth2/v2.0/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "grant_type=authorization_code" \
+  --data-urlencode "client_id=<CLIENT_ID>" \
+  --data-urlencode "code=<code from step 8>" \
+  --data-urlencode "redirect_uri=https://jwt.ms" \
+  --data-urlencode "code_verifier=<code_verifier from step 8>"
+```
+
+Copy the `id_token` field from that JSON response (not `access_token` — the API verifies
+the *ID* token, per V2-ARCHITECTURE.md §5.2's "immutable (issuer, subject) identity
+key"). If this fails with `invalid_grant`, the code expired or was already used —
+generate a fresh PKCE pair and redo step 8, don't retry with the same code.
+
+```bash
+# exchange the Entra ID token for a WriterFlow web-session token
 curl -s -X POST http://localhost:8080/web-session/token \
   -H "Content-Type: application/json" \
-  -d '{"idToken":"<paste the id_token from step 8>"}'
+  -d '{"idToken":"<id_token from above>"}'
 ```
 
 Copy the `accessToken` from the response — that's your web-session token, valid for a
-few minutes.
+few minutes. A `401` here after the token check in step 5 already passed usually means
+`ENTRA_TENANT_ISSUER` doesn't exactly match this token's real `iss` claim — re-check both
+values came from the same metadata fetch (step 3's note).
 
 ```bash
 # approve the device
@@ -176,6 +243,7 @@ curl -s -X POST http://localhost:8080/device/approve \
 A 200 response with a full account snapshot means it worked — your user, personal
 organization, and device all just got created for real.
 
+- [ ] Token endpoint returned an `id_token`
 - [ ] `/web-session/token` returned an `accessToken`
 - [ ] `/device/approve` returned 200 with an account snapshot
 

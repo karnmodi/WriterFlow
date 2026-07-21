@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:integration": "vitest run test/integration",
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --env-file-if-exists=../../.env.services src/index.ts",
     "start": "node dist/src/index.js",
     "migrate:up": "node-pg-migrate up -m migrations --envPath ../../.env.services",
     "migrate:down": "node-pg-migrate down -m migrations --envPath ../../.env.services",
