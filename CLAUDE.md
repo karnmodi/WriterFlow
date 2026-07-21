@@ -80,10 +80,19 @@ real local Postgres. Two real bugs were found and fixed this way too: an early
 `withCheckedContinuation` inside a `withTaskGroup` never actually resumed, and the group
 waits for every child task), and the Keychain token item silently failed read-after-write
 under `swift test`'s unsigned binary until a stray `kSecUseDataProtectionKeychain` was
-removed to match the already-proven `KeychainStore` pattern. Only the `#if DEBUG` manual
-verification menu item calls any of this so far — no production "Sign in" UI exists yet.
-The Dashboard Account/Devices UI and the Entra tenant itself (manual portal step, not yet
-done) are still outstanding. The active
+removed to match the already-proven `KeychainStore` pattern. A production Sign-in/Account
+UI now exists: a new Dashboard "Account" tab (`Sources/WriterFlow/Dashboard/{AccountView,
+AccountViewModel}.swift`, `Sources/WriterFlow/Store/AccountService.swift`) covers sign-in
+(shows the `user_code`, opens the browser), signed-in status (device label, plan, monthly
+units, sync), sign-out, and a destructive device-revoke that always signs out locally even
+if the server call fails — 13 new unit tests, compile+lint clean, but not visually
+verified (no interactive display tooling in this environment to drive a native macOS UI).
+It shows only the current device, not a device list — the API contract has no
+list-devices endpoint. It's additive, not a replacement for v1's BYO-Azure onboarding
+card (that swap needs a real cohort-flag mechanism that doesn't exist yet — Stage 5.4
+territory — so replacing it now would risk breaking v1 users for no working alternative).
+The `#if DEBUG` manual pairing menu item still exists for headless verification. The
+Entra tenant itself (manual portal step, not yet done) is still outstanding. The active
 v2 sources of truth are
 `PRD-V2.md`, `V2-ARCHITECTURE.md`, `V2-ROADMAP.md`, and
 `phases/phase-5-v2-cloud-foundation.md`. The explicit product-policy change for v2 is a
