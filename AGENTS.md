@@ -35,10 +35,20 @@ Both service Dockerfiles build and the API image was smoke-run against local Pos
 None of this has been applied to real Azure yet — the user has Azure/Entra CLI access
 but no Entra External ID tenant created yet, and no `az deployment` has run — so Stage
 5.1's Accept criterion (a live private-network deployment reachable through APIM) is
-still open. The website's static launch site (`website/`, `output: "export"`) has not
-yet been extended into the confidential Entra client + `/pair` device-approval UI that
-Stage 5.2 needs; that conversion necessarily drops static export for those routes and is
-still to be scoped when Stage 5.2 starts.
+still open. The website's hosting model is now scoped and scaffolded (user decision,
+2026-07-21): `website/` runs on Azure Container Apps in its own public environment,
+separate from the API's internal-only one (`infra/bicep/modules/container-app-website.bicep`,
+a second `container-apps-env.bicep` instantiation with `internal: false`, a matching new
+subnet in `network.bicep`). It dropped `output: "export"` for `output: "standalone"` —
+the three marketing pages are still statically prerendered at build time, unaffected in
+content/behavior; only the new `/api/health` and `/pair` routes are dynamic. `/pair` is a
+stub (reads the Mac app's `user_code`, doesn't sign anyone in yet — that needs the Entra
+tenant plus an OIDC client library decision, a separate increment). `az bicep build`/lint
+clean; `npm run check` passes; the standalone server was run and smoke-tested directly
+(`node .next/standalone/server.js`). **Not verified**: the actual `docker build` — Docker
+Hub image pulls hung indefinitely in this sandboxed session (reproduced with a plain
+`docker pull alpine`, unrelated to this Dockerfile), so the container image itself is
+unverified pending a real build environment.
 
 **Stage 5.2 (real-user authentication) is in progress: the full WriterFlow-side pairing
 and provisioning backend (ADR-0012 device tokens + a second web-session token issuer)

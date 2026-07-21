@@ -2,7 +2,7 @@
   "name": "writerflow-launch-site",
   "version": "1.0.0",
   "private": true,
-  "description": "Static public launch site for WriterFlow.",
+  "description": "WriterFlow public site — static marketing pages plus the v2 confidential Entra client and /pair device-approval route.",
   "packageManager": "npm@11.11.0",
   "engines": {
     "node": "24.14.x",
@@ -13,10 +13,10 @@
     "build": "next build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "validate-export": "node scripts/validate-export.mjs",
+    "validate-build": "node scripts/validate-build.mjs",
     "verify-release-local": "node scripts/verify-release-assets.mjs --local",
     "verify-release-live": "node scripts/verify-release-assets.mjs --remote",
-    "check": "npm run lint && npm run typecheck && npm run build && npm run validate-export"
+    "check": "npm run lint && npm run typecheck && npm run build && npm run validate-build"
   },
   "dependencies": {
     "next": "16.2.10",

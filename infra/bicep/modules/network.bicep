@@ -62,6 +62,27 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
           privateEndpointNetworkPolicies: 'Disabled'
         }
       }
+      {
+        // A public Container Apps environment needs its own subnet — a
+        // subnet delegated to Microsoft.App/environments can only back one
+        // environment, and the website (real browsers hitting writerflow.app
+        // directly) cannot share the API's internal-only environment without
+        // exposing the API's app-level external=true ingress to the open
+        // internet too, which would break the "APIM is the only public
+        // entry point to the API" posture. See container-app-website.bicep.
+        name: 'website-container-apps'
+        properties: {
+          addressPrefix: '10.90.6.0/23'
+          delegations: [
+            {
+              name: 'Microsoft.App.environments'
+              properties: {
+                serviceName: 'Microsoft.App/environments'
+              }
+            }
+          ]
+        }
+      }
     ]
   }
 }
@@ -105,5 +126,6 @@ output containerAppsSubnetId string = vnet.properties.subnets[0].id
 output postgresSubnetId string = vnet.properties.subnets[1].id
 output apimSubnetId string = vnet.properties.subnets[2].id
 output privateEndpointsSubnetId string = vnet.properties.subnets[3].id
+output websiteContainerAppsSubnetId string = vnet.properties.subnets[4].id
 output postgresPrivateDnsZoneId string = postgresPrivateDnsZone.id
 output containerAppsPrivateDnsZoneId string = containerAppsPrivateDnsZone.id

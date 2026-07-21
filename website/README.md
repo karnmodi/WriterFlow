@@ -1,8 +1,30 @@
-# WriterFlow launch website
+# WriterFlow website
 
-Static public launch site for WriterFlow 1.0. It uses the Next.js App Router,
-Tailwind CSS, and `output: "export"`; the production artifact is the `out/`
-directory and needs only a static file host. There are no runtime server routes.
+Uses the Next.js App Router and Tailwind CSS. Two things live in this one app:
+
+- The **v1 marketing site** (`/`, `/install`, `/privacy`) — still statically
+  prerendered at build time, unchanged in content or behavior.
+- The **v2 confidential Entra client + `/pair` device-approval route**
+  (V2-ARCHITECTURE.md §5.1/§14) — a real server route, since approving a Mac
+  app's pairing request needs a session and (eventually) a client secret,
+  which static HTML cannot provide.
+
+That second piece is why this app no longer builds with `output: "export"`
+(Stage 5.2) — Next.js can't mix static export with a dynamic route in the same
+app. `output: "standalone"` now produces a minimal self-contained Node server
+(`next.config.ts`); `Dockerfile` builds it into
+`infra/bicep/modules/container-app-website.bicep`'s Container App image. The
+marketing pages are unaffected performance-wise — Next still statically
+prerenders them at build time (see `npm run build`'s route table: `○` for
+static, `ƒ` for dynamic) — this only changes how the whole app is deployed and
+served.
+
+**`/pair` is a stub today.** It renders the page and reads the Mac app's
+`user_code`, but does not yet sign anyone in or call `POST /v2/device/approve`
+— that needs a real Entra External ID tenant (not created yet) and an OIDC
+client library decision, which is deliberately a separate increment. Building
+a page that *looked* functional before there was a tenant to sign in against
+would be actively misleading.
 
 ## Local development
 
@@ -63,26 +85,37 @@ To host the immutable files on the same static origin instead, set
 verifier. These are public locations, never credentials. Absolute asset
 overrides must be credential-free HTTPS URLs.
 
-## Static deployment
+## Deployment
 
-Deploy the **contents** of `website/out/` as the document root of the production
-origin. This source tree deliberately does not select a hosting vendor or add a
-mutable deployment backend. Because routes and Next assets are root-relative,
-project-subpath hosting (for example, `example.com/project/`) is not supported
-without adding and testing a matching Next `basePath`; use an origin root or a
-custom domain.
+Build and run the container the same way `infra/bicep/modules/
+container-app-website.bicep` deploys it, from the repository root (the
+Dockerfile needs the monorepo root as build context to resolve
+`website/package-lock.json` against the workspace):
 
-Set `NEXT_PUBLIC_RELEASE_STATUS=available` in the build job, not in the runtime
-serving layer. The build job should run `npm ci` and `npm run check`, then upload
-only `out/` to the host's static document root.
+```bash
+docker build -f website/Dockerfile -t writerflow-website .
+docker run -p 3000:3000 writerflow-website
+```
 
-After deployment, test from an unauthenticated browser and from the command
-line:
+Set `NEXT_PUBLIC_RELEASE_STATUS=available` in the **build** step (it's baked
+into the static HTML at build time — setting it only at runtime does
+nothing), only after every manual gate in `../RELEASE.md` passes and both
+release-asset checks above succeed.
+
+**Status: code complete; cloud apply pending.** No real Container App has
+been deployed yet — see `infra/bicep/main.bicep`'s `websiteApp` module and the
+phase-5 notes on why the website needs its own public Container Apps
+environment (`infra/bicep/modules/container-app-website.bicep`'s header
+comment), separate from the API's internal-only one.
+
+After a real deployment, test from an unauthenticated browser and from the
+command line:
 
 ```bash
 curl -I https://YOUR-SITE.example/
 curl -I https://YOUR-SITE.example/install/
 curl -I https://YOUR-SITE.example/privacy/
+curl -I https://YOUR-SITE.example/api/health/
 npm run verify-release-live
 ```
 
@@ -90,24 +123,24 @@ Download both release files from the deployed page and run the Install page's
 `shasum -a 256 -c` command once more. Check the mobile layout, keyboard focus,
 and reduced-motion setting in a clean browser profile.
 
-Rollback is static: redeploy the last known-good `out/`. If the release assets
-are wrong or unavailable, rebuild with `NEXT_PUBLIC_RELEASE_STATUS=candidate`
-and deploy that output to remove the download actions while preserving the
-installation and status pages.
-
 ## Validation
 
 ```bash
 npm run lint
 npm run typecheck
 npm run build
-npm run validate-export
+npm run validate-build
 ```
 
-`npm run check` runs all four. The export validator checks the Home, Install,
-Privacy, and 404 pages, required trust disclosures, release-link state, and the
-absence of an API output. `verify-release-local` and `verify-release-live`
-perform the artifact checks that a static HTML validator cannot.
+`npm run check` runs all four. The build validator checks the Home, Install,
+Privacy, and 404 pages are still statically prerendered, that `/pair` is
+*not* accidentally prerendered (it must stay dynamic), required trust
+disclosures, release-link state, and that the standalone server the
+Dockerfile deploys actually got produced. `verify-release-local` and
+`verify-release-live` perform the artifact checks that an HTML validator
+cannot.
 
-No analytics, forms, cookies, backend routes, custom APIs, runtime fetches, or
-server actions are included.
+The marketing pages still ship no analytics, forms, cookies, or runtime
+fetches. `/pair` is the one deliberate exception to "no backend routes" — it
+will need a session cookie once Entra sign-in is wired up; that scope stays
+confined to `/pair` and its supporting API routes, not the marketing pages.

@@ -302,6 +302,77 @@ container builds/smoke-run, Bicep validation — is done and verified above.
 
 ## Stage 5.2 — Real-user authentication and account/device state
 
+### Website hosting and scaffolding (V2-ARCHITECTURE.md §14)
+
+Not an explicit phase-file checklist item originally, but a genuine blocker CLAUDE.md
+flagged: "the website's static launch site ... has not yet been extended into the
+confidential Entra client + /pair device-approval UI ... that conversion necessarily
+drops static export for those routes and is still to be scoped when Stage 5.2 starts."
+Scoped now (user decision, 2026-07-21): the website runs on **Azure Container Apps**, in
+its own public environment separate from the API's internal-only one.
+
+- [x] Convert `website/` off `output: "export"` — Next.js cannot mix static export with a
+  dynamic route in one app, and `/pair` must be dynamic (a real session, eventually a
+  client secret). `next.config.ts` now uses `output: "standalone"`. The three marketing
+  pages (`/`, `/install`, `/privacy`) are unaffected in content or behavior — confirmed via
+  `next build`'s route table, all three still render `○` (static, prerendered at build
+  time), only `/api/health` and `/pair` are `ƒ` (dynamic). **Deviation, found and fixed**:
+  an unpinned build root made Next infer the outer monorepo's `package-lock.json` as the
+  workspace root during a local build, nesting the standalone server one directory deeper
+  (`.next/standalone/website/server.js`) than an isolated Docker build (which only ever
+  sees `website/`'s own files) would produce — a mismatch that would have silently broken
+  `Dockerfile`'s `CMD ["node", "server.js"]` at deploy time despite looking fine in
+  isolated local testing. Fixed by pinning `turbopack.root` explicitly in `next.config.ts`;
+  confirmed a local `npm run build` now produces the un-nested layout Dockerfile expects
+  (`.next/standalone/server.js` directly, not nested under a `website/` subdirectory) —
+  the Docker build itself couldn't be run this session (see the note on the validate-build
+  item below), so this fix is reasoned-through and locally consistent, not confirmed via
+  an actual container build.
+- [x] Add `website/app/api/health/route.ts` (Container Apps liveness/readiness probe
+  target — no dependency checks, matching the probe's actual scope) and a `website/app/
+  pair/page.tsx` stub that renders and reads the Mac app's `user_code` query param but does
+  not yet sign anyone in or call `POST /v2/device/approve` — that needs a real Entra tenant
+  (not created) and an OIDC client library decision, deliberately deferred as a separate
+  increment rather than building a page that looks functional before there's anything to
+  sign in against.
+- [x] Add `website/Dockerfile` (multi-stage, mirrors `services/api/Dockerfile`'s shape) and
+  `infra/bicep/modules/container-app-website.bicep` + a second `container-apps-env.bicep`
+  instantiation with `internal: false` in `main.bicep` (`network.bicep` gained a matching
+  new delegated subnet — Container Apps subnet delegation is one-environment-per-subnet,
+  so this couldn't reuse the API's). **Deliberately NOT the same environment as the API**:
+  that environment is `internal: true` with app-level `external: true` ingress meaning
+  "external to the environment, not the internet" (Stage 5.1) — APIM is the only real
+  public entry point to the API by design. Putting the website in the same environment
+  would have required flipping the environment to public, silently exposing the API's own
+  ingress to the raw internet too. `az bicep build`/`az bicep lint` clean. **Code complete;
+  cloud apply pending**: no real deployment, no custom domain/TLS binding (needs a real DNS
+  zone once one exists).
+- [x] Rewrote `website/scripts/validate-export.mjs` → `validate-build.mjs` for the new
+  build output shape (`.next/server/app/*.html` instead of a flat `out/` directory) and
+  updated `package.json`'s `validate-build`/`check` scripts. Verified locally: `npm run
+  check` (lint, typecheck, build, validate-build) passes in both release-candidate and
+  `NEXT_PUBLIC_RELEASE_STATUS=available` modes. Also ran the actual standalone server
+  produced by `next build` directly (`node .next/standalone/server.js`, not through
+  Docker) and confirmed `/`, `/api/health/`, and `/pair/?user_code=...` all serve the
+  expected content/status against a live running process, not just a static-file
+  presence check. Updated `website/README.md` to describe the new dual static+dynamic
+  shape honestly instead of claiming "no runtime server routes." **Not verified: the
+  actual `docker build -f website/Dockerfile`.** Attempted it — `docker pull
+  node:24-alpine` (and even a plain `docker pull alpine:latest`) both hung for 2+ minutes
+  producing zero output in this sandboxed session before being killed; this reproduced
+  identically outside the Dockerfile too, so it's this environment's network path to
+  Docker Hub, not a problem with the Dockerfile itself. The Dockerfile's shape mirrors
+  `services/api/Dockerfile` (already proven to build earlier this session) almost
+  exactly, and the standalone-server behavior it wraps is independently verified above,
+  but the image build itself is unverified — flag for a real `docker build` before first
+  deploy, same as the layout bug the build-root fix above was specifically added to catch.
+  **Not updated**: `website/app/privacy/page.tsx`'s copy still says "No WriterFlow account,
+  membership, or subscription... No custom WriterFlow app-facing API" — true for v1, and
+  not yet false in practice since `/pair` doesn't do anything yet, but this is a
+  product/legal-adjacent messaging decision that shouldn't be silently rewritten
+  mid-infrastructure-change. Flagging for the person who owns that copy before `/pair`
+  actually starts signing people in.
+
 ### Entra External ID (web-side confidential client — ADR-0011)
 
 - [ ] Create separate External ID configurations/app registrations for local development,

@@ -82,6 +82,20 @@ module containerAppsEnv 'modules/container-apps-env.bicep' = {
   }
 }
 
+// Separate, genuinely public environment for website/ — see
+// container-app-website.bicep for why this can't share the API's
+// internal-only environment.
+module websiteContainerAppsEnv 'modules/container-apps-env.bicep' = {
+  name: '${namePrefix}-website-cae'
+  params: {
+    namePrefix: '${namePrefix}-web'
+    location: location
+    infrastructureSubnetId: network.outputs.websiteContainerAppsSubnetId
+    logAnalyticsWorkspaceId: logAnalytics.outputs.workspaceId
+    internal: false
+  }
+}
+
 module appConfiguration 'modules/app-configuration.bicep' = {
   name: '${namePrefix}-appconfig'
   params: {
@@ -109,6 +123,17 @@ module apiApp 'modules/container-app-api.bicep' = {
   }
 }
 
+module websiteApp 'modules/container-app-website.bicep' = {
+  name: '${namePrefix}-website-app'
+  params: {
+    namePrefix: namePrefix
+    location: location
+    containerAppsEnvironmentId: websiteContainerAppsEnv.outputs.environmentId
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    keyVaultUri: keyVault.outputs.vaultUri
+  }
+}
+
 module apim 'modules/apim.bicep' = {
   name: '${namePrefix}-apim'
   params: {
@@ -128,6 +153,7 @@ module budget 'modules/budget.bicep' = {
 }
 
 output apiAppFqdn string = apiApp.outputs.fqdn
+output websiteAppFqdn string = websiteApp.outputs.fqdn
 output apimGatewayUrl string = apim.outputs.gatewayUrl
 output keyVaultUri string = keyVault.outputs.vaultUri
 output postgresFqdn string = postgres.outputs.fqdn
