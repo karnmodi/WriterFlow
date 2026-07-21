@@ -605,13 +605,20 @@ note (updated in the same commit as this stage's work).
 
 - [ ] Unit/contract tests for pairing state transitions, poll backoff/`slow_down`,
   `expired_token`/`access_denied`, refresh rotation + reuse-detection revocation, and
-  Keychain read/write without an access group. — **backend half done**: pairing state
-  transitions, `slow_down`, `expired_token`, and refresh rotation + reuse-detection are
-  all covered by `services/api/test/integration/pairing.integration.test.ts` against real
-  Postgres (`access_denied` — the "denied" device_authorizations status — has a code path
-  in `pollDeviceToken` but no dedicated test yet, since nothing sets that status without
-  `/device/approve`'s deny action existing). Keychain read/write is Stage 5.2's macOS
-  `DeviceSessionProviding` work, not started this stage.
+  Keychain read/write without an access group. — **backend + Keychain done, one gap
+  remains**: pairing state transitions, `slow_down`, `expired_token`, and refresh
+  rotation + reuse-detection are all covered by `services/api/test/integration/
+  pairing.integration.test.ts` against real Postgres (`access_denied` — the "denied"
+  device_authorizations status — has a code path in `pollDeviceToken` but no dedicated
+  test yet, since nothing sets that status without `/device/approve`'s deny action
+  existing, which nothing in the spec calls for building this stage). Keychain read/write
+  without an access group is now directly tested: `Tests/WriterFlowTests/
+  DeviceTokenKeychainTests.swift` (new) asserts `DeviceTokenKeychain.baseQuery()` —
+  extracted as a small `internal` seam shared by `read()`/`write()`/`delete()` — never
+  contains `kSecAttrAccessGroup`, plus write/read/overwrite/delete round-trips and
+  independence from `KeychainStore`'s separate BYO-Azure-key item. 7 new tests, full
+  suite 76/76 (2 skipped live-integration tests, unchanged), `swift build`/`swiftlint`
+  clean.
 - [x] Device-code security tests: single-use `device_code`, PKCE `code_verifier` binding,
   and expiry. — all three verified against real Postgres (replay after issuance returns
   `expired_token`; wrong verifier returns `invalid_grant`; a `device_code` past its

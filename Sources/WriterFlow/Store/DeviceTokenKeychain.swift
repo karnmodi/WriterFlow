@@ -22,14 +22,22 @@ enum DeviceTokenKeychain {
         let refreshToken: String
     }
 
-    static func read() -> StoredTokens? {
-        let query: [String: Any] = [
+    /// The query shared by every Keychain operation on this item — internal
+    /// (not `private`) so a test can assert it never grows a
+    /// `kSecAttrAccessGroup` key, which would silently scope these tokens to
+    /// a shared group instead of this app alone.
+    static func baseQuery() -> [String: Any] {
+        [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecAttrAccount as String: account
         ]
+    }
+
+    static func read() -> StoredTokens? {
+        var query = baseQuery()
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
 
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
@@ -42,22 +50,13 @@ enum DeviceTokenKeychain {
         guard let data = try? JSONEncoder().encode(tokens) else { return false }
         delete()
 
-        let add: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
+        var add = baseQuery()
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
     static func delete() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-        SecItemDelete(query as CFDictionary)
+        SecItemDelete(baseQuery() as CFDictionary)
     }
 }
