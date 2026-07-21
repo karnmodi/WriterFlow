@@ -65,12 +65,16 @@ makes token verification fail silently.
 https://<your-tenant-subdomain>.ciamlogin.com/<your-tenant-subdomain>.onmicrosoft.com/v2.0/.well-known/openid-configuration
 ```
 
-Open that URL and note two fields from the JSON: `issuer` and `jwks_uri`. Copy both from
-this **one** fetch — don't mix an `issuer` copied from one request with a `jwks_uri`
-copied from another; Entra's token verification checks `issuer` for an exact string
-match, and a hostname-format mismatch between the two (tenant-ID-based vs.
-tenant-name-based subdomain) is a real, silent way to get 401s later with no useful
-error.
+Open that URL and note two fields from the JSON: `issuer` and `jwks_uri`.
+
+Don't be thrown if they use different subdomain forms — Microsoft's own metadata
+document does this legitimately: `issuer` normalizes to the tenant-ID subdomain
+(`<tenant-id>.ciamlogin.com/...`) while `jwks_uri` may come back on the tenant-name
+subdomain (`<tenant-name>.ciamlogin.com/...`). Verified directly against a real tenant:
+both subdomain forms of the JWKS endpoint return HTTP 200 with the identical set of key
+IDs, and `jose`'s `createRemoteJWKSet` fetches whatever URL you give it — so this is
+cosmetic, not a bug. Just copy both fields exactly as the JSON gives them; don't
+"fix" them to match each other.
 
 - [ ] Copied `issuer`
 - [ ] Copied `jwks_uri`
@@ -228,9 +232,11 @@ curl -s -X POST http://localhost:8080/web-session/token \
 ```
 
 Copy the `accessToken` from the response — that's your web-session token, valid for a
-few minutes. A `401` here after the token check in step 5 already passed usually means
-`ENTRA_TENANT_ISSUER` doesn't exactly match this token's real `iss` claim — re-check both
-values came from the same metadata fetch (step 3's note).
+few minutes. A `401` here after the 401-vs-503 check in step 5 already passed usually
+means `ENTRA_TENANT_ISSUER` or `ENTRA_WEB_CLIENT_ID` doesn't exactly match this
+particular token's `iss`/`aud` claims — paste the `id_token` into
+[jwt.ms](https://jwt.ms) yourself and compare its `iss`/`aud` fields character-for-character
+against `.env.services`.
 
 ```bash
 # approve the device
