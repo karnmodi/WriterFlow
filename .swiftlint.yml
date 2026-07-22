@@ -20,6 +20,8 @@ excluded:
   - .swiftpm
   - Tests
   - build
+  - vendor
+  - spikes
 
 identifier_name:
   min_length: 2

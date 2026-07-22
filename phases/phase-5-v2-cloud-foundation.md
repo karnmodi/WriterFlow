@@ -1102,13 +1102,46 @@ them rather than introducing metering after provider traffic already exists.
 
 - [ ] Add `InferenceTransport` and `WriterFlowAPIClient` without rewriting AX extraction,
   preview, or text insertion.
+  — Half done, deliberately not fully: `Sources/WriterFlow/Store/WriterFlowInferenceTransport.swift`
+  is a standalone SSE client for `POST /v2/inference/stream`, proven in isolation (5 new
+  XCTests, `MockURLProtocol`-stubbed, covering the happy path + header correctness,
+  out-of-order `decision`/`usage.summary`/`output.delta` rejection, an unrecognized event
+  type invalidating the stream, a server `error` event, and not-signed-in with zero network
+  calls). **What's NOT done**: it isn't wired into `ActionEngine` as an `InferenceTransport`
+  protocol swap, because a real mismatch surfaced while building it —
+  `AzureOpenAIClient.stream(action:prompt:)` takes a client-rendered
+  `PromptBuilder.BuiltPrompt` (v1 builds the system/user prompt text locally and sends it to
+  Azure), while this endpoint's wire contract wants raw `content.draft/selectedText/
+  conversation` + `signals` and compiles the prompt server-side. Forcing both shapes behind
+  one protocol method would mean either reverse-parsing a rendered prompt back into raw
+  fields (fragile, likely wrong) or changing what `AzureOpenAIClient` itself takes (a
+  separate, riskier change to v1's shipping code path). That interchange-shape decision is
+  real design work, not a mechanical wiring step, and belongs as its own reviewed change —
+  not a side effect of adding this file. `WriterFlowAPIClient.swift` already exists (Stage
+  5.2, pairing/account calls) — not extended here, since this transport intentionally stays
+  separate rather than growing that file's scope.
 - [ ] Convert typed server events into the current `ActionEngine` callbacks/preview state.
-- [ ] Send a new operation/idempotency UUID for each explicit action and Retry.
+  — Blocked on the item above.
+- [x] Send a new operation/idempotency UUID for each explicit action and Retry.
+  — `WriterFlowInferenceTransport.streamFixGrammar` mints a fresh `Idempotency-Key` per
+  call (`UUID().uuidString`) and takes `operationId`/`retryOf` as caller-supplied UUIDs, not
+  generated internally — proven by the "happy path" test asserting the header is present.
+  Checked as done for the transport itself; still blocked on the item above for it to be
+  reachable from a real user action.
 - [ ] Reuse current context extraction rules and caps; send no full AX tree.
+  — Can't be verified yet — no caller passes real `ContextExtractor`/`ConversationExtractor`
+  output into `FixGrammarRequest` until the item above is resolved.
 - [ ] Preserve the client refocus guard before Replace and cancellation on new action.
+  — Not reachable yet, same reason.
 - [ ] Add safe sign-in, plan, quota, rate-limit, timeout, unavailable, and conflict copy.
+  — `WriterFlowInferenceError`'s cases cover the transport-level ones (`notSignedIn`,
+  `httpError`, `server(code:message:)` — which carries `QUOTA_EXCEEDED`/`RATE_LIMITED`/etc.
+  verbatim from the server, `malformedStream`, `invalidOrder`); no UI copy exists yet since
+  nothing surfaces these to the user until wired into `ActionEngine`.
 - [ ] Keep `BYOInferenceTransport` behind a non-production/beta rollback feature flag;
   ensure transport selection happens before an operation and cannot fan out.
+  — No feature flag or transport-selection logic exists yet; there's only one transport in
+  the live path (`AzureOpenAIClient`) until the item above is resolved.
 
 ### Expand parity
 
