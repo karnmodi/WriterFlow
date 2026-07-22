@@ -1,12 +1,18 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
+import type pg from "pg";
+import type { AppConfig } from "../config.js";
 import type { EntraIdTokenVerifier } from "../entra/verifier.js";
+import { updateDisplayClaimsIfExists } from "../entra/displayClaims.js";
+import { enrichIdentityFromUserInfo } from "../entra/userInfo.js";
+import { isPlaceholderDisplayName } from "../entra/claims.js";
 import type { SigningKeyProvider } from "../jwt/keys.js";
 import { mintWebSessionToken } from "../jwt/issuer.js";
 
 const WebSessionTokenRequestSchema = z.strictObject({
-  idToken: z.string().min(1)
+  idToken: z.string().min(1),
+  accessToken: z.string().min(1).optional()
 });
 
 /**
@@ -22,7 +28,9 @@ const WebSessionTokenRequestSchema = z.strictObject({
 export function registerWebSessionRoutes(
   app: FastifyInstance,
   keys: SigningKeyProvider,
-  entraVerifier: EntraIdTokenVerifier | null
+  entraVerifier: EntraIdTokenVerifier | null,
+  pool: pg.Pool,
+  config: AppConfig
 ): void {
   app.post("/web-session/token", async (request, reply) => {
     if (!entraVerifier) {
@@ -40,9 +48,28 @@ export function registerWebSessionRoutes(
     if (!result.ok) {
       throw new ApiError("AUTH_INVALID", 401, "Invalid Entra ID token.");
     }
+
+    let identity = result.identity;
+    if (
+      parsed.data.accessToken &&
+      (!identity.displayName ||
+        isPlaceholderDisplayName(identity.displayName) ||
+        !identity.email ||
+        !identity.displayClaims.given_name)
+    ) {
+      identity = await enrichIdentityFromUserInfo(
+        identity,
+        parsed.data.accessToken,
+        entraVerifier.issuer,
+        config.ENTRA_USERINFO_URI
+      );
+    }
+
+    await updateDisplayClaimsIfExists(pool, identity);
     const { token, expiresIn } = await mintWebSessionToken(keys, {
-      entraIssuer: result.identity.issuer,
-      entraSubject: result.identity.subject
+      entraIssuer: identity.issuer,
+      entraSubject: identity.subject,
+      displayClaims: identity.displayClaims
     });
     reply.code(200).send({ accessToken: token, expiresIn });
   });

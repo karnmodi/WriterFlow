@@ -1,4 +1,5 @@
 import type pg from "pg";
+import { displayFromStoredClaims } from "../entra/verifier.js";
 
 /** Docs/contracts/openapi.yaml AccountSnapshot and its nested schemas — shared by /device/approve and GET /me. */
 
@@ -26,6 +27,8 @@ export interface PrivacyPreferencesSnapshot {
 export interface AccountSnapshot {
   userId: string;
   organizationId: string;
+  displayName: string | null;
+  email: string | null;
   device: DeviceSnapshot;
   entitlement: EntitlementSnapshot;
   privacy: PrivacyPreferencesSnapshot;
@@ -51,11 +54,15 @@ export function buildSnapshot(
   entitlementUnits: { units: number },
   privacy?: { sync_enabled: boolean; consent_version: number },
   lastUsedAt?: Date,
-  revoked = false
+  revoked = false,
+  display?: { displayName: string | null; email: string | null },
+  monthlyUnitsUsed = 0
 ): AccountSnapshot {
   return {
     userId,
     organizationId,
+    displayName: display?.displayName ?? null,
+    email: display?.email ?? null,
     device: {
       id: deviceId,
       label: deviceLabel,
@@ -67,7 +74,7 @@ export function buildSnapshot(
     entitlement: {
       plan: "free",
       monthlyUnitsIncluded: entitlementUnits.units,
-      monthlyUnitsUsed: 0,
+      monthlyUnitsUsed,
       features: ["auto_write"]
     },
     privacy: {
@@ -75,4 +82,15 @@ export function buildSnapshot(
       consentVersion: String(privacy?.consent_version ?? 1)
     }
   };
+}
+
+export async function readUserDisplayInfo(
+  client: pg.PoolClient,
+  userId: string
+): Promise<{ displayName: string | null; email: string | null }> {
+  const result = await client.query<{ display_claims: unknown }>(
+    `SELECT display_claims FROM auth_identities WHERE user_id = $1 LIMIT 1`,
+    [userId]
+  );
+  return displayFromStoredClaims(result.rows[0]?.display_claims);
 }

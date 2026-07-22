@@ -1,13 +1,27 @@
 import { createLocalJWKSet, createRemoteJWKSet, jwtVerify, type JWK, type JWTVerifyGetKey } from "jose";
+import { extractDisplayFromPayload } from "./claims.js";
+
+/** Stored in auth_identities.display_claims — display-only, never a join key. */
+export interface EntraDisplayClaims {
+  name?: string;
+  email?: string;
+  given_name?: string;
+  family_name?: string;
+}
 
 export interface EntraIdentity {
   issuer: string;
   subject: string;
+  displayName: string | null;
+  email: string | null;
+  displayClaims: EntraDisplayClaims;
 }
 
 export type VerifyEntraIdTokenResult =
   | { ok: true; identity: EntraIdentity }
   | { ok: false; reason: "malformed" | "invalid" };
+
+export { extractDisplayFromPayload, displayFromStoredClaims } from "./claims.js";
 
 /**
  * Validates an Entra External ID (CIAM) ID token the website forwards to
@@ -40,6 +54,10 @@ export class EntraIdTokenVerifier {
     return new EntraIdTokenVerifier(createLocalJWKSet(jwks), expectedIssuer, expectedAudience);
   }
 
+  get issuer(): string {
+    return this.expectedIssuer;
+  }
+
   async verify(idToken: string): Promise<VerifyEntraIdTokenResult> {
     try {
       const { payload } = await jwtVerify(idToken, this.getKey, {
@@ -49,7 +67,15 @@ export class EntraIdTokenVerifier {
       if (typeof payload.sub !== "string" || typeof payload.iss !== "string") {
         return { ok: false, reason: "malformed" };
       }
-      return { ok: true, identity: { issuer: payload.iss, subject: payload.sub } };
+      const display = extractDisplayFromPayload(payload);
+      return {
+        ok: true,
+        identity: {
+          issuer: payload.iss,
+          subject: payload.sub,
+          ...display
+        }
+      };
     } catch {
       return { ok: false, reason: "invalid" };
     }

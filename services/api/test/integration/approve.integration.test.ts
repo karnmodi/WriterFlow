@@ -5,7 +5,7 @@ import { authorizeDevice, pollDeviceToken } from "../../src/pairing/service.js";
 import { approveDevice } from "../../src/pairing/approve.js";
 import { LocalDevSigningKeyProvider } from "../../src/jwt/keys.js";
 import { computeS256Challenge } from "../../src/crypto/pkce.js";
-import type { EntraIdentity } from "../../src/entra/verifier.js";
+import { testEntraIdentity } from "../helpers/testIdentity.js";
 
 /**
  * POST /v2/device/approve's provisioning logic (services/api/src/pairing/
@@ -52,7 +52,7 @@ describe.skipIf(!dbAvailable)("device approve provisioning against real Postgres
   async function newAuthorizedDevice(installId: string) {
     const verifier = randomBytes(32).toString("base64url");
     const challenge = computeS256Challenge(verifier);
-    const authResult = await authorizeDevice(appPool, "https://writerflow.app", {
+    const authResult = await authorizeDevice(appPool, "https://writerflow.aviusolutions.com", {
       installId,
       deviceLabel: null,
       codeChallenge: challenge,
@@ -62,13 +62,21 @@ describe.skipIf(!dbAvailable)("device approve provisioning against real Postgres
   }
 
   it("provisions a brand-new identity: user, org, membership, device, privacy, free-alpha entitlement", async () => {
-    const identity: EntraIdentity = { issuer: "https://writerflow.ciamlogin.com/t/v2.0", subject: `new-user-${randomBytes(4).toString("hex")}` };
+    const subject = `new-user-${randomBytes(4).toString("hex")}`;
+    const email = `${subject}@example.com`;
+    const identity = testEntraIdentity(subject, {
+      displayName: "Karan Singh",
+      email,
+      displayClaims: { name: "Karan Singh", email, given_name: "Karan", family_name: "Singh" }
+    });
     const auth = await newAuthorizedDevice("mac-1");
 
     const result = await approveDevice(appPool, identity, auth.userCode);
     expect(result.kind).toBe("approved");
     if (result.kind !== "approved") throw new Error("expected approved");
 
+    expect(result.snapshot.displayName).toBe("Karan Singh");
+    expect(result.snapshot.email).toBe(email);
     expect(result.snapshot.entitlement).toEqual({
       plan: "free",
       monthlyUnitsIncluded: 500,
@@ -93,7 +101,7 @@ describe.skipIf(!dbAvailable)("device approve provisioning against real Postgres
   });
 
   it("is idempotent: re-approving the same already-approved user_code returns the same snapshot, no duplicate device", async () => {
-    const identity: EntraIdentity = { issuer: "https://writerflow.ciamlogin.com/t/v2.0", subject: `retry-user-${randomBytes(4).toString("hex")}` };
+    const identity = testEntraIdentity(`retry-user-${randomBytes(4).toString("hex")}`);
     const auth = await newAuthorizedDevice("mac-retry");
 
     const first = await approveDevice(appPool, identity, auth.userCode);
@@ -102,7 +110,7 @@ describe.skipIf(!dbAvailable)("device approve provisioning against real Postgres
   });
 
   it("a returning identity reuses its existing user/organization but gets a new device", async () => {
-    const identity: EntraIdentity = { issuer: "https://writerflow.ciamlogin.com/t/v2.0", subject: `returning-user-${randomBytes(4).toString("hex")}` };
+    const identity = testEntraIdentity(`returning-user-${randomBytes(4).toString("hex")}`);
 
     const firstAuth = await newAuthorizedDevice("mac-A");
     const first = await approveDevice(appPool, identity, firstAuth.userCode);
@@ -120,7 +128,7 @@ describe.skipIf(!dbAvailable)("device approve provisioning against real Postgres
   });
 
   it("rejects a returning identity whose account is disabled", async () => {
-    const identity: EntraIdentity = { issuer: "https://writerflow.ciamlogin.com/t/v2.0", subject: `disabled-user-${randomBytes(4).toString("hex")}` };
+    const identity = testEntraIdentity(`disabled-user-${randomBytes(4).toString("hex")}`);
     const firstAuth = await newAuthorizedDevice("mac-disable-1");
     const first = await approveDevice(appPool, identity, firstAuth.userCode);
     if (first.kind !== "approved") throw new Error("expected approved");
@@ -133,13 +141,13 @@ describe.skipIf(!dbAvailable)("device approve provisioning against real Postgres
   });
 
   it("rejects an unknown user_code", async () => {
-    const identity: EntraIdentity = { issuer: "https://writerflow.ciamlogin.com/t/v2.0", subject: "no-such-flow" };
+    const identity = testEntraIdentity("no-such-flow");
     const result = await approveDevice(appPool, identity, "ZZZZ-ZZZZ");
     expect(result).toEqual({ kind: "invalid_user_code" });
   });
 
   it("rejects an expired user_code", async () => {
-    const identity: EntraIdentity = { issuer: "https://writerflow.ciamlogin.com/t/v2.0", subject: "expired-flow-user" };
+    const identity = testEntraIdentity("expired-flow-user");
     const auth = await newAuthorizedDevice("mac-expired");
     await migratorPool.query(
       `UPDATE device_authorizations SET expires_at = now() - interval '1 second' WHERE user_code = $1`,
@@ -150,7 +158,7 @@ describe.skipIf(!dbAvailable)("device approve provisioning against real Postgres
   });
 
   it("proves the newly created organization is RLS-invisible under a different/no tenant context", async () => {
-    const identity: EntraIdentity = { issuer: "https://writerflow.ciamlogin.com/t/v2.0", subject: `isolated-user-${randomBytes(4).toString("hex")}` };
+    const identity = testEntraIdentity(`isolated-user-${randomBytes(4).toString("hex")}`);
     const auth = await newAuthorizedDevice("mac-isolated");
     const result = await approveDevice(appPool, identity, auth.userCode);
     if (result.kind !== "approved") throw new Error("expected approved");

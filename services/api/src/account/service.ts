@@ -1,7 +1,8 @@
 import type pg from "pg";
 import { withTenantContext } from "../db.js";
 import type { AuthenticatedDeviceRequest } from "../auth/guard.js";
-import { type AccountSnapshot, buildSnapshot, readEntitlementSnapshot } from "../pairing/snapshot.js";
+import { type AccountSnapshot, buildSnapshot, readEntitlementSnapshot, readUserDisplayInfo } from "../pairing/snapshot.js";
+import { readMonthlyUnitsUsed } from "./usage.js";
 
 /** GET /v2/me — Docs/contracts/openapi.yaml. */
 export async function getAccountSnapshot(db: pg.Pool, ctx: AuthenticatedDeviceRequest): Promise<AccountSnapshot | null> {
@@ -22,6 +23,8 @@ export async function getAccountSnapshot(db: pg.Pool, ctx: AuthenticatedDeviceRe
       [ctx.userId]
     );
     const entitlement = await readEntitlementSnapshot(client, ctx.organizationId);
+    const monthlyUnitsUsed = await readMonthlyUnitsUsed(client, ctx.organizationId);
+    const display = await readUserDisplayInfo(client, ctx.userId);
 
     return buildSnapshot(
       ctx.userId,
@@ -32,7 +35,9 @@ export async function getAccountSnapshot(db: pg.Pool, ctx: AuthenticatedDeviceRe
       entitlement,
       privacy.rows[0],
       device.last_seen_at ?? undefined,
-      device.revoked_at != null
+      device.revoked_at != null,
+      display,
+      monthlyUnitsUsed
     );
   });
 }
