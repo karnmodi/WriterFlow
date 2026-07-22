@@ -14,7 +14,7 @@ model endpoint behind it.
 
 ## Decision
 
-- **Edge:** Azure API Management Standard v2 at `api.writerflow.app`, validating
+- **Edge:** Azure API Management Standard v2 at `apiwriterflow.aviusolutions.com`, validating
   **WriterFlow-issued** device tokens with generic `validate-jwt` against WriterFlow's
   own JWKS/issuer/audience (ADR-0012), applying request/rate limits, and disabling
   response buffering/body logging for SSE. (Entra tokens are validated only

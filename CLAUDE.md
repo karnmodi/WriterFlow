@@ -144,7 +144,7 @@ flow only after classifier evaluation passes.
 and payment happen in the **web app** (the only Entra client, a confidential server-side
 client). The Mac app is not an OAuth client; it obtains a WriterFlow-minted device token
 through a browser device-authorization pairing flow (deep-link happy path + manual
-`user_code` fallback) and calls `api.writerflow.app` with that token. V2 requires **no
+`user_code` fallback) and calls `apiwriterflow.aviusolutions.com` with that token. V2 requires **no
 Apple Developer account** and keeps v1's ad-hoc DMG + manual-Gatekeeper + manual-update
 distribution. These supersede the earlier in-app MSAL PKCE (ADR-0002) and mandatory
 Developer ID (ADR-0008) decisions.

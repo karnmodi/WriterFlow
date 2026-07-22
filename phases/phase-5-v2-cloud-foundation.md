@@ -445,8 +445,8 @@ callback` before this is considered done for the stage, ideally with a fake/loca
 ### WriterFlow device-token issuer (ADR-0012)
 
 - [x] Generate an asymmetric signing key in Key Vault; publish
-  `api.writerflow.app/.well-known/jwks.json` and mint short-lived access tokens
-  (`iss=https://api.writerflow.app`). Support key rollover. — `services/api/src/jwt/keys.ts`
+  `apiwriterflow.aviusolutions.com/.well-known/jwks.json` and mint short-lived access tokens
+  (`iss=https://apiwriterflow.aviusolutions.com`). Support key rollover. — `services/api/src/jwt/keys.ts`
   defines the `SigningKeyProvider` seam (kid-based, ready for multiple concurrently-valid
   keys during rollover) and `LocalDevSigningKeyProvider` (ES256, in-memory, dev-only —
   clearly documented as unsafe for any deployed environment). **Code complete; cloud
@@ -479,7 +479,7 @@ callback` before this is considered done for the stage, ideally with a fake/loca
 
   **`/v2/device/approve`'s open design question is resolved** (user decision, 2026-07-19):
   a second WriterFlow-minted token issuer, distinct audience
-  (`https://api.writerflow.app/web-session`) from the device access token, same
+  (`https://apiwriterflow.aviusolutions.com/web-session`) from the device access token, same
   signing/JWKS infrastructure as ADR-0012. New `POST /v2/web-session/token`: the website
   forwards the Entra ID token it already validated; `services/api/src/entra/
   verifier.ts`'s `EntraIdTokenVerifier` independently re-validates it against Entra's own
@@ -545,7 +545,7 @@ note (updated in the same commit as this stage's work).
   pass via real `swift test` (mocked network via a new `MockURLProtocol` test helper).
 - [x] `beginPairing()` calls `/v2/device/authorize`, shows the `user_code`, and offers to
   open the browser via `verification_uri_complete` (deep-link happy path) with manual
-  `writerflow.app/pair` code entry as fallback. — the underlying mechanism is built and
+  `writerflow.aviusolutions.com/pair` code entry as fallback. — the underlying mechanism is built and
   verified (`beginPairing()` returns a `PairingChallenge` with both URLs; a `#if DEBUG`
   menu item added to `AppDelegate` for this stage's manual verification calls
   `NSWorkspace.shared.open(challenge.verificationURIComplete)` successfully). **Actually
@@ -610,7 +610,7 @@ note (updated in the same commit as this stage's work).
 ### Server provisioning and authorization
 
 - [ ] Configure APIM generic `validate-jwt` against **WriterFlow's own** JWKS/issuer
-  (`https://api.writerflow.app`)/audience/expiry/scope — not Entra metadata, and not
+  (`https://apiwriterflow.aviusolutions.com`)/audience/expiry/scope — not Entra metadata, and not
   `validate-azure-ad-token`. Cache JWKS while allowing normal signing-key rollover.
 - [ ] The web app validates Entra tokens server-side using a maintained library and the
   immutable `(issuer, subject)` identity key before calling `/v2/device/approve`.
@@ -1240,7 +1240,7 @@ successful output.
   confidential-client secrets, Key Vault URIs if treated as private config, Azure
   provider endpoints/deployments, and legacy `.env` values.
 - [ ] Verify release app network destinations are limited to External ID/browser auth,
-  `api.writerflow.app`, documented update/static hosts, and required OS services.
+  `apiwriterflow.aviusolutions.com`, documented update/static hosts, and required OS services.
 - [ ] Verify APIM/origin/DB/Key Vault/Azure OpenAI network posture from inside and outside
   the VNet.
 - [ ] Run cross-tenant, replay, quota-race, oversized-payload, prompt-injection boundary,

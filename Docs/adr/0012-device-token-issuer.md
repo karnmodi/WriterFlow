@@ -8,7 +8,7 @@
 ## Context
 
 Because auth moves to the browser and the Mac pairs via a device flow (ADR-0011), the
-app must hold *some* durable credential to call `api.writerflow.app`. Two options
+app must hold *some* durable credential to call `apiwriterflow.aviusolutions.com`. Two options
 exist: hand the device the Entra tokens, or have WriterFlow mint its own. Handing
 Entra tokens to the device couples the app to Entra's refresh lifetimes (email OTP is
 ~24h), leaks Entra tokens onto an unsigned client, and forces the app back into being
@@ -19,8 +19,8 @@ an Entra client. Minting WriterFlow tokens keeps Entra strictly browser-side.
 The WriterFlow backend is an **OAuth-style token issuer for paired devices**:
 
 - **Access token:** short-lived (~15 min) asymmetrically-signed JWT (`iss` =
-  `https://api.writerflow.app`, `aud` = the WriterFlow API), whose signing key lives
-  in Key Vault. Public keys are published at `api.writerflow.app/.well-known/jwks.json`.
+  `https://apiwriterflow.aviusolutions.com`, `aud` = the WriterFlow API), whose signing key lives
+  in Key Vault. Public keys are published at `apiwriterflow.aviusolutions.com/.well-known/jwks.json`.
 - **Refresh token:** opaque, high-entropy, stored **hashed** and bound to one
   `devices` row; **rotated on every use** with reuse detection (a replayed old
   refresh token revokes the session family).

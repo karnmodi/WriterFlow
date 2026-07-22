@@ -17,7 +17,7 @@ Build one modular backend before building microservices:
   browser-completed session via a device-authorization flow and receives a
   WriterFlow-minted device token (ADR-0011, ADR-0012). Membership/payment also live in
   the browser.
-- **Public edge:** Azure API Management Standard v2 at `api.writerflow.app`. Validate
+- **Public edge:** Azure API Management Standard v2 at `apiwriterflow.aviusolutions.com`. Validate
   **WriterFlow-issued** device tokens against WriterFlow's own JWKS, apply request/rate
   limits, and disable response buffering for SSE. Device-pairing routes are
   unauthenticated-but-rate-limited exceptions.
@@ -222,8 +222,8 @@ device-authorization pairing flow re-implemented at WriterFlow's own API layer:
    `device_code`, a short human `user_code`, `verification_uri`,
    `verification_uri_complete`, `interval`, and `expires_in`.
 2. The app shows the `user_code` and offers to open the browser. **Happy path:** a deep
-   link / `verification_uri_complete` (`https://writerflow.app/pair?user_code=…`).
-   **Fallback:** the user types the `user_code` at `writerflow.app/pair`.
+   link / `verification_uri_complete` (`https://writerflow.aviusolutions.com/pair?user_code=…`).
+   **Fallback:** the user types the `user_code` at `writerflow.aviusolutions.com/pair`.
 3. In the browser, the web app runs Entra sign-in (and Stripe membership if upgrading),
    provisions user/personal organization/membership idempotently, shows the requesting
    device, and calls `POST /v2/device/approve` under its authenticated session to bind
@@ -245,17 +245,36 @@ short (~24h) OTP refresh lifetime is a *web-session* property; because the devic
 a WriterFlow-minted refresh token, an expired Entra web session does not force the Mac
 to re-pair. Prefer a persistent social provider for the web sign-in default anyway.
 
+#### Web-account session (ADR-0013)
+
+The website maintains a **durable web-account session** distinct from the Mac device
+session and from the 5-minute pairing bridge:
+
+1. After Entra sign-in (`/auth/callback` or `/pair/callback`), the website server calls
+   `POST /web-account/token`, which provisions the WriterFlow user/org if needed and
+   returns a ~1-hour web-account JWT stored in an httpOnly cookie.
+2. `/account` and `GET /web/me` read that cookie to show signed-in status (name, email,
+   plan). No token is minted on a passive visit without a valid cookie.
+3. When `/pair` is opened and the web-account cookie is valid, the website calls
+   `POST /web-session/bridge` to mint a 5-minute web-session token and approve the device
+   without another Microsoft prompt.
+4. Website **Sign out** clears WriterFlow cookies and redirects through Entra
+   `end_session_endpoint`. Mac sign-out and device revoke do not affect the web cookie.
+
+An expired Entra or web-account session still does not force Mac re-pair (device refresh
+token remains valid until revoked or expired).
+
 ### 5.2 Token validation and authorization layers
 
 For Mac/user routes, APIM uses generic `validate-jwt` against **WriterFlow's own** OIDC
-metadata/JWKS (`api.writerflow.app/.well-known/jwks.json`, ADR-0012) — the Mac presents
+metadata/JWKS (`apiwriterflow.aviusolutions.com/.well-known/jwks.json`, ADR-0012) — the Mac presents
 a WriterFlow-minted device token, never an Entra token. (Entra tokens are validated only
 server-side by the web app during sign-in; `validate-azure-ad-token` remains unusable for
 Entra ID for customers regardless.) A Mac/user route is rejected unless all of these are
 true:
 
 - JWT signature validates against WriterFlow's published JWKS;
-- issuer (`https://api.writerflow.app`) and audience match exactly;
+- issuer (`https://apiwriterflow.aviusolutions.com`) and audience match exactly;
 - token is unexpired;
 - required scope is present; and
 - request size/rate limits pass.

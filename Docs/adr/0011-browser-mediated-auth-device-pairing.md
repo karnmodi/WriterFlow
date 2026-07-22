@@ -33,8 +33,8 @@ dependencies that made a Developer ID necessary (ADR-0010).
      `device_code`, a short human `user_code`, `verification_uri`,
      `verification_uri_complete`, `interval`, and `expires_in`.
   2. The user approves in the browser — the **happy path** is a deep link /
-     `verification_uri_complete` (`https://writerflow.app/pair?user_code=…`), and the
-     **fallback** is typing the `user_code` at `writerflow.app/pair`. After Entra
+     `verification_uri_complete` (`https://writerflow.aviusolutions.com/pair?user_code=…`), and the
+     **fallback** is typing the `user_code` at `writerflow.aviusolutions.com/pair`. After Entra
      sign-in (and membership if upgrading), the web calls `POST /v2/device/approve`
      with the `user_code` under its authenticated session.
   3. The app polls `POST /v2/device/token` with `device_code` + PKCE `code_verifier`,

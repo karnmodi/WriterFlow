@@ -155,7 +155,8 @@ Other useful commands:
 | `make build` | `swift build` only |
 | `make test` | Unit tests |
 | `make bundle` | Build → `build/WriterFlow.app` |
-| `make run` | Bundle + launch from `build/` (permissions may break after rebuilds) |
+| `make run` | Install to `~/Applications` + launch (stable TCC path) |
+| `make install-run` | Same as `make run` |
 | `make install` | Install to `~/Applications` without launching |
 | `make stop` | Quit running WriterFlow |
 | `make clean` | Remove `.build` and `build/` |
@@ -210,7 +211,7 @@ To start clean on a machine: quit WriterFlow, delete the Application Support fol
 | Hotkey does nothing | Confirm **⌃⌥ Space** (Control + Option + Space); check Input Monitoring is ON |
 | “Nothing to rewrite” | Type or select text first (Reply can run on empty field using conversation context) |
 | Azure / stream errors in local development | Re-check `TARGET_URI` + deployment names; run `./scripts/test-azure.sh`; or use a developer-owned key in Settings |
-| Permissions break after `make run` / clean build | Use `make install-run` and re-pair Accessibility to `~/Applications/WriterFlow.app` |
+| Permissions break after rebuild | Use `make run` (installs to `~/Applications`) and re-pair Accessibility to that path |
 | Build fails | `xcode-select -p` should point at CLT or Xcode; `swift --version` ≥ 5.9; macOS 14 SDK |
 
 ---

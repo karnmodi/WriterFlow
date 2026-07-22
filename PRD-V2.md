@@ -160,7 +160,7 @@ encrypted store remains locally readable offline or signed out.
 2. The user selects **Sign in**. WriterFlow requests a pairing
    (`POST /v2/device/authorize`) and shows a short `user_code`, then offers to open
    the browser (happy path: a deep link / `verification_uri_complete`) with a manual
-   `writerflow.app/pair` code-entry fallback.
+   `writerflow.aviusolutions.com/pair` code-entry fallback.
 3. In the browser, the web app completes Entra sign-in (and membership, if upgrading),
    confirms the device, and approves the pairing under its authenticated session.
    `/v2/bootstrap`-equivalent provisioning of the user, personal organization,
@@ -226,7 +226,7 @@ encrypted store remains locally readable offline or signed out.
 
 ### 7.2 WriterFlow API
 
-- Provide a versioned HTTPS API at `api.writerflow.app`.
+- Provide a versioned HTTPS API at `apiwriterflow.aviusolutions.com`.
 - Provide device-pairing endpoints (`/v2/device/authorize`, `/v2/device/token`) and a
   refresh endpoint; these mint/rotate WriterFlow device tokens (ADR-0012). Pairing
   endpoints are unauthenticated but rate-limited and PKCE-bound; every other route

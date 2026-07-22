@@ -70,14 +70,49 @@ Inside the new tenant: **App registrations** → **New registration**. Name it
 `writerflow-web-dev`. Under **Redirect URI**, add a **Single-page application (SPA)**
 platform with redirect URI `https://jwt.ms` — Microsoft's own token-inspection page.
 That's a deliberate stand-in for the real `/pair` callback while it's still a stub;
-swap it for `writerflow.app/pair` once that page actually signs people in.
+swap it for `writerflow.aviusolutions.com/pair` once that page actually signs people in.
 
-Add one sign-in method under **Authentication → App user flow** or **External
-Identities** — email one-time passcode is the simplest to test with.
+Add sign-in methods under **External Identities**. Email OTP and Microsoft are the
+baseline; Google (and other social IdPs) must be both **configured** and **added to
+the user flow**, or they never appear on the hosted sign-in page.
 
-- [ ] App registered, redirect URI `https://jwt.ms` added as SPA
+1. **External Identities → All identity providers → Google → Configure** — paste the
+   Google Cloud OAuth Client ID and Client secret, Save.
+2. **External Identities → User flows → (your sign-up/sign-in flow) → Identity providers**
+   — enable **Google** (and Email OTP / Microsoft as needed) → Save.
+3. On the same user flow, under **Applications**, ensure **writerflow-web** is listed
+   so every visitor using `/auth/start` or `/pair/start` gets that experience.
+4. **Do not expect built-in Google ↔ email-OTP auto-link.** Entra External ID’s
+   hosted user flow treats each IdP as a separate signup. If someone first signs up
+   with Google, then enters the same address for email OTP, Entra shows
+   **“An account with that email address already exists”** and **does not send the
+   OTP** — that is Microsoft’s conflict check, not a WriterFlow bug. Tell users to
+   pick **Google** (or whichever method created the account). WriterFlow still links
+   same-issuer Entra subjects that share a verified email in
+   `services/api/src/account/identity.ts` (`resolveOrLinkUserFromEntra`) after a
+   successful token exchange; that cannot force Entra to email a code on a blocked
+   signup.
+5. **Company branding (logo on the Enter-code / IdP screens):** those pages are
+   Microsoft-hosted. Polish them in the external tenant:
+   **Microsoft Entra admin center → Company branding → Edit** (or **Branding themes**).
+   Upload:
+   - Banner / header logo: `website/public/brand/writerflow-entra-header.png` (280×60)
+   - Square logo: `website/public/brand/writerflow-entra-square.png` (240×240)
+   - Optional: set page background to `#f4f1e9` and primary button to `#1428ff` to
+     match the marketing site. Favicon can reuse the square mark.
+   See [Customize branding for customers](https://learn.microsoft.com/en-us/entra/external-id/customers/how-to-customize-branding-customers).
+
+WriterFlow does not filter IdPs — the Entra hosted UI shows whatever the user flow
+enables. No app code change is required for Google.
+
+- [ ] App registered, redirect URIs include `/pair/callback` and `/auth/callback`
 - [ ] Copied the **Application (client) ID** — you'll need it twice below
-- [ ] At least one sign-in method (e.g. email OTP) enabled
+- [ ] Email OTP enabled on the user flow
+- [ ] (Optional) Microsoft social enabled on the user flow
+- [ ] (Optional) Google IdP configured **and** enabled on the user flow for all users
+- [ ] writerflow-web application attached to that user flow
+- [ ] Company branding logo uploaded from `website/public/brand/`
+- [ ] Understood: OTP is not sent when Entra reports the email already exists via another IdP
 
 ### 3. Fetch the tenant's OpenID metadata
 
@@ -317,7 +352,7 @@ Do this once Track A has convinced you the flow works. It proves the actual clou
 > set to **$100/month** — less than API Management alone. Raise
 > `monthlyAmountByEnvironment.dev` before deploying, or the budget alert fires
 > immediately. Also change `notificationEmail` in that same file from the placeholder
-> `engineering@writerflow.app` to an inbox you actually read — it isn't exposed as a
+> `engineering@writerflow.aviusolutions.com` to an inbox you actually read — it isn't exposed as a
 > deploy-time parameter yet.
 
 API Management is the unavoidable cost here: the API's Container App only has private,
