@@ -1,9 +1,18 @@
 import { exportJWK, generateKeyPair, importJWK, type JWK } from "jose";
 import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface SigningKey {
   kid: string;
   privateKey: CryptoKey;
+  publicJwk: JWK;
+}
+
+interface PersistedDevSigningKey {
+  kid: string;
+  privateJwk: JWK;
   publicJwk: JWK;
 }
 
@@ -20,28 +29,51 @@ export interface SigningKeyProvider {
   getCurrentSigningKey(): Promise<SigningKey>;
   getVerificationKey(kid: string): Promise<CryptoKey | null>;
   getPublicJwks(): Promise<{ keys: JWK[] }>;
+  /** When set (Key Vault), signs the ES256 digest externally instead of using privateKey. */
+  signDigest?(digest: Uint8Array): Promise<Uint8Array>;
+}
+
+const DEV_KEY_PATH = join(dirname(fileURLToPath(import.meta.url)), "../../.dev-signing-key.json");
+
+function persistDevSigningKey(stored: PersistedDevSigningKey): void {
+  mkdirSync(dirname(DEV_KEY_PATH), { recursive: true });
+  writeFileSync(DEV_KEY_PATH, `${JSON.stringify(stored, null, 2)}\n`, { mode: 0o600 });
+}
+
+async function loadPersistedDevSigningKey(): Promise<SigningKey | null> {
+  if (!existsSync(DEV_KEY_PATH)) return null;
+  try {
+    const stored = JSON.parse(readFileSync(DEV_KEY_PATH, "utf8")) as PersistedDevSigningKey;
+    if (typeof stored.kid !== "string" || stored.privateJwk == null || stored.publicJwk == null) {
+      return null;
+    }
+    const privateKey = (await importJWK(stored.privateJwk, "ES256")) as CryptoKey;
+    return { kid: stored.kid, privateKey, publicJwk: stored.publicJwk };
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Generates one ES256 key pair per process start and keeps it in memory
- * only — never persisted, never Key Vault. Every dev-server restart mints a
- * new kid, which invalidates every previously issued token; that's expected
- * and fine for local development, and is exactly why this must never run in
- * staging/prod (CLAUDE.md Golden Rule 5's "no publisher-owned/shared
- * reusable service credential" concern is about the client, but a
- * server-side signing key that isn't Key Vault-backed is its own real risk
- * for a deployed environment — this class only exists for `npm run dev`).
+ * Dev-only signing key provider. Persists one ES256 key pair to
+ * `services/api/.dev-signing-key.json` so `tsx watch` restarts do not
+ * invalidate every locally paired device token. Never used in staging/prod.
  */
 export class LocalDevSigningKeyProvider implements SigningKeyProvider {
   private keyPromise: Promise<SigningKey> | null = null;
 
   private async loadOrGenerate(): Promise<SigningKey> {
+    const persisted = await loadPersistedDevSigningKey();
+    if (persisted) return persisted;
+
     const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
     const publicJwk = await exportJWK(publicKey);
     const kid = createHash("sha256").update(JSON.stringify(publicJwk)).digest("hex").slice(0, 16);
     publicJwk.kid = kid;
     publicJwk.alg = "ES256";
     publicJwk.use = "sig";
+    const privateJwk = await exportJWK(privateKey);
+    persistDevSigningKey({ kid, privateJwk, publicJwk });
     return { kid, privateKey, publicJwk };
   }
 

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { SignJWT } from "jose";
+import { SignJWT, generateKeyPair } from "jose";
 import { LocalDevSigningKeyProvider } from "../src/jwt/keys.js";
 import {
   mintAccessToken,
   mintWebSessionToken,
   verifyAccessToken,
-  verifyWebSessionToken
+  verifyWebSessionToken,
+  entraIdentityFromWebSessionClaims
 } from "../src/jwt/issuer.js";
 
 describe("device-token issuer", () => {
@@ -25,20 +26,22 @@ describe("device-token issuer", () => {
       expect(result.claims.sub).toBe("user-1");
       expect(result.claims.device_id).toBe("device-1");
       expect(result.claims.org_id).toBe("org-1");
-      expect(result.claims.iss).toBe("https://api.writerflow.app");
-      expect(result.claims.aud).toBe("https://api.writerflow.app");
+      expect(result.claims.iss).toBe("https://apiwriterflow.aviusolutions.com");
+      expect(result.claims.aud).toBe("https://apiwriterflow.aviusolutions.com");
     }
   });
 
   it("rejects a token signed by a different (unknown-kid) key", async () => {
     const keys = new LocalDevSigningKeyProvider();
-    const otherKeys = new LocalDevSigningKeyProvider();
-    const { token } = await mintAccessToken(otherKeys, {
-      userId: "user-1",
-      deviceId: "device-1",
-      organizationId: "org-1",
-      scope: "device"
-    });
+    const { privateKey: otherPrivateKey } = await generateKeyPair("ES256", { extractable: true });
+    const token = await new SignJWT({ device_id: "device-1", org_id: "org-1", scope: "device" })
+      .setProtectedHeader({ alg: "ES256", kid: "other-kid" })
+      .setIssuer("https://apiwriterflow.aviusolutions.com")
+      .setAudience("https://apiwriterflow.aviusolutions.com")
+      .setSubject("user-1")
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(otherPrivateKey);
     const result = await verifyAccessToken(keys, token);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("unknown_kid");
@@ -57,7 +60,7 @@ describe("device-token issuer", () => {
     const token = await new SignJWT({ device_id: "d", org_id: "o", scope: "device" })
       .setProtectedHeader({ alg: "ES256", kid })
       .setIssuer("https://evil.example")
-      .setAudience("https://api.writerflow.app")
+      .setAudience("https://apiwriterflow.aviusolutions.com")
       .setSubject("user-1")
       .setIssuedAt()
       .setExpirationTime("15m")
@@ -72,7 +75,7 @@ describe("device-token issuer", () => {
     const { kid, privateKey } = await keys.getCurrentSigningKey();
     const token = await new SignJWT({ device_id: "d", org_id: "o", scope: "device" })
       .setProtectedHeader({ alg: "ES256", kid })
-      .setIssuer("https://api.writerflow.app")
+      .setIssuer("https://apiwriterflow.aviusolutions.com")
       .setAudience("https://evil.example")
       .setSubject("user-1")
       .setIssuedAt()
@@ -88,8 +91,8 @@ describe("device-token issuer", () => {
     const { kid, privateKey } = await keys.getCurrentSigningKey();
     const token = await new SignJWT({ device_id: "d", org_id: "o", scope: "device" })
       .setProtectedHeader({ alg: "ES256", kid })
-      .setIssuer("https://api.writerflow.app")
-      .setAudience("https://api.writerflow.app")
+      .setIssuer("https://apiwriterflow.aviusolutions.com")
+      .setAudience("https://apiwriterflow.aviusolutions.com")
       .setSubject("user-1")
       .setIssuedAt(Math.floor(Date.now() / 1000) - 3600)
       .setExpirationTime(Math.floor(Date.now() / 1000) - 1)
@@ -118,7 +121,8 @@ describe("web-session token (Stage 5.2 second-issuer decision)", () => {
     const keys = new LocalDevSigningKeyProvider();
     const { token, expiresIn } = await mintWebSessionToken(keys, {
       entraIssuer: "https://writerflow.ciamlogin.com/tenant-id/v2.0",
-      entraSubject: "entra-user-1"
+      entraSubject: "entra-user-1",
+      displayClaims: { name: "Karan Singh", email: "karan@example.com" }
     });
     expect(expiresIn).toBe(300);
     const result = await verifyWebSessionToken(keys, token);
@@ -126,7 +130,13 @@ describe("web-session token (Stage 5.2 second-issuer decision)", () => {
     if (result.ok) {
       expect(result.claims.entra_issuer).toBe("https://writerflow.ciamlogin.com/tenant-id/v2.0");
       expect(result.claims.entra_subject).toBe("entra-user-1");
-      expect(result.claims.aud).toBe("https://api.writerflow.app/web-session");
+      expect(result.claims.aud).toBe("https://apiwriterflow.aviusolutions.com/web-session");
+      expect(result.claims.entra_display_claims).toBe(
+        JSON.stringify({ name: "Karan Singh", email: "karan@example.com" })
+      );
+      const identity = entraIdentityFromWebSessionClaims(result.claims);
+      expect(identity.displayName).toBe("Karan Singh");
+      expect(identity.email).toBe("karan@example.com");
     }
   });
 
