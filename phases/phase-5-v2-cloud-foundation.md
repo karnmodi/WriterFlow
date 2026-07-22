@@ -329,12 +329,11 @@ its own public environment separate from the API's internal-only one.
   item below), so this fix is reasoned-through and locally consistent, not confirmed via
   an actual container build.
 - [x] Add `website/app/api/health/route.ts` (Container Apps liveness/readiness probe
-  target — no dependency checks, matching the probe's actual scope) and a `website/app/
-  pair/page.tsx` stub that renders and reads the Mac app's `user_code` query param but does
-  not yet sign anyone in or call `POST /v2/device/approve` — that needs a real Entra tenant
-  (not created) and an OIDC client library decision, deliberately deferred as a separate
-  increment rather than building a page that looks functional before there's anything to
-  sign in against.
+  target — no dependency checks, matching the probe's actual scope) and
+  `website/app/pair/page.tsx` (reads the Mac app's `user_code`, renders sign-in/success/
+  error states).
+- [x] **`/pair` sign-in is real, not a stub** (user set up a real Entra External ID tenant
+  and completed the flow end to end, 2026-07-22 — see "Real Entra sign-in wiring" below).
 - [x] Add `website/Dockerfile` (multi-stage, mirrors `services/api/Dockerfile`'s shape) and
   `infra/bicep/modules/container-app-website.bicep` + a second `container-apps-env.bicep`
   instantiation with `internal: false` in `main.bicep` (`network.bicep` gained a matching
@@ -367,11 +366,69 @@ its own public environment separate from the API's internal-only one.
   but the image build itself is unverified — flag for a real `docker build` before first
   deploy, same as the layout bug the build-root fix above was specifically added to catch.
   **Not updated**: `website/app/privacy/page.tsx`'s copy still says "No WriterFlow account,
-  membership, or subscription... No custom WriterFlow app-facing API" — true for v1, and
-  not yet false in practice since `/pair` doesn't do anything yet, but this is a
-  product/legal-adjacent messaging decision that shouldn't be silently rewritten
-  mid-infrastructure-change. Flagging for the person who owns that copy before `/pair`
-  actually starts signing people in.
+  membership, or subscription... No custom WriterFlow app-facing API" — this is now
+  genuinely stale, not just pre-emptively so: `/pair` really does create an account as of
+  the next item below. A product/legal-adjacent messaging decision that shouldn't be
+  silently rewritten mid-infrastructure-change — flagging for the person who owns that
+  copy.
+
+#### Real Entra sign-in wiring (2026-07-22)
+
+The user independently set up a real Entra External ID tenant, app registration, and
+`.env.services`/`website/.env.local` config, then asked to wire up the actual sign-in
+flow rather than continue with manual `curl`-based testing. Built:
+
+- `website/lib/entra.ts` — server-only `openid-client` (`^6.8.4`) config via `discovery()`
+  against the real tenant's issuer, rather than hand-fetching/hardcoding metadata.
+- `website/app/pair/start/route.ts` — generates a PKCE pair, stores it with the device's
+  `user_code` in a short-lived httpOnly cookie, redirects to Entra's authorize endpoint.
+- `website/app/pair/callback/route.ts` — the Entra redirect target: exchanges the code for
+  an ID token (`client.authorizationCodeGrant`, server-side — this specifically avoids the
+  SPA-platform "cross-origin requests only" restriction hit during manual jwt.ms testing,
+  since the exchange happens in Node, not the browser), then calls `POST /web-session/
+  token` and `POST /device/approve` against `services/api`, never exposing either token to
+  the browser.
+- `services/api/src/app.ts` — registered `@fastify/cors` scoped to exactly
+  `config.WEBSITE_BASE_URL` (no wildcard). Not actually required by the final server-side
+  flow (server-to-server `fetch` calls aren't subject to CORS), but is a real gap this
+  work surfaced: the API had no CORS support at all, and *some* future browser-side call
+  from the website's origin is plausible. Left in as defense-in-depth, matching the
+  non-wildcard-audience discipline used everywhere else in this service.
+
+**Three real bugs found and fixed by actually running this against a live tenant, not
+just reasoning about the code:**
+1. `next.config.ts`'s leftover `trailingSlash: true` (a holdover from the `output:
+   "export"` era) silently 308-redirected Entra's callback request to add a trailing
+   slash *before* the route handler ran, so the `redirect_uri` `authorizationCodeGrant`
+   inferred from the request URL no longer matched the one sent at the authorize step —
+   Entra correctly rejected this as `AADSTS500112`. Removed `trailingSlash` entirely; the
+   marketing pages serve identical content either way in server mode, so nothing depended
+   on it. Caught by adding temporary `console.error` logging to the callback route once
+   the generic on-page error message ("server responded with an error in the response
+   body") proved too vague to diagnose from the browser alone.
+2. Entra rejected the PKCE-only public-client token exchange for the Web platform
+   redirect with `AADSTS7000218` ("must contain client_assertion or client_secret") — this
+   particular app registration requires a client secret even with PKCE. User generated one
+   in the portal and added `ENTRA_WEB_CLIENT_SECRET` to `website/.env.local`.
+3. That secret was first saved as a *commented-out* line with a stray leading space
+   (`# ENTRA_WEB_CLIENT_SECRET= <value>`), so it silently never loaded. Fixed by
+   uncommenting and stripping the space — worth calling out only because it's exactly the
+   kind of copy-paste error that produces a confusing downstream symptom (still
+   `invalid_client`) rather than an obvious "secret is missing" one.
+
+**Verified end to end, twice, against the real tenant** (not mocked): a device
+authorized via a direct `POST /device/authorize` call (standing in for the Mac app,
+which uses the identical protocol), a real interactive Microsoft sign-in completed in a
+live browser session, `/pair` showed "Device approved," and a subsequent `POST
+/device/token` poll for that same device returned a real WriterFlow access token —
+proving the full chain (Entra sign-in → ID token → web-session token → device approve →
+device token issuance) works, not just that individual steps don't error. `npm run
+lint`/`typecheck`/`build` clean for both `website` and `services/api`; full
+`services/api` suite still 47/47 against real Postgres. Not re-covered by automated
+tests this increment (explicitly deferred per the user's request to prioritize getting
+the flow working) — worth adding integration coverage for `/pair/start` and `/pair/
+callback` before this is considered done for the stage, ideally with a fake/local
+`EntraIdTokenVerifier`-style seam so it doesn't require a live tenant to run in CI.
 
 ### Entra External ID (web-side confidential client — ADR-0011)
 

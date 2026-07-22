@@ -17,6 +17,7 @@
     "migrate:create": "node-pg-migrate create -m migrations -j js"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
     "@fastify/sensible": "^6.0.4",
     "@writerflow/shared": "0.1.0",
     "close-with-grace": "^2.5.0",

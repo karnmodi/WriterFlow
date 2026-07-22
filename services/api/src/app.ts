@@ -1,4 +1,5 @@
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
+import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
 import { FORBIDDEN_LOG_FIELD_NAMES } from "@writerflow/shared";
 import type pg from "pg";
@@ -56,6 +57,12 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
   });
 
   void app.register(sensible);
+  // Only the website ever calls this API from a browser (/web-session/token,
+  // /device/approve, per V2-ARCHITECTURE.md §5.1 step 3) — the Mac app uses
+  // URLSession, which isn't subject to CORS at all. One exact origin, no
+  // wildcard, matching the same non-wildcard-audience discipline used
+  // everywhere else in this service.
+  void app.register(cors, { origin: deps.config.WEBSITE_BASE_URL });
   registerHealthRoutes(app, deps.pool);
   registerJwksRoutes(app, deps.signingKeys);
   registerDeviceRoutes(app, deps.pool, deps.signingKeys, deps.config.WEBSITE_BASE_URL);

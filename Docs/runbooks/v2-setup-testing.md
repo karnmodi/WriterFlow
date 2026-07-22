@@ -10,26 +10,49 @@ yourself — for free, today, before spending anything on cloud infrastructure.
 |---|---|
 | Backend pairing + account API | Done — verified against real local Postgres |
 | Mac app — pairing & Account tab | Done |
-| Website `/pair` sign-in | Stub only — renders, doesn't talk to Entra yet |
+| Website `/pair` sign-in | **Done (2026-07-22)** — real Entra sign-in, verified end to end against a live tenant |
 | Azure infrastructure (Bicep) | Written, not deployed |
-| Entra External ID tenant | Not created |
+| Entra External ID tenant | Created |
 
-**Bottom line:** the one piece missing for a fully polished test is the website's "Sign
-In" page — it renders but doesn't call Entra yet. Everything behind it (device pairing,
-token issuance, your account, revoke) is real and already proven against a live
-Postgres database. **Track A** below stands in for that one missing page with two
-manual copy-paste steps, so you can pair a real device against a real Microsoft sign-in
-today, for free. **Track B** is the optional, paid step of putting all of this on real
-Azure infrastructure — do that later, once Track A convinces you the flow itself is
-sound.
+**Bottom line:** the full flow works now. Once your Entra tenant and `.env.services`/
+`website/.env.local` are set up (steps 1–3 below), the actual production UI — Dashboard
+→ Account → **Sign In** — opens a real browser, runs a real Microsoft sign-in, and
+finishes pairing automatically, with no manual `curl` steps. Section A below is the
+quick version now that it's real; Section A.1 keeps the old manual step-by-step for
+diagnosing a failure or testing without a Mac app build at all. **Track B** is still the
+optional, paid step of putting this on real Azure infrastructure.
 
 ---
 
-## Track A — Pair a real device, for free, on your Mac
+## A. The real flow (quickest path)
+
+1. Complete steps 1–3 below once (create the Entra tenant, register the app, fetch its
+   metadata) if you haven't already.
+2. Set `ENTRA_TENANT_ISSUER`/`ENTRA_JWKS_URI`/`ENTRA_WEB_CLIENT_ID` in repo-root
+   `.env.services`, and the same plus `ENTRA_WEB_CLIENT_SECRET`/`PAIR_REDIRECT_URI` in
+   `website/.env.local` (see the env reference table at the bottom — `website/lib/
+   entra.ts` reads these).
+3. Start Postgres, `npm run dev --workspace services/api` (repo root), and `npm run dev`
+   inside `website/`.
+4. `WRITERFLOW_API_BASE_URL=http://localhost:8080` in a repo-root `.env`, then `make run`
+   for the Mac app.
+5. Open **Dashboard → Account** in the app and click **Sign In**. A browser opens to the
+   real `/pair` page; sign in with Microsoft. The tab shows "Device approved," and the
+   Dashboard finishes signing in within a few seconds on its own.
+
+If any step fails, `website`'s dev server logs the real Entra error
+(`console.error("pair/callback failed:", ...)` in `app/pair/callback/route.ts`) — check
+that first. Section A.1 below walks the same flow by hand, one HTTP call at a time,
+which is often faster for isolating *which* step is failing than reasoning about the
+whole app.
+
+### A.1 Manual/diagnostic version
 
 Everything runs on your own machine: local Postgres, the API's dev server, and the Mac
 app built from source. The only cloud dependency is the Entra tenant itself, which costs
-nothing to create or sign into at this scale.
+nothing to create or sign into at this scale. This walks the same flow the real UI now
+does automatically, one HTTP call at a time — mainly useful for isolating a failure, or
+for testing without building the Mac app at all.
 
 ### 1. Create the Entra External ID (CIAM) tenant
 
@@ -272,7 +295,7 @@ out and that pairing again issues a fresh device.
 
 ---
 
-## Track B — Optional: deploy to real Azure
+## B. Optional: deploy to real Azure
 
 Do this once Track A has convinced you the flow works. It proves the actual cloud path
 (Container Apps, API Management, managed Postgres) but doesn't change what you can test
@@ -362,30 +385,40 @@ treat as "production."
 
 ## What's genuinely not possible yet
 
-- **Clicking "Sign In" in the Mac app with no manual steps.** Needs `/pair`'s real Entra
-  sign-in wired up — a separate, not-yet-started increment. Track A's steps 8–9 stand in
-  for it by hand.
 - **Seeing or revoking a *different* device from the Dashboard.** `GET /me` only ever
   describes the device making the call — there's no list-devices endpoint in the API
   contract yet.
 - **APIM actually enforcing token validation.** The `validate-jwt` policy is written but
-  not wired to a deployed APIM instance — Track B's deployment doesn't turn this on by
+  not wired to a deployed APIM instance — Section B's deployment doesn't turn this on by
   itself.
+- **A real Docker build of the website image.** Written, believed correct (mirrors
+  `services/api/Dockerfile`'s already-proven shape), but never actually run to completion
+  in this environment (Docker Hub pulls hung) — confirm before first deploy.
+- **Automated test coverage for `/pair/start` and `/pair/callback`.** Deliberately
+  deferred while getting the flow working end to end manually — worth adding before
+  calling this piece done, ideally with a fake/local Entra verifier seam so it doesn't
+  need a live tenant to run in CI.
 
 ---
 
-## Reference — every env var Track A touches
+## Reference — every env var this setup touches
 
 | Var | Set where | Value |
 |---|---|---|
-| `DATABASE_URL` | services/api dev server | `writerflow_app` role connection string (least-privilege runtime role) |
-| `ENTRA_TENANT_ISSUER` | services/api dev server | `issuer` from the tenant's OpenID metadata (step 3) |
-| `ENTRA_JWKS_URI` | services/api dev server | `jwks_uri` from the same metadata document |
-| `ENTRA_WEB_CLIENT_ID` | services/api dev server | the app registration's Application (client) ID |
-| `WRITERFLOW_API_BASE_URL` | repo-root `.env`, DEBUG builds only | `http://localhost:8080` |
+| `DATABASE_URL` | repo-root `.env.services` | `writerflow_app` role connection string (least-privilege runtime role) |
+| `ENTRA_TENANT_ISSUER` | repo-root `.env.services` AND `website/.env.local` | `issuer` from the tenant's OpenID metadata (step 3) |
+| `ENTRA_JWKS_URI` | repo-root `.env.services` | `jwks_uri` from the same metadata document |
+| `ENTRA_WEB_CLIENT_ID` | repo-root `.env.services` AND `website/.env.local` | the app registration's Application (client) ID |
+| `ENTRA_WEB_CLIENT_SECRET` | `website/.env.local` only | from Entra portal → Certificates & secrets → New client secret. Required for this app registration's Web platform redirect — PKCE alone got `AADSTS7000218` |
+| `PAIR_REDIRECT_URI` | `website/.env.local` | `http://localhost:3000/pair/callback` — must exactly match a Web platform redirect URI registered in Entra, no trailing slash |
+| `WRITERFLOW_API_BASE_URL` | `website/.env.local` (server-side call target) AND repo-root `.env` (Mac app, DEBUG builds only) | `http://localhost:8080` |
+
+`services/api` auto-loads `.env.services` (`npm run dev`'s `--env-file-if-exists` flag);
+`website` auto-loads `.env.local` (Next.js's own built-in env loading, `npm run dev`/
+`npm run build` only). Both are gitignored — never commit real values.
 
 ---
 
 Reflects the state of Phase 5, Stage 5.2 as of this session's last commit. Re-check
 `phases/phase-5-v2-cloud-foundation.md` before following this if meaningful time has
-passed — Track A's steps depend on route shapes that are still evolving.
+passed — the exact routes/env vars may keep evolving.

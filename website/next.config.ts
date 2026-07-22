@@ -11,7 +11,14 @@ import type { NextConfig } from "next";
 // changes the deployment/hosting model, not their runtime behavior.
 const nextConfig: NextConfig = {
   output: "standalone",
-  trailingSlash: true,
+  // Dropped along with `output: "export"` — trailingSlash's own redirect
+  // (adding a trailing slash to every request before it reaches a route
+  // handler) silently broke Entra's OAuth callback: the redirect_uri sent
+  // at the authorize step (no slash, matching the registered Entra redirect
+  // URI) stopped matching the URL openid-client saw at the token-exchange
+  // step (slash added), which Entra correctly rejects as AADSTS500112. Not
+  // worth keeping just for the marketing pages' URL style — both slash and
+  // non-slash forms serve identical content either way in server mode.
   images: {
     unoptimized: true,
   },

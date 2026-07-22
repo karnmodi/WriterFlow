@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "next": "16.2.10",
+    "openid-client": "^6.8.4",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },

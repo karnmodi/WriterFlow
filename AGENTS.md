@@ -41,19 +41,46 @@ separate from the API's internal-only one (`infra/bicep/modules/container-app-we
 a second `container-apps-env.bicep` instantiation with `internal: false`, a matching new
 subnet in `network.bicep`). It dropped `output: "export"` for `output: "standalone"` —
 the three marketing pages are still statically prerendered at build time, unaffected in
-content/behavior; only the new `/api/health` and `/pair` routes are dynamic. `/pair` is a
-stub (reads the Mac app's `user_code`, doesn't sign anyone in yet — that needs the Entra
-tenant plus an OIDC client library decision, a separate increment). `az bicep build`/lint
-clean; `npm run check` passes; the standalone server was run and smoke-tested directly
-(`node .next/standalone/server.js`). **Not verified**: the actual `docker build` — Docker
-Hub image pulls hung indefinitely in this sandboxed session (reproduced with a plain
-`docker pull alpine`, unrelated to this Dockerfile), so the container image itself is
-unverified pending a real build environment.
+content/behavior; only the new `/api/health` and `/pair` routes are dynamic. `az bicep
+build`/lint clean; `npm run check` passes; the standalone server was run and smoke-tested
+directly (`node .next/standalone/server.js`). **Not verified**: the actual `docker build`
+— Docker Hub image pulls hung indefinitely in this sandboxed session (reproduced with a
+plain `docker pull alpine`, unrelated to this Dockerfile), so the container image itself
+is unverified pending a real build environment.
+
+**`/pair`'s Entra sign-in is real, not a stub (2026-07-22).** The user independently
+created a real Entra External ID tenant/app registration and asked for the actual flow
+to be wired up. `website/lib/entra.ts` (`openid-client@^6.8.4`, `discovery()` against the
+real tenant), `website/app/pair/start/route.ts` (PKCE + httpOnly cookie, redirects to
+Entra), and `website/app/pair/callback/route.ts` (server-side code exchange —
+deliberately not browser-side, which avoids the SPA-platform "cross-origin requests
+only" restriction hit during manual testing — then `POST /web-session/token` and `POST
+/device/approve` against `services/api`, neither token ever reaching the browser).
+`services/api/src/app.ts` gained `@fastify/cors` scoped to exactly
+`config.WEBSITE_BASE_URL` (not required by the final server-to-server flow, but a real
+gap this surfaced — the API had no CORS support at all — kept as defense-in-depth).
+Three real bugs found and fixed against the live tenant: `next.config.ts`'s leftover
+`trailingSlash: true` (static-export holdover) 308-redirected Entra's callback before
+the route handler ran, so the inferred `redirect_uri` no longer matched the one sent at
+the authorize step (`AADSTS500112`) — removed `trailingSlash` entirely, harmless since
+server mode serves identical content either way; this app registration rejects
+PKCE-only exchange (`AADSTS7000218`, needs `ENTRA_WEB_CLIENT_SECRET` too); and a secret
+first saved as a commented-out `.env.local` line with a stray space silently never
+loaded. **Verified end to end twice against the real tenant**: a device authorized
+(identical protocol to the Mac app), a real interactive Microsoft sign-in completed in a
+live browser, `/pair` showed "Device approved," and a subsequent `/device/token` poll
+returned a real WriterFlow access token. Since the Dashboard's Account tab "Sign In"
+button already uses the same `beginPairing()`/`NSWorkspace.shared.open(...)` path as the
+`#if DEBUG` menu item, the **actual production UI now works end to end** — not just the
+debug path. Not covered by automated tests yet (deliberately deferred to get the flow
+working first, per user request) — worth adding `/pair/start`/`/pair/callback`
+integration coverage with a fake Entra verifier seam before calling this done.
 
 **Stage 5.2 (real-user authentication) is in progress: the full WriterFlow-side pairing
-and provisioning backend (ADR-0012 device tokens + a second web-session token issuer)
-and the macOS `DeviceSessionProviding` client are built and verified — the Dashboard UI
-and the Entra tenant itself are not started.** `services/api/src/jwt/` (ES256 signing, JWKS,
+and provisioning backend (ADR-0012 device tokens + a second web-session token issuer),
+the macOS `DeviceSessionProviding` client, the Dashboard Account UI, and the website's
+real Entra sign-in are all built and verified end to end against a live Entra tenant.**
+`services/api/src/jwt/` (ES256 signing, JWKS,
 dev-only in-memory key — Key Vault-backed signing is cloud-apply-pending),
 `services/api/src/pairing/{service,approve}.ts`, and migrations `009`–`011` implement
 `POST /v2/device/authorize`, `POST /v2/device/token`, `POST /v2/token/refresh`, and
@@ -102,8 +129,8 @@ list-devices endpoint. It's additive, not a replacement for v1's BYO-Azure onboa
 card (that swap needs a real cohort-flag mechanism that doesn't exist yet — Stage 5.4
 territory — so replacing it now would risk breaking v1 users for no working alternative).
 The `#if DEBUG` manual pairing menu item still exists for headless verification. The
-Entra tenant itself (manual portal step, not yet done) is still outstanding. The active
-v2 sources of truth are
+Entra tenant now exists (`writerflow.onmicrosoft.com`) and the real sign-in flow through
+it is verified — see the note above. The active v2 sources of truth are
 `PRD-V2.md`, `V2-ARCHITECTURE.md`, `V2-ROADMAP.md`, and
 `phases/phase-5-v2-cloud-foundation.md`. The explicit product-policy change for v2 is a
 WriterFlow-operated authenticated backend: Entra External ID, encrypted local data,
