@@ -1,103 +1,126 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 
-import { CheckIcon, ShieldIcon } from "@/components/Icons";
+import {
+  AuthHint,
+  AuthPanel,
+  AuthPrimaryLink
+} from "@/components/AuthPanel";
+import { fetchWebMe } from "@/lib/writerflow-api";
+import { readWebAccountToken, WEB_ACCOUNT_COOKIE } from "@/lib/web-auth";
 
 export const metadata: Metadata = {
   title: "Pair a device",
   description: "Approve a WriterFlow Mac app device-pairing request.",
-  robots: { index: false, follow: false },
+  robots: { index: false, follow: false }
 };
+
+export const dynamic = "force-dynamic";
 
 interface PairPageProps {
   searchParams: Promise<{ user_code?: string; status?: string; message?: string }>;
 }
 
 /**
- * V2-ARCHITECTURE.md §5.1 step 3 / Docs/contracts/openapi.yaml POST
- * /device/approve. The Mac app opens `writerflow.app/pair?user_code=...`
- * (or a person types the code here manually). Signing in redirects to
- * /pair/start, which sends the browser to Entra; /pair/callback completes
- * the exchange and redirects back here with ?status=success|error.
+ * V2-ARCHITECTURE.md §5.1 step 3 / ADR-0013. When the visitor already has a
+ * web-account cookie, /pair/approve skips Entra; otherwise /pair/start runs
+ * Microsoft sign-in and /pair/callback completes approval + sets the cookie.
  */
 export default async function PairPage({ searchParams }: PairPageProps) {
   const { user_code: userCode, status, message } = await searchParams;
+  const cookieStore = await cookies();
+  const webToken = readWebAccountToken(cookieStore.get(WEB_ACCOUNT_COOKIE)?.value);
+  const webSession = webToken ? await fetchWebMe(webToken).catch(() => null) : null;
 
   if (status === "success") {
     return (
-      <main id="main-content">
-        <section className="bg-paper py-16 sm:py-24">
-          <div className="site-shell max-w-xl">
-            <span className="inline-flex size-12 items-center justify-center rounded-2xl border border-black/10 bg-black/5 text-blue">
-              <CheckIcon className="size-6" />
-            </span>
-            <h1 className="mt-6 font-display text-4xl tracking-tight">Device approved</h1>
-            <p className="mt-4 text-lg leading-8 text-black/70">
-              WriterFlow on your Mac should finish signing in within a few seconds. You can close
-              this tab.
-            </p>
-          </div>
-        </section>
-      </main>
+      <AuthPanel
+        eyebrow="Device pairing"
+        title="Device approved"
+        description="WriterFlow on your Mac should finish signing in within a few seconds. You can close this tab."
+      />
     );
   }
 
   if (status === "error") {
     return (
-      <main id="main-content">
-        <section className="bg-paper py-16 sm:py-24">
-          <div className="site-shell max-w-xl">
-            <span className="inline-flex size-12 items-center justify-center rounded-2xl border border-black/10 bg-black/5 text-blue">
-              <ShieldIcon className="size-6" />
-            </span>
-            <h1 className="mt-6 font-display text-4xl tracking-tight">Couldn&apos;t approve this device</h1>
-            <p className="mt-4 text-lg leading-8 text-black/70">
-              {message ?? "Something went wrong during sign-in."}
-            </p>
-            {userCode ? (
-              <a
-                href={`/pair/start?user_code=${encodeURIComponent(userCode)}`}
-                className="mt-6 inline-flex items-center justify-center rounded-full bg-blue px-6 py-3 text-sm font-medium text-white"
-              >
-                Try again
-              </a>
-            ) : null}
-          </div>
-        </section>
-      </main>
+      <AuthPanel
+        eyebrow="Device pairing"
+        title="Couldn’t approve this device"
+        description={message ?? "Something went wrong during sign-in."}
+      >
+        {userCode ? (
+          webSession ? (
+            <AuthPrimaryLink href={`/pair/approve?user_code=${encodeURIComponent(userCode)}`}>
+              Try again as {webSession.displayName ?? webSession.email ?? "signed-in user"}
+            </AuthPrimaryLink>
+          ) : (
+            <>
+              <AuthPrimaryLink href={`/pair/start?user_code=${encodeURIComponent(userCode)}`}>
+                Continue to sign in
+              </AuthPrimaryLink>
+              <AuthHint>
+                Use the same sign-in method as before (Google vs email code). Entra won’t send a
+                one-time code for an email that already has a Google account.
+              </AuthHint>
+            </>
+          )
+        ) : null}
+      </AuthPanel>
     );
   }
 
   return (
-    <main id="main-content">
-      <section className="bg-paper py-16 sm:py-24">
-        <div className="site-shell max-w-xl">
-          <span className="inline-flex size-12 items-center justify-center rounded-2xl border border-black/10 bg-black/5 text-blue">
-            <ShieldIcon className="size-6" />
-          </span>
-          <h1 className="mt-6 font-display text-4xl tracking-tight">Approve this device</h1>
-          <p className="mt-4 text-lg leading-8 text-black/70">
-            Sign in to approve the WriterFlow Mac app that sent you here. WriterFlow never sees
-            your password — sign-in happens with Microsoft.
-          </p>
-          {userCode ? (
-            <p className="mt-6 rounded-xl border border-black/10 bg-black/5 px-4 py-3 font-mono text-sm">
-              Code from your Mac: <strong>{userCode}</strong>
+    <AuthPanel
+      eyebrow="Device pairing"
+      title="Approve this Mac"
+      description="Confirm it’s you, then WriterFlow will finish signing in on the Mac. We never see your password — sign-in happens with Microsoft."
+    >
+      {userCode ? (
+        <p className="rounded-2xl border border-black/8 bg-white/70 px-4 py-3 font-mono text-sm tracking-wide text-ink">
+          Code from your Mac: <strong className="font-semibold">{userCode}</strong>
+        </p>
+      ) : (
+        <AuthHint>
+          No code was included in this link — open this page from the WriterFlow app instead.
+        </AuthHint>
+      )}
+
+      {userCode ? (
+        webSession ? (
+          <>
+            <p className="text-sm leading-6 text-black/60">
+              Signed in as{" "}
+              <strong className="font-semibold text-ink">
+                {webSession.displayName ?? webSession.email ?? "your account"}
+              </strong>
+              . Approve this Mac without signing in again.
             </p>
-          ) : (
-            <p className="mt-6 text-sm text-black/60">
-              No code was included in this link — open this page from the WriterFlow app instead.
+            <AuthPrimaryLink href={`/pair/approve?user_code=${encodeURIComponent(userCode)}`}>
+              Approve this device
+            </AuthPrimaryLink>
+            <p className="text-center text-xs text-black/45">
+              Not you?{" "}
+              <a className="underline decoration-black/25 underline-offset-2" href="/auth/sign-out">
+                Sign out
+              </a>{" "}
+              and use a different account.
             </p>
-          )}
-          {userCode ? (
-            <a
-              href={`/pair/start?user_code=${encodeURIComponent(userCode)}`}
-              className="mt-6 inline-flex items-center justify-center rounded-full bg-blue px-6 py-3 text-sm font-medium text-white"
-            >
-              Sign in with Microsoft
-            </a>
-          ) : null}
-        </div>
-      </section>
-    </main>
+          </>
+        ) : (
+          <>
+            <AuthPrimaryLink href={`/pair/start?user_code=${encodeURIComponent(userCode)}`}>
+              Continue to sign in
+            </AuthPrimaryLink>
+            <AuthHint>
+              On Microsoft’s next screen, pick the method you already use. Prefer{" "}
+              <strong>Google</strong> if that email was created with Google — email one-time codes
+              are only sent for email sign-in, and Entra blocks a second signup for the same
+              address.
+            </AuthHint>
+          </>
+        )
+      ) : null}
+    </AuthPanel>
   );
 }

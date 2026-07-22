@@ -19,12 +19,11 @@ prerenders them at build time (see `npm run build`'s route table: `○` for
 static, `ƒ` for dynamic) — this only changes how the whole app is deployed and
 served.
 
-**`/pair` is a stub today.** It renders the page and reads the Mac app's
-`user_code`, but does not yet sign anyone in or call `POST /v2/device/approve`
-— that needs a real Entra External ID tenant (not created yet) and an OIDC
-client library decision, which is deliberately a separate increment. Building
-a page that *looked* functional before there was a tenant to sign in against
-would be actively misleading.
+**`/pair` and `/account` use real Entra sign-in** (Stage 5.2 / ADR-0013). The website
+confidential client completes OIDC server-side, mints WriterFlow web-session or
+web-account tokens, and calls `POST /v2/device/approve` — neither Entra nor
+WriterFlow bearer tokens reach the browser. Membership billing UI is present but
+charges remain Phase 7 (Stripe test mode only until GA).
 
 ## Local development
 
@@ -140,7 +139,33 @@ Dockerfile deploys actually got produced. `verify-release-local` and
 `verify-release-live` perform the artifact checks that an HTML validator
 cannot.
 
-The marketing pages still ship no analytics, forms, cookies, or runtime
-fetches. `/pair` is the one deliberate exception to "no backend routes" — it
-will need a session cookie once Entra sign-in is wired up; that scope stays
-confined to `/pair` and its supporting API routes, not the marketing pages.
+The marketing pages still ship no analytics on `/`, `/install`, or `/privacy`.
+Account and pairing routes set httpOnly session cookies (`wf_web_account`,
+`wf_entra_id_token_hint`, `wf_pair_pkce`) — see ADR-0013.
+
+## Entra sign-in (local)
+
+Required in `website/.env.local` (see `.env.services` for API-side Entra vars):
+
+```bash
+ENTRA_TENANT_ISSUER=https://<tenant>.ciamlogin.com/<tenant-id>/v2.0
+ENTRA_WEB_CLIENT_ID=<app-registration-client-id>
+ENTRA_WEB_CLIENT_SECRET=<client-secret>   # required for this tenant
+PAIR_REDIRECT_URI=http://localhost:3000/pair/callback
+AUTH_REDIRECT_URI=http://localhost:3000/auth/callback   # optional; defaults from PAIR_REDIRECT_URI
+WRITERFLOW_API_BASE_URL=http://localhost:8080
+NEXT_PUBLIC_SITE_ORIGIN=http://localhost:3000             # used for post-logout redirect
+```
+
+Register **both** redirect URIs and a **logout redirect URI**
+(`http://localhost:3000/account?signedOut=1`) on the Entra app registration.
+
+Routes:
+
+| Path | Purpose |
+|---|---|
+| `/account` | Signed-in account home (or Sign in CTA) |
+| `/auth/start` | Begin Microsoft sign-in |
+| `/auth/callback` | Complete sign-in; sets `wf_web_account` cookie |
+| `/auth/sign-out` | Clear cookies + Entra `end_session` logout |
+| `/pair` | Device pairing (reuses web session when present) |

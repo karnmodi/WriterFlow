@@ -10,10 +10,8 @@ export const metadata: Metadata = {
 };
 
 const absentInfrastructure = [
-  "No WriterFlow account, membership, or subscription",
-  "No WriterFlow payment or billing service",
-  "No remote WriterFlow user or personalization database",
-  "No custom WriterFlow app-facing API",
+  "No WriterFlow payment charged in v1.0 (v2 alpha adds optional account sign-in)",
+  "No remote WriterFlow personalization database synced by default",
   "No shared AI credential bundled with the app",
 ];
 

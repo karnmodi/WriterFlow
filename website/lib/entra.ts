@@ -42,3 +42,48 @@ export function getEntraConfig(): Promise<client.Configuration> {
 export function pairRedirectUri(): string {
   return requireEnv("PAIR_REDIRECT_URI");
 }
+
+export function authRedirectUri(): string {
+  return process.env["AUTH_REDIRECT_URI"] ?? pairRedirectUri().replace("/pair/callback", "/auth/callback");
+}
+
+export function accountLogoutRedirectUri(): string {
+  const siteOrigin = process.env["NEXT_PUBLIC_SITE_ORIGIN"];
+  if (siteOrigin) return `${siteOrigin.replace(/\/$/, "")}/account?signedOut=1`;
+  return authRedirectUri().replace("/auth/callback", "/account?signedOut=1");
+}
+
+export interface EntraLogoutParams {
+  idTokenHint?: string;
+  logoutHint?: string;
+}
+
+/**
+ * Build Entra OIDC logout URL (end_session_endpoint).
+ * Always includes client_id (required by Entra External ID / CIAM).
+ * Prefer id_token_hint and/or logout_hint (email) so CIAM does not show an
+ * empty "Pick an account" screen.
+ */
+export async function buildEntraLogoutUrl(params: EntraLogoutParams = {}): Promise<string> {
+  const config = await getEntraConfig();
+  const metadata = config.serverMetadata();
+  const endSession = metadata.end_session_endpoint;
+  if (!endSession) {
+    throw new Error("Entra discovery document has no end_session_endpoint — register a logout redirect URI.");
+  }
+  const url = new URL(endSession);
+  url.searchParams.set("client_id", requireEnv("ENTRA_WEB_CLIENT_ID"));
+  url.searchParams.set("post_logout_redirect_uri", accountLogoutRedirectUri());
+  if (params.idTokenHint) {
+    url.searchParams.set("id_token_hint", params.idTokenHint);
+  }
+  if (params.logoutHint) {
+    url.searchParams.set("logout_hint", params.logoutHint);
+  }
+  return url.toString();
+}
+
+/** True when we have enough to avoid CIAM's empty account-picker dead end. */
+export function canFederatedLogout(params: EntraLogoutParams): boolean {
+  return Boolean(params.idTokenHint || params.logoutHint);
+}

@@ -1,49 +1,45 @@
 import * as client from "openid-client";
 import { NextResponse, type NextRequest } from "next/server";
-import { getEntraConfig } from "@/lib/entra";
+import { getEntraConfig, pairRedirectUri } from "@/lib/entra";
+import { oauthCallbackUrl, siteUrl } from "@/lib/site-url";
+import { approveDevice, mintWebAccountToken } from "@/lib/writerflow-api";
+import {
+  PAIR_PKCE_COOKIE,
+  setEntraLogoutHints,
+  setWebAccountCookie
+} from "@/lib/web-auth";
+import { logoutHintFromClaims } from "@/lib/logout-hint";
 
-const COOKIE_NAME = "wf_pair_pkce";
-
-const API_BASE_URL = process.env["WRITERFLOW_API_BASE_URL"] ?? "https://api.writerflow.app/v2";
-
-interface PkceCookie {
-  userCode: string;
-  codeVerifier: string;
-}
+const API_BASE_URL = process.env["WRITERFLOW_API_BASE_URL"] ?? "https://apiwriterflow.aviusolutions.com/v2";
 
 function redirectToPairPage(request: NextRequest, params: Record<string, string>): NextResponse {
-  const url = new URL("/pair", request.url);
+  const url = siteUrl("/pair", request);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   const response = NextResponse.redirect(url);
-  response.cookies.delete(COOKIE_NAME);
+  response.cookies.delete(PAIR_PKCE_COOKIE);
   return response;
 }
 
 /**
- * GET /pair/callback — Entra redirects here with ?code=...&state=...
- * (matches the Web platform redirect URI registered on the app
- * registration). Completes the flow Docs/contracts/openapi.yaml describes
- * for the website: exchange the code for an Entra ID token, trade that for
- * a WriterFlow web-session token (POST /v2/web-session/token), then bind
- * the device (POST /v2/device/approve). All server-side — never exposes the
- * ID token or web-session token to the browser.
+ * GET /pair/callback — Entra pairing callback. Approves the device and also
+ * establishes the durable wf_web_account cookie (ADR-0013).
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const cookieValue = request.cookies.get(COOKIE_NAME)?.value;
+  const cookieValue = request.cookies.get(PAIR_PKCE_COOKIE)?.value;
   if (!cookieValue) {
     return redirectToPairPage(request, { status: "error", message: "Sign-in session expired. Try again." });
   }
 
-  let pkce: PkceCookie;
+  let pkce: { userCode: string; codeVerifier: string };
   try {
-    pkce = JSON.parse(cookieValue) as PkceCookie;
+    pkce = JSON.parse(cookieValue) as { userCode: string; codeVerifier: string };
   } catch {
     return redirectToPairPage(request, { status: "error", message: "Sign-in session was invalid. Try again." });
   }
 
   try {
     const config = await getEntraConfig();
-    const tokens = await client.authorizationCodeGrant(config, new URL(request.url), {
+    const tokens = await client.authorizationCodeGrant(config, oauthCallbackUrl(request, pairRedirectUri()), {
       pkceCodeVerifier: pkce.codeVerifier
     });
     const idToken = tokens.id_token;
@@ -51,21 +47,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return redirectToPairPage(request, { status: "error", message: "Sign-in did not return an ID token." });
     }
 
+    const tokenBody: { idToken: string; accessToken?: string } = { idToken };
+    if (typeof tokens.access_token === "string" && tokens.access_token.length > 0) {
+      tokenBody.accessToken = tokens.access_token;
+    }
+
     const webSessionResponse = await fetch(`${API_BASE_URL}/web-session/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ idToken })
+      body: JSON.stringify(tokenBody)
     });
     if (!webSessionResponse.ok) {
       return redirectToPairPage(request, { status: "error", message: "Could not start a WriterFlow session." });
     }
-    const { accessToken } = (await webSessionResponse.json()) as { accessToken: string };
+    const { accessToken: webSessionToken } = (await webSessionResponse.json()) as { accessToken: string };
 
-    const approveResponse = await fetch(`${API_BASE_URL}/device/approve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ userCode: pkce.userCode })
-    });
+    const approveResponse = await approveDevice(pkce.userCode, webSessionToken);
     if (approveResponse.status === 404) {
       return redirectToPairPage(request, {
         status: "error",
@@ -76,10 +73,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return redirectToPairPage(request, { status: "error", message: "Could not approve this device." });
     }
 
-    return redirectToPairPage(request, { status: "success" });
+    const response = redirectToPairPage(request, { status: "success" });
+    try {
+      const { accessToken, expiresIn } = await mintWebAccountToken(tokenBody);
+      setWebAccountCookie(response, accessToken, expiresIn);
+      setEntraLogoutHints(
+        response,
+        idToken,
+        logoutHintFromClaims(tokens.claims() as Record<string, unknown> | undefined)
+      );
+    } catch (accountError) {
+      console.error("pair/callback: web-account cookie not set:", accountError);
+    }
+    return response;
   } catch (error) {
-    // Server-side only — openid-client's ResponseBodyError carries Entra's
-    // error/error_description, never a raw token, so this is safe to log.
     console.error("pair/callback failed:", error);
     const message = error instanceof Error ? error.message : "Sign-in failed.";
     return redirectToPairPage(request, { status: "error", message });

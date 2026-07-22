@@ -1,23 +1,21 @@
 import * as client from "openid-client";
 import { NextResponse, type NextRequest } from "next/server";
-import { getEntraConfig, pairRedirectUri } from "@/lib/entra";
-import { PAIR_PKCE_COOKIE } from "@/lib/web-auth";
+import { authRedirectUri, getEntraConfig } from "@/lib/entra";
+
+const AUTH_PKCE_COOKIE = "wf_auth_pkce";
 
 /**
- * GET /pair/start?user_code=... — kicks off Entra sign-in for device pairing.
+ * GET /auth/start — general account sign-in (ADR-0013). Redirects to Entra;
+ * callback establishes the durable wf_web_account cookie.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const userCode = request.nextUrl.searchParams.get("user_code");
-  if (!userCode) {
-    return NextResponse.json({ error: "Missing user_code" }, { status: 400 });
-  }
-
+  const returnTo = request.nextUrl.searchParams.get("returnTo") ?? "/account";
   const config = await getEntraConfig();
   const codeVerifier = client.randomPKCECodeVerifier();
   const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
 
   const authorizationUrl = client.buildAuthorizationUrl(config, {
-    redirect_uri: pairRedirectUri(),
+    redirect_uri: authRedirectUri(),
     scope: "openid profile email",
     // Force email entry / fresh auth — without this, Entra may skip straight to
     // "Enter code" for a remembered account and OTP never actually sends.
@@ -27,12 +25,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
 
   const response = NextResponse.redirect(authorizationUrl);
-  response.cookies.set(PAIR_PKCE_COOKIE, JSON.stringify({ userCode, codeVerifier }), {
+  response.cookies.set(AUTH_PKCE_COOKIE, JSON.stringify({ returnTo, codeVerifier }), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     maxAge: 600,
-    path: "/pair"
+    path: "/auth"
   });
   return response;
 }
+
+export { AUTH_PKCE_COOKIE };

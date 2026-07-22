@@ -26,6 +26,9 @@ export function SiteHeader() {
           <Link className="nav-link" href="/install/">
             Install
           </Link>
+          <Link className="nav-link" href="/account">
+            Account
+          </Link>
         </nav>
 
         {releaseIsAvailable ? (
@@ -59,6 +62,9 @@ export function SiteHeader() {
         </Link>
         <Link className="nav-link" href="/install/">
           Install
+        </Link>
+        <Link className="nav-link" href="/account">
+          Account
         </Link>
       </nav>
     </header>

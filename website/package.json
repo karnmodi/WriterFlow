@@ -16,7 +16,8 @@
     "validate-build": "node scripts/validate-build.mjs",
     "verify-release-local": "node scripts/verify-release-assets.mjs --local",
     "verify-release-live": "node scripts/verify-release-assets.mjs --remote",
-    "check": "npm run lint && npm run typecheck && npm run build && npm run validate-build"
+    "check": "npm run lint && npm run typecheck && npm run build && npm run validate-build",
+    "test": "node --experimental-strip-types --test test/route-handlers.test.mjs"
   },
   "dependencies": {
     "next": "16.2.10",
