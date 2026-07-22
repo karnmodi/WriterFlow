@@ -21,6 +21,17 @@ import type { EntraDisplayClaims } from "../entra/verifier.js";
 import { displayFromStoredClaims } from "../entra/claims.js";
 import type { SigningKeyProvider } from "./keys.js";
 
+function entraDisplayClaimsFromJson(raw: unknown): EntraDisplayClaims {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const obj = raw as Record<string, unknown>;
+  const out: EntraDisplayClaims = {};
+  if (typeof obj.name === "string") out.name = obj.name;
+  if (typeof obj.email === "string") out.email = obj.email;
+  if (typeof obj.given_name === "string") out.given_name = obj.given_name;
+  if (typeof obj.family_name === "string") out.family_name = obj.family_name;
+  return out;
+}
+
 async function sign(
   keys: SigningKeyProvider,
   audience: string,
@@ -169,9 +180,7 @@ export function entraIdentityFromWebSessionClaims(claims: WriterFlowWebSessionTo
   if (typeof claims.entra_display_claims === "string") {
     try {
       const parsed = JSON.parse(claims.entra_display_claims) as unknown;
-      if (parsed != null && typeof parsed === "object" && !Array.isArray(parsed)) {
-        displayClaims = parsed;
-      }
+      displayClaims = entraDisplayClaimsFromJson(parsed);
     } catch {
       displayClaims = {};
     }
@@ -254,9 +263,7 @@ export async function mintWebSessionBridgeFromAccount(
   if (typeof claims.entra_display_claims === "string") {
     try {
       const parsed = JSON.parse(claims.entra_display_claims) as unknown;
-      if (parsed != null && typeof parsed === "object" && !Array.isArray(parsed)) {
-        displayClaims = parsed as EntraDisplayClaims;
-      }
+      displayClaims = entraDisplayClaimsFromJson(parsed);
     } catch {
       displayClaims = {};
     }

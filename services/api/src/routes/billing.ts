@@ -113,15 +113,15 @@ export function registerBillingRoutes(
       return;
     }
 
+    const stripeObject = event.data.object;
+    const objectId = "id" in stripeObject ? stripeObject.id : null;
+
     const minimizedPayload = {
       id: event.id,
       type: event.type,
       livemode: event.livemode,
       created: event.created,
-      objectId:
-        typeof event.data.object === "object" && event.data.object != null && "id" in event.data.object
-          ? String((event.data.object as { id: unknown }).id)
-          : null
+      objectId
     };
 
     await recordStripeEventInbox(pool, {

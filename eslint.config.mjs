@@ -14,11 +14,20 @@ export default tseslint.config(
       "**/migrations/**/*.cjs",
       "eslint.config.mjs",
       "**/vitest.config.ts",
-      "scripts/*.mjs"
+      "scripts/*.mjs",
+      "scripts/load/**"
     ]
   },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
+  {
+    files: ["services/api/test/**"],
+    rules: {
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-call": "off"
+    }
+  },
   {
     languageOptions: {
       parserOptions: {

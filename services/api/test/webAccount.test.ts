@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SignJWT, exportJWK, generateKeyPair } from "jose";
+import { SignJWT, generateKeyPair } from "jose";
 import {
   WRITERFLOW_WEB_ACCOUNT_TOKEN_AUDIENCE,
   WRITERFLOW_WEB_ACCOUNT_TOKEN_TTL_SECONDS,

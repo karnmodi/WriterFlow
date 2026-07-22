@@ -7,23 +7,23 @@ import { fakeConfig } from "./helpers/fakeConfig.js";
 
 function createAuthedPool() {
   const client = {
-    query: vi.fn(async (sql: string) => {
+    query: vi.fn((sql: string) => {
       if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
-        return { rows: [] };
+        return Promise.resolve({ rows: [] });
       }
       if (sql.startsWith("SELECT set_config")) {
-        return { rows: [] };
+        return Promise.resolve({ rows: [] });
       }
       if (sql.includes("revoked_at")) {
-        return { rows: [{ revoked_at: null }] };
+        return Promise.resolve({ rows: [{ revoked_at: null }] });
       }
       if (sql.includes("FROM users")) {
-        return { rows: [{ status: "active" }] };
+        return Promise.resolve({ rows: [{ status: "active" }] });
       }
       if (sql.includes("INSERT INTO stripe_events")) {
-        return { rowCount: 1, rows: [{ stripe_event_id: "evt_test_webhook" }] };
+        return Promise.resolve({ rowCount: 1, rows: [{ stripe_event_id: "evt_test_webhook" }] });
       }
-      return { rows: [] };
+      return Promise.resolve({ rows: [] });
     }),
     release: vi.fn()
   };

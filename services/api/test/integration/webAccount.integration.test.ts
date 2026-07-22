@@ -70,7 +70,7 @@ describe.skipIf(!dbAvailable)("web account routes against real Postgres", () => 
       payload: { idToken }
     });
     expect(mintResponse.statusCode).toBe(200);
-    const mintBody = mintResponse.json() as { accessToken: string; created: boolean };
+    const mintBody = mintResponse.json();
     expect(mintBody.created).toBe(true);
 
     const meResponse = await app.inject({
@@ -79,7 +79,7 @@ describe.skipIf(!dbAvailable)("web account routes against real Postgres", () => 
       headers: { authorization: `Bearer ${mintBody.accessToken}` }
     });
     expect(meResponse.statusCode).toBe(200);
-    const me = meResponse.json() as { email: string | null; displayName: string | null; entitlement: { plan: string } };
+    const me = meResponse.json();
     expect(me.email).toBe(`${subject}@example.com`);
     expect(me.displayName).toBe("Web User");
     expect(me.entitlement.plan).toBe("free");
@@ -91,7 +91,7 @@ describe.skipIf(!dbAvailable)("web account routes against real Postgres", () => 
       url: "/web-account/token",
       payload: { idToken }
     });
-    const { accessToken } = mintResponse.json() as { accessToken: string };
+    const { accessToken } = mintResponse.json();
 
     const bridgeResponse = await app.inject({
       method: "POST",
@@ -99,7 +99,7 @@ describe.skipIf(!dbAvailable)("web account routes against real Postgres", () => 
       headers: { authorization: `Bearer ${accessToken}` }
     });
     expect(bridgeResponse.statusCode).toBe(200);
-    const bridge = bridgeResponse.json() as { accessToken: string; expiresIn: number };
+    const bridge = bridgeResponse.json();
     expect(bridge.expiresIn).toBe(300);
     expect(bridge.accessToken.split(".")).toHaveLength(3);
   });

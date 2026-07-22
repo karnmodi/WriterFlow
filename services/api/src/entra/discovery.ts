@@ -1,7 +1,7 @@
 /** CIAM discovery documents point userinfo at Graph, not {tenant}/openid/v2.0/userinfo. */
 const CIAM_GRAPH_USERINFO = "https://graph.microsoft.com/oidc/userinfo";
 
-let cachedUserInfoByIssuer = new Map<string, string>();
+const cachedUserInfoByIssuer = new Map<string, string>();
 
 /**
  * Resolves Entra's userinfo endpoint from OIDC discovery (cached per issuer).

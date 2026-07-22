@@ -43,12 +43,16 @@ function persistDevSigningKey(stored: PersistedDevSigningKey): void {
 async function loadPersistedDevSigningKey(): Promise<SigningKey | null> {
   if (!existsSync(DEV_KEY_PATH)) return null;
   try {
-    const stored = JSON.parse(readFileSync(DEV_KEY_PATH, "utf8")) as PersistedDevSigningKey;
-    if (typeof stored.kid !== "string" || stored.privateJwk == null || stored.publicJwk == null) {
+    const raw: unknown = JSON.parse(readFileSync(DEV_KEY_PATH, "utf8"));
+    if (!raw || typeof raw !== "object") return null;
+    const stored = raw as Record<string, unknown>;
+    if (typeof stored.kid !== "string" || !stored.privateJwk || !stored.publicJwk) {
       return null;
     }
-    const privateKey = (await importJWK(stored.privateJwk, "ES256")) as CryptoKey;
-    return { kid: stored.kid, privateKey, publicJwk: stored.publicJwk };
+    const privateJwk = stored.privateJwk as JWK;
+    const publicJwk = stored.publicJwk as JWK;
+    const privateKey = (await importJWK(privateJwk, "ES256")) as CryptoKey;
+    return { kid: stored.kid, privateKey, publicJwk };
   } catch {
     return null;
   }

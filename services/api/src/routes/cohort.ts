@@ -10,7 +10,7 @@ export interface CohortFlags {
 }
 
 /** Server-controlled cohort flags for Stage 5.6 alpha (kill switches). */
-export function resolveCohortFlags(config: AppConfig): CohortFlags {
+export function resolveCohortFlags(_config: AppConfig): CohortFlags {
   const env = process.env["WRITERFLOW_COHORT_CLOUD_INFERENCE"];
   const useCloudInference = env === "1" || env === "true";
   const fallbackEnv = process.env["WRITERFLOW_COHORT_BYO_FALLBACK"];
