@@ -60,7 +60,11 @@ struct OnboardingView: View {
                 .padding(.bottom, 20)
         }
         .frame(minWidth: 560, maxWidth: 560, maxHeight: .infinity, alignment: .top)
-        .onAppear { permissions.startPolling() }
+        .onAppear {
+            if !permissions.allGranted {
+                permissions.startPolling()
+            }
+        }
         .onDisappear {
             if permissions.allGranted { permissions.stopPolling() }
         }

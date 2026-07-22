@@ -19,7 +19,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
     // protocol — not scattered ad hoc Keychain reads through AppDelegate
     // the way the v1 BYO-key readiness check at `needsAzureSetup` below is.
     private let deviceSession: DeviceSessionProviding = DeviceSessionStore()
-    private lazy var actionEngine = ActionEngine(config: modelsConfig)
+    private lazy var inferenceTransport = WriterFlowInferenceTransport(deviceSession: deviceSession)
+    private lazy var actionEngine = ActionEngine(
+        config: modelsConfig,
+        inferenceTransport: inferenceTransport,
+        deviceSession: deviceSession
+    )
     private lazy var recommendationEngine = RecommendationEngine(config: modelsConfig)
     private var cancellables: Set<AnyCancellable> = []
     private var hadAccessibility = false
@@ -59,13 +64,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         seedAzureCredentials()
         #endif
 
-        // Permissions + BYO Azure key gate only the floating icon / AI actions —
-        // surface setup on top, non-blocking (Dashboard still works immediately).
-        let liveConfig = AzureModelsConfig.loadFromDisk() ?? modelsConfig
-        let needsAzureSetup = !KeychainStore.hasConfiguredAPIKey(envName: liveConfig.defaultApiKeyEnv)
-            || !liveConfig.hasUsableEndpoint
-        if !permissions.allGranted || needsAzureSetup {
-            Log.app.info("Setup incomplete — showing onboarding above the Dashboard")
+        // Permissions gate the floating icon / AI actions — surface setup only when
+        // macOS reports them missing and the user has not dismissed Setup.
+        if shouldAutoPresentSetup {
+            Log.app.info("Permissions incomplete — showing onboarding above the Dashboard")
             onboarding.show()
         }
 
@@ -168,9 +170,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
     @objc private func appDidBecomeActive() {
         permissions.refresh()
         applyPermissionState()
-        if !permissions.allGranted {
-            onboarding.show()
-        }
     }
 
     /// `writerflow://paired` (ADR-0011) — foreground hint only. Deliberately
@@ -185,10 +184,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         dashboardWindow.show()
-        if !permissions.allGranted {
-            onboarding.show()
-        }
         return true
+    }
+
+    private var shouldAutoPresentSetup: Bool {
+        !permissions.allGranted && !SetupPreferences.userDismissedSetup
     }
 
     func updateActivationPolicy() {
@@ -213,11 +213,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
             Log.app.error("Accessibility not granted — WriterFlow cannot detect text fields")
         }
         if !imNow {
-            Log.app.error("Input Monitoring not granted — icon shows on field focus (degraded mode)")
+            Log.app.error("Input Monitoring not granted — icon still shows on every focused text field (degraded mode)")
         }
         if permissions.allGranted {
             Log.app.info("All permissions granted")
             permissions.stopPolling()
+            if onboarding.isVisible {
+                onboarding.close(userInitiated: false)
+            }
         }
         updateActivationPolicy()
 
@@ -309,22 +312,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         dashboard.target = self
         menu.addItem(dashboard)
 
-        #if DEBUG
-        // Stage 5.2 manual verification only — no production UI trigger exists
-        // yet (that's the separate Stage 5.2 "UI" checklist item). Exercises
-        // beginPairing()/awaitPairedToken() end to end against whatever
-        // WriterFlowAPIConfig.resolved() points at (services/api dev server
-        // via WRITERFLOW_API_BASE_URL in .env, or production).
-        menu.addItem(.separator())
-        let testPairing = NSMenuItem(
-            title: "Debug: Test Device Pairing",
-            action: #selector(debugTestDevicePairing),
-            keyEquivalent: ""
-        )
-        testPairing.target = self
-        menu.addItem(testPairing)
-        #endif
-
         menu.addItem(.separator())
 
         let quit = NSMenuItem(title: "Quit WriterFlow", action: #selector(quitApp), keyEquivalent: "q")
@@ -343,6 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
     }
 
     @objc private func showOnboarding() {
+        SetupPreferences.userDismissedSetup = false
         permissions.refresh()
         applyPermissionState()
         onboarding.show()
@@ -357,25 +345,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
     }
 
     #if DEBUG
-    @objc private func debugTestDevicePairing() {
-        Task {
-            do {
-                let challenge = try await deviceSession.beginPairing()
-                Log.auth.info("Pairing started — user_code: \(challenge.userCode, privacy: .public), open: \(challenge.verificationURIComplete.absoluteString, privacy: .public)")
-                if NSWorkspace.shared.open(challenge.verificationURIComplete) {
-                    Log.auth.info("Opened verification URL in browser")
-                } else {
-                    Log.auth.error("Could not open verification URL — no /pair page is running yet (expected until the website exists)")
-                }
-                try await deviceSession.awaitPairedToken()
-                let state = await deviceSession.state
-                Log.auth.info("Pairing finished — state: \(String(describing: state), privacy: .public)")
-            } catch {
-                Log.auth.error("Debug pairing failed: \(String(describing: error), privacy: .public)")
-            }
-        }
-    }
-
     private func seedAzureCredentials() {
         let exec = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? ".")
         let projectEnvURL = DotEnvLoader.findProjectEnvFile(startingAt: exec.deletingLastPathComponent())

@@ -30,6 +30,8 @@ final class ActionEngine {
     }
 
     private let client: AzureOpenAIClient
+    private let inferenceTransport: (any InferenceTransport)?
+    private let deviceSession: (any DeviceSessionProviding)?
     private var runningTask: Task<Void, Never>?
     private var promptBuilderSession: PromptBuilderSession?
 
@@ -41,8 +43,14 @@ final class ActionEngine {
     var onCompleted: CompletedHandler?
     var onFailed: ((String) -> Void)?
 
-    init(config: AzureModelsConfig) {
+    init(
+        config: AzureModelsConfig,
+        inferenceTransport: (any InferenceTransport)? = nil,
+        deviceSession: (any DeviceSessionProviding)? = nil
+    ) {
         self.client = AzureOpenAIClient(config: config)
+        self.inferenceTransport = inferenceTransport
+        self.deviceSession = deviceSession
     }
 
     /// Resolves Stage 3.3 personalization for a given app/site — synchronous because
@@ -169,6 +177,21 @@ final class ActionEngine {
 
         let personalization = personalizationContext(bundleID: field.appBundleID, site: site)
 
+        if await shouldUseCloudInference(for: action),
+           let transport = inferenceTransport {
+            await executeCloudFixGrammar(
+                field: field,
+                snapshot: snapshot,
+                conversationContext: conversationContext,
+                inputText: inputText,
+                trimmedInput: trimmedInput,
+                trimmedNote: trimmedNote,
+                site: site,
+                transport: transport
+            )
+            return
+        }
+
         if action.usesMultiVariantPreview {
             await executeMultiVariant(
                 action: action,
@@ -243,6 +266,90 @@ final class ActionEngine {
         event.tokensOut = usage?.tokensOut
         event.latencyMs = ms
         onCompleted?(action, .single(finalOutput), snapshot, event)
+    }
+
+    private func shouldUseCloudInference(for action: WritingAction) async -> Bool {
+        guard let deviceSession else { return false }
+        let sessionState = await deviceSession.state
+        return cloudInferenceEnabled(
+            action: action,
+            useCloudInference: TransportPreferences.useCloudInference,
+            sessionState: sessionState,
+            hasTransport: inferenceTransport != nil
+        )
+    }
+
+    private func executeCloudFixGrammar(
+        field: FocusedField,
+        snapshot: FieldSnapshot,
+        conversationContext: String?,
+        inputText: String,
+        trimmedInput: String,
+        trimmedNote: String,
+        site: String?,
+        transport: any InferenceTransport
+    ) async {
+        var event = ConversionEvent(
+            appBundleID: field.appBundleID,
+            site: site,
+            action: .fixGrammar,
+            input: trimmedInput.isEmpty ? trimmedNote : inputText
+        )
+
+        let request = InferenceRequestBuilder.fixGrammar(
+            snapshot: snapshot,
+            site: site,
+            conversation: conversationContext
+        )
+
+        Log.engine.info(
+            "ActionEngine start action=Fix Grammar transport=cloud chars=\(inputText.count, privacy: .public) contextChars=\(conversationContext?.count ?? 0, privacy: .public)"
+        )
+
+        var rawOutput = ""
+        var promptVersion: String?
+        let started = ContinuousClock.now
+        var firstTokenLogged = false
+
+        do {
+            let stream = transport.streamFixGrammar(request)
+            for try await streamEvent in stream {
+                if Task.isCancelled { return }
+                switch streamEvent {
+                case .delta(let delta):
+                    if !firstTokenLogged {
+                        firstTokenLogged = true
+                        let firstTokenMs = started.duration(to: .now).milliseconds
+                        Log.engine.info("ActionEngine firstTokenMs=\(firstTokenMs, privacy: .public)")
+                    }
+                    let clean = OutputSanitizer.sanitize(delta)
+                    rawOutput += clean
+                    onStreamDelta?(clean)
+                case .completed(_, let version):
+                    promptVersion = version
+                case .requestAccepted, .decision, .usageSummary:
+                    break
+                }
+            }
+        } catch {
+            let message = Self.userFacingMessage(for: error)
+            onFailed?(message)
+            ErrorToast.show(message)
+            Log.engine.error("ActionEngine cloud failed: \(message, privacy: .public)")
+            return
+        }
+
+        let elapsed = started.duration(to: .now)
+        let ms = elapsed.milliseconds
+        let finalOutput = OutputSanitizer.sanitize(rawOutput)
+        Log.engine.info(
+            "ActionEngine done action=Fix Grammar transport=cloud outChars=\(finalOutput.count, privacy: .public) ms=\(ms, privacy: .public)"
+        )
+
+        event.output = finalOutput
+        event.model = promptVersion
+        event.latencyMs = ms
+        onCompleted?(.fixGrammar, .single(finalOutput), snapshot, event)
     }
 
     private func executeMultiVariant(

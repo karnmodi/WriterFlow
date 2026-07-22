@@ -18,30 +18,13 @@ enum WriterFlowInferenceError: Error, LocalizedError, Sendable {
     }
 }
 
-/// Stage 5.4 "Native transport": a standalone SSE client for
-/// `POST /v2/inference/stream` (services/api/src/routes/inference.ts),
-/// following Docs/contracts/inference-stream.md's canonical event order and
-/// wire shape exactly — same `session.bytes(for:)` + `data:` line-parsing
-/// pattern `AzureOpenAIClient.streamOnce` already uses, so this isn't a new
-/// parsing approach in the codebase, just a new endpoint.
-///
-/// Deliberately **not yet wired into `ActionEngine`**. The reason is a real
-/// interchange-shape mismatch, not caution for its own sake:
-/// `AzureOpenAIClient.stream(action:prompt:)` takes a client-rendered
-/// `PromptBuilder.BuiltPrompt` (a system/user string pair) because v1 builds
-/// the prompt locally and sends finished text to Azure. This endpoint wants
-/// the opposite — raw `content.draft`/`selectedText`/`conversation` and
-/// `signals`, because the SERVER compiles the prompt (Stage 5.4's "Compile
-/// prompts from server resources" checklist item, itself still open). A
-/// single `InferenceTransport` protocol covering both shapes would have to
-/// either stringify-and-reparse a built prompt back into raw fields (fragile
-/// and wrong) or take raw fields and have `AzureOpenAIClient` build its own
-/// prompt from them (a bigger, separate change to v1's working code path).
-/// Deciding that interchange shape belongs with the person who reviews
-/// `ActionEngine`'s wiring, not as a side effect of adding this file — so
-/// this proves the client-side half of the SSE contract in isolation
-/// instead.
-actor WriterFlowInferenceTransport {
+/// Stage 5.4 native transport: SSE client for `POST /v2/inference/stream`
+/// (services/api/src/routes/inference.ts), following
+/// Docs/contracts/inference-stream.md's canonical event order. fixGrammar is
+/// wired into `ActionEngine` when signed in and `TransportPreferences
+/// .useCloudInference` is enabled; other actions remain BYO Azure until
+/// Stage 5.4 parity expands.
+actor WriterFlowInferenceTransport: InferenceTransport {
     private let config: WriterFlowAPIConfig
     private let session: URLSession
     private let clientVersion: String
@@ -59,39 +42,7 @@ actor WriterFlowInferenceTransport {
         self.clientVersion = clientVersion
     }
 
-    /// Mirrors `inference-request.schema.json`'s fields for exactly the
-    /// fixGrammar vertical slice — not the full envelope (no Custom/Prompt
-    /// Builder fields yet, matching what the server actually implements).
-    struct FixGrammarRequest: Sendable {
-        let operationId: UUID
-        let retryOf: UUID?
-        let bundleId: String
-        let site: String?
-        let windowClass: String?
-        /// "selection" | "field" | "empty_reply" — `TargetScopeSchema`.
-        let targetScope: String
-        let draft: String
-        let selectedText: String?
-        let conversation: String?
-        let hasSelection: Bool
-        let hasVisibleThread: Bool
-        /// "replace" | "insert_before" — `OutputModeHintSchema`.
-        let outputModeHint: String
-    }
-
-    /// A lightweight local mirror of `InferenceStreamEvent`
-    /// (services/shared/src/schemas/sse-events.ts) — kept separate rather
-    /// than shared cross-language, since Swift and TypeScript don't share a
-    /// type system here.
-    enum StreamEvent: Sendable, Equatable {
-        case requestAccepted(requestId: String)
-        case decision(intent: String, route: String, outputMode: String)
-        case delta(String)
-        case usageSummary(usedUnits: Int, remainingUnits: Int)
-        case completed(requestId: String, promptVersion: String)
-    }
-
-    func streamFixGrammar(_ request: FixGrammarRequest) -> AsyncThrowingStream<StreamEvent, Error> {
+    nonisolated func streamFixGrammar(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -114,8 +65,8 @@ actor WriterFlowInferenceTransport {
     }
 
     private func run(
-        _ request: FixGrammarRequest,
-        continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
+        _ request: InferenceFixGrammarRequest,
+        continuation: AsyncThrowingStream<InferenceStreamEvent, Error>.Continuation
     ) async throws {
         let accessToken = try await deviceSession.accessToken()
         guard case .signedIn(let deviceId) = await deviceSession.state else {
@@ -161,7 +112,7 @@ actor WriterFlowInferenceTransport {
         type: String,
         json: [String: Any],
         order: OrderTracker,
-        continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
+        continuation: AsyncThrowingStream<InferenceStreamEvent, Error>.Continuation
     ) throws -> Bool {
         switch type {
         case "request.accepted":
@@ -214,7 +165,7 @@ actor WriterFlowInferenceTransport {
         return false
     }
 
-    private static func body(for request: FixGrammarRequest) -> [String: Any] {
+    private static func body(for request: InferenceFixGrammarRequest) -> [String: Any] {
         [
             "operationId": request.operationId.uuidString.lowercased(),
             "retryOf": request.retryOf?.uuidString.lowercased() as Any,

@@ -18,6 +18,8 @@ private actor FakeDeviceSession: DeviceSessionProviding {
         return token
     }
     func signOut() async {}
+    func markSessionInvalid() async {}
+    func forceRefreshAccessToken() async throws -> String { try await accessToken() }
     func handleForegroundHint() async {}
     func cancelPairing() async {}
 }
@@ -35,7 +37,7 @@ final class WriterFlowInferenceTransportTests: XCTestCase {
 
     private let testConfig = WriterFlowAPIConfig(baseURL: URL(string: "https://test.invalid/v2")!)
 
-    private func makeRequest() -> WriterFlowInferenceTransport.FixGrammarRequest {
+    private func makeRequest() -> InferenceFixGrammarRequest {
         .init(
             operationId: UUID(),
             retryOf: nil,
@@ -52,8 +54,8 @@ final class WriterFlowInferenceTransportTests: XCTestCase {
         )
     }
 
-    private func collect(_ stream: AsyncThrowingStream<WriterFlowInferenceTransport.StreamEvent, Error>) async throws -> [WriterFlowInferenceTransport.StreamEvent] {
-        var events: [WriterFlowInferenceTransport.StreamEvent] = []
+    private func collect(_ stream: AsyncThrowingStream<InferenceStreamEvent, Error>) async throws -> [InferenceStreamEvent] {
+        var events: [InferenceStreamEvent] = []
         for try await event in stream {
             events.append(event)
         }

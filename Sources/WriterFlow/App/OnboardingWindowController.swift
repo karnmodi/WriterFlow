@@ -19,6 +19,9 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        if permissions.allGranted {
+            return
+        }
         if let window {
             window.level = .floating
             window.makeKeyAndOrderFront(nil)
@@ -34,7 +37,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
             permissions: permissions,
             modelsConfig: config,
             onOpenDashboard: { [weak self] in self?.onOpenDashboard?() },
-            onDone: { [weak self] in self?.close() }
+            onDone: { [weak self] in self?.close(userInitiated: true) }
         )
 
         let hosting = NSHostingController(rootView: view)
@@ -58,10 +61,15 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         visibilityDelegate?.updateActivationPolicy()
 
         // Register with macOS TCC — do NOT open Settings yet (that prevents list registration).
-        permissions.registerWithSystem()
+        if !permissions.allGranted {
+            permissions.registerWithSystem()
+        }
     }
 
-    func close() {
+    func close(userInitiated: Bool = true) {
+        if userInitiated && !permissions.allGranted {
+            SetupPreferences.userDismissedSetup = true
+        }
         window?.close()
         window = nil
         isVisible = false

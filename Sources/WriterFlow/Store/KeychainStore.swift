@@ -167,9 +167,16 @@ enum KeychainStore {
             withIntermediateDirectories: true
         )
 
+        // Preserve API base URL already synced by install.sh — rewriting only
+        // Azure keys used to wipe it and send Account Sign In at production.
+        let existing = DotEnvLoader.load(from: secretsFileURL) ?? [:]
         var lines: [String] = []
         for (key, value) in env where key.hasPrefix("API_KEY_") || key == keyEnvName || key == "TARGET_URI" {
             lines.append("\(key)=\(value)")
+        }
+        let apiBase = env["WRITERFLOW_API_BASE_URL"] ?? existing["WRITERFLOW_API_BASE_URL"]
+        if let apiBase, !apiBase.isEmpty {
+            lines.append("WRITERFLOW_API_BASE_URL=\(apiBase)")
         }
         guard !lines.isEmpty else { return }
 

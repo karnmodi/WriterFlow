@@ -57,7 +57,7 @@ final class OverlayController {
         let originalText: String
     }
 
-    var iconMode: IconMode = .onTyping
+    var iconMode: IconMode = .alwaysOnFocus
     var onActionSelected: ((WritingAction, FocusedField) -> Void)?
     var onCustomActionSelected: ((String, FocusedField) -> Void)?
     var onPromptBuilderActionSelected: ((String, FocusedField) -> Void)?
@@ -426,7 +426,10 @@ final class OverlayController {
             return
         }
         currentField = field
-        guard iconMode == .alwaysOnFocus, hasValidFieldFrame(field) else { return }
+        // Show on every editable field focus for both "While typing" and "On field focus".
+        // Typing-only gated previously, so missing Input Monitoring (or a first-keystroke
+        // delay) left the icon dead on inputs — matches AppDelegate's degraded-mode claim.
+        guard iconMode != .hotkeyOnly, hasValidFieldFrame(field) else { return }
         positionIcon(in: field)
         showIcon()
     }
@@ -470,7 +473,7 @@ final class OverlayController {
         currentField = field
         if isIconVisible {
             positionIcon(in: field)
-        } else if iconMode == .alwaysOnFocus, hasValidFieldFrame(field) {
+        } else if iconMode != .hotkeyOnly, hasValidFieldFrame(field) {
             positionIcon(in: field)
             showIcon()
         }

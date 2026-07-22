@@ -137,8 +137,8 @@ final class SettingsStore: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let modeRaw = defaults.string(forKey: Keys.iconMode) ?? IconMode.onTyping.rawValue
-        self.iconMode = IconMode(rawValue: modeRaw) ?? .onTyping
+        let modeRaw = defaults.string(forKey: Keys.iconMode) ?? IconMode.alwaysOnFocus.rawValue
+        self.iconMode = IconMode(rawValue: modeRaw) ?? .alwaysOnFocus
         self.isPaused = defaults.bool(forKey: Keys.isPaused)
         // Default launchAtLogin to true only if the key has never been set.
         if defaults.object(forKey: Keys.launchAtLogin) == nil {

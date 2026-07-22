@@ -8,13 +8,10 @@ import Foundation
 /// error is a loud, visible failure (golden rule 7: "never a hang or silent
 /// no-op"), not silent data loss the user only discovers later.
 ///
-/// `.locked` and `.migrationRequired` are forward declarations for the
-/// not-yet-built pieces of this same checklist section — SQLCipher
-/// encryption keyed via `DatabaseKeychain` and the V1 atomic migration.
-/// Neither is reachable yet: `WriterFlowDatabase` still opens the same plain
-/// (unencrypted) v1 SQLite file it always has, so there is nothing to
-/// unlock and no migration to require. They exist now so the state type
-/// doesn't need a breaking change when that work lands.
+/// `.locked` and `.migrationRequired` remain forward declarations for
+/// identity-mismatch / recovery flows not wired yet. `WriterFlowDatabase`
+/// now opens SQLCipher-encrypted storage keyed via `DatabaseKeychain` and
+/// atomically migrates legacy plaintext `writerflow.db` when present.
 @MainActor
 final class LaunchCoordinator: ObservableObject {
     static let shared = LaunchCoordinator()
