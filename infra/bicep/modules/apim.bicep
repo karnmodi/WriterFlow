@@ -6,15 +6,17 @@
 // Status: code complete; cloud apply pending.
 
 // containerAppsEnvironmentDefaultDomain/StaticIp resolution to the internal
-// static IP is provided by network.bicep's private DNS zone + VNet link, not
+// static IP is provided by cae-dns.bicep's private DNS zone + VNet link, not
 // by this module — APIM's outbound VNet integration into outboundSubnetId is
 // what lets it consume that zone.
 param namePrefix string
 param location string
 param outboundSubnetId string
 param apiAppFqdn string
-param publisherEmail string = 'engineering@writerflow.app'
+param publisherEmail string = 'engineering@writerflow.aviusolutions.com'
 param publisherName string = 'WriterFlow'
+param writerflowIssuer string = 'https://apiwriterflow.aviusolutions.com'
+param writerflowJwksUri string = 'https://apiwriterflow.aviusolutions.com/.well-known/jwks.json'
 
 resource apim 'Microsoft.ApiManagement/service@2024-06-01-preview' = {
   name: '${namePrefix}-apim'
@@ -30,6 +32,24 @@ resource apim 'Microsoft.ApiManagement/service@2024-06-01-preview' = {
     virtualNetworkConfiguration: {
       subnetResourceId: outboundSubnetId
     }
+  }
+}
+
+resource jwksUriNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  parent: apim
+  name: 'writerflow-jwks-uri'
+  properties: {
+    displayName: 'writerflow-jwks-uri'
+    value: writerflowJwksUri
+  }
+}
+
+resource issuerNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  parent: apim
+  name: 'writerflow-issuer'
+  properties: {
+    displayName: 'writerflow-issuer'
+    value: writerflowIssuer
   }
 }
 
@@ -54,8 +74,65 @@ resource apiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-06-01-pre
   }
 }
 
+resource deviceAuthorizeOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
+  parent: api
+  name: 'device-authorize'
+  properties: {
+    displayName: 'Device authorize'
+    method: 'POST'
+    urlTemplate: '/device/authorize'
+  }
+}
+
+resource deviceAuthorizePolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2024-06-01-preview' = {
+  parent: deviceAuthorizeOperation
+  name: 'policy'
+  properties: {
+    format: 'rawxml'
+    value: loadTextContent('../../apim/pairing-operations-policy.xml')
+  }
+}
+
+resource deviceTokenOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
+  parent: api
+  name: 'device-token'
+  properties: {
+    displayName: 'Device token poll'
+    method: 'POST'
+    urlTemplate: '/device/token'
+  }
+}
+
+resource deviceTokenPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2024-06-01-preview' = {
+  parent: deviceTokenOperation
+  name: 'policy'
+  properties: {
+    format: 'rawxml'
+    value: loadTextContent('../../apim/pairing-operations-policy.xml')
+  }
+}
+
+resource inferenceStreamOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
+  parent: api
+  name: 'inference-stream'
+  properties: {
+    displayName: 'Inference stream (SSE)'
+    method: 'POST'
+    urlTemplate: '/inference/stream'
+  }
+}
+
+resource inferenceStreamPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2024-06-01-preview' = {
+  parent: inferenceStreamOperation
+  name: 'policy'
+  properties: {
+    format: 'rawxml'
+    value: loadTextContent('../../apim/inference-stream-operation-policy.xml')
+  }
+}
+
 // ADR-0012: JWKS is a fixed RFC 8615 well-known path at the issuer's true
-// root (api.writerflow.app/.well-known/jwks.json), not under /v2 — a
+// root (apiwriterflow.aviusolutions.com/.well-known/jwks.json), not under /v2 — a
 // separate root-path API forwarding to the same backend, bypassing the
 // 'writerflow-v2' API's validate-jwt policy entirely (this endpoint is what
 // makes validate-jwt possible in the first place).

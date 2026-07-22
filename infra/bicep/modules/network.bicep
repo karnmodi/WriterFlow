@@ -65,7 +65,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
       {
         // A public Container Apps environment needs its own subnet — a
         // subnet delegated to Microsoft.App/environments can only back one
-        // environment, and the website (real browsers hitting writerflow.app
+        // environment, and the website (real browsers hitting writerflow.aviusolutions.com
         // directly) cannot share the API's internal-only environment without
         // exposing the API's app-level external=true ingress to the open
         // internet too, which would break the "APIM is the only public

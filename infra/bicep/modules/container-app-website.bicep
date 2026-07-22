@@ -3,7 +3,7 @@
 // container-app-api.bicep, this app's ingress is genuinely internet-facing:
 // it runs in its own public Container Apps environment
 // (container-apps-env.bicep with internal=false), not the API's
-// internal-only one, since real browsers must reach writerflow.app directly
+// internal-only one, since real browsers must reach writerflow.aviusolutions.com directly
 // and the API's environment being internal-only is load-bearing for "APIM is
 // the only public entry point to the API." Status: code complete; cloud
 // apply pending — no custom domain/TLS binding is configured here yet (that

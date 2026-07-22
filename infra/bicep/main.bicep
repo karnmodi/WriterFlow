@@ -25,6 +25,14 @@ param location string = resourceGroup().location
 @description('Whether Container Apps/Postgres/Key Vault/AOAI get public network access disabled. Always true outside dev per the phase-wide non-negotiables.')
 param disablePublicNetworkAccess bool = environmentName != 'dev'
 
+@secure()
+@description('PostgreSQL migrator admin password — pass at deploy time; never commit.')
+param postgresAdministratorPassword string
+
+param apimPublisherEmail string = 'engineering@writerflow.aviusolutions.com'
+
+param budgetNotificationEmail string = 'engineering@writerflow.aviusolutions.com'
+
 module network 'modules/network.bicep' = {
   name: '${namePrefix}-network'
   params: {
@@ -60,6 +68,7 @@ module postgres 'modules/postgres.bicep' = {
     privateDnsZoneId: network.outputs.postgresPrivateDnsZoneId
     disablePublicNetworkAccess: disablePublicNetworkAccess
     environmentName: environmentName
+    administratorPassword: postgresAdministratorPassword
   }
 }
 
@@ -112,6 +121,18 @@ module deletionRegistry 'modules/deletion-registry.bicep' = {
   }
 }
 
+// Resolve *.${apiCaeDefaultDomain} to the internal CAE static IP inside the
+// VNet — required for APIM outbound and website→API server-to-server calls.
+module apiCaeDns 'modules/cae-dns.bicep' = {
+  name: '${namePrefix}-api-cae-dns'
+  params: {
+    defaultDomain: containerAppsEnv.outputs.defaultDomain
+    staticIp: containerAppsEnv.outputs.staticIp
+    vnetId: network.outputs.vnetId
+    linkName: '${namePrefix}-api-cae-dns-link'
+  }
+}
+
 module apiApp 'modules/container-app-api.bicep' = {
   name: '${namePrefix}-api-app'
   params: {
@@ -141,6 +162,7 @@ module apim 'modules/apim.bicep' = {
     location: location
     outboundSubnetId: network.outputs.apimSubnetId
     apiAppFqdn: apiApp.outputs.fqdn
+    publisherEmail: apimPublisherEmail
   }
 }
 
@@ -149,6 +171,7 @@ module budget 'modules/budget.bicep' = {
   params: {
     namePrefix: namePrefix
     environmentName: environmentName
+    notificationEmail: budgetNotificationEmail
   }
 }
 

@@ -7,7 +7,7 @@
 param namePrefix string
 @allowed(['dev', 'staging', 'prod'])
 param environmentName string
-param notificationEmail string = 'engineering@writerflow.app'
+param notificationEmail string = 'engineering@writerflow.aviusolutions.com'
 
 var monthlyAmountByEnvironment = {
   dev: 100

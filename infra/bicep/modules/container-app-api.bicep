@@ -57,6 +57,10 @@ resource apiApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
               name: 'KEY_VAULT_URI'
               value: keyVaultUri
             }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: identity.properties.clientId
+            }
           ]
           probes: [
             {

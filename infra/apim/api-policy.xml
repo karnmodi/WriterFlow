@@ -18,7 +18,7 @@
     <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized" require-scheme="Bearer" output-token-variable-name="jwt">
       <openid-config url="{{writerflow-jwks-uri}}" />
       <audiences>
-        <audience>https://api.writerflow.app</audience>
+        <audience>https://apiwriterflow.aviusolutions.com</audience>
       </audiences>
       <issuers>
         <issuer>{{writerflow-issuer}}</issuer>
