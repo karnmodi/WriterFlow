@@ -8,7 +8,12 @@ import { registerHealthRoutes } from "./routes/health.js";
 import { registerDeviceRoutes } from "./routes/device.js";
 import { registerJwksRoutes } from "./routes/jwks.js";
 import { registerWebSessionRoutes } from "./routes/webSession.js";
+import { registerWebAccountRoutes } from "./routes/webAccount.js";
 import { registerAccountRoutes } from "./routes/account.js";
+import { registerUsageRoutes } from "./routes/usage.js";
+import { registerBillingRoutes } from "./routes/billing.js";
+import { registerClassifierRoutes } from "./routes/classifier.js";
+import { registerCohortRoutes } from "./routes/cohort.js";
 import { registerInferenceRoutes } from "./routes/inference.js";
 import { ApiError, sendError, type ErrorBody } from "./errors.js";
 import type { SigningKeyProvider } from "./jwt/keys.js";
@@ -74,8 +79,13 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
   registerHealthRoutes(app, deps.pool);
   registerJwksRoutes(app, deps.signingKeys);
   registerDeviceRoutes(app, deps.pool, deps.signingKeys, deps.config.WEBSITE_BASE_URL);
-  registerWebSessionRoutes(app, deps.signingKeys, deps.entraVerifier);
+  registerWebSessionRoutes(app, deps.signingKeys, deps.entraVerifier, deps.pool, deps.config);
+  registerWebAccountRoutes(app, deps.signingKeys, deps.entraVerifier, deps.pool, deps.config);
   registerAccountRoutes(app, deps.pool, deps.signingKeys);
+  registerUsageRoutes(app, deps.pool, deps.signingKeys);
+  registerBillingRoutes(app, deps.pool, deps.signingKeys, deps.config);
+  registerClassifierRoutes(app, deps.pool, deps.signingKeys);
+  registerCohortRoutes(app, deps.pool, deps.signingKeys, deps.config);
   registerInferenceRoutes(app, deps.pool, deps.signingKeys, deps.inferenceProvider ?? new DevEchoProvider());
 
   app.setErrorHandler((error: FastifyError | ApiError, request, reply) => {

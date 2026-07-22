@@ -94,7 +94,7 @@ describe.skipIf(!dbAvailable)("device pairing against real Postgres", () => {
     const verifier = randomBytes(32).toString("base64url");
     const challenge = computeS256Challenge(verifier);
 
-    const authResult = await authorizeDevice(appPool, "https://writerflow.app", {
+    const authResult = await authorizeDevice(appPool, "https://writerflow.aviusolutions.com", {
       installId: "install-1",
       deviceLabel: "Test Mac",
       codeChallenge: challenge,
@@ -147,7 +147,7 @@ describe.skipIf(!dbAvailable)("device pairing against real Postgres", () => {
     const challenge = computeS256Challenge(verifier);
     const authResult = await authorizeDevice(
       appPool,
-      "https://writerflow.app",
+      "https://writerflow.aviusolutions.com",
       { installId: "install-3", deviceLabel: null, codeChallenge: challenge, codeChallengeMethod: "S256" },
       { intervalSeconds: 5 }
     );
@@ -160,7 +160,7 @@ describe.skipIf(!dbAvailable)("device pairing against real Postgres", () => {
   it("expires a device_code past its expires_at, even while still pending", async () => {
     const verifier = randomBytes(32).toString("base64url");
     const challenge = computeS256Challenge(verifier);
-    const authResult = await authorizeDevice(appPool, "https://writerflow.app", {
+    const authResult = await authorizeDevice(appPool, "https://writerflow.aviusolutions.com", {
       installId: "install-4",
       deviceLabel: null,
       codeChallenge: challenge,
@@ -177,7 +177,7 @@ describe.skipIf(!dbAvailable)("device pairing against real Postgres", () => {
   it("rejects tokens for a revoked device", async () => {
     const verifier = randomBytes(32).toString("base64url");
     const challenge = computeS256Challenge(verifier);
-    const authResult = await authorizeDevice(appPool, "https://writerflow.app", {
+    const authResult = await authorizeDevice(appPool, "https://writerflow.aviusolutions.com", {
       installId: "install-2",
       deviceLabel: null,
       codeChallenge: challenge,

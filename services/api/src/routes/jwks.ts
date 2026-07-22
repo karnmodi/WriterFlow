@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { SigningKeyProvider } from "../jwt/keys.js";
 
 /**
- * ADR-0012: publishes api.writerflow.app/.well-known/jwks.json. This is a
+ * ADR-0012: publishes apiwriterflow.aviusolutions.com/.well-known/jwks.json. This is a
  * fixed RFC 8615 well-known path at the issuer's true root — it must stay
  * outside the /v2 versioned API path APIM otherwise fronts everything with,
  * so infra/apim/main needs a second, root-scoped API/operation forwarding

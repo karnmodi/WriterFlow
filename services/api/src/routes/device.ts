@@ -10,7 +10,7 @@ import { ApiError, sendError } from "../errors.js";
 import type { SigningKeyProvider } from "../jwt/keys.js";
 import { authorizeDevice, pollDeviceToken, rotateRefreshToken } from "../pairing/service.js";
 import { approveDevice } from "../pairing/approve.js";
-import { verifyWebSessionToken } from "../jwt/issuer.js";
+import { verifyWebSessionToken, entraIdentityFromWebSessionClaims } from "../jwt/issuer.js";
 
 const DeviceApproveRequestSchema = z.strictObject({
   userCode: z.string().min(1)
@@ -103,7 +103,7 @@ export function registerDeviceRoutes(
 
     const result = await approveDevice(
       pool,
-      { issuer: verified.claims.entra_issuer, subject: verified.claims.entra_subject },
+      entraIdentityFromWebSessionClaims(verified.claims),
       parsed.data.userCode
     );
     if (result.kind === "invalid_user_code") {

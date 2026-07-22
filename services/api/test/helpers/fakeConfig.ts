@@ -7,7 +7,7 @@ export function fakeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     LOG_LEVEL: "silent",
     DATABASE_URL: "postgres://user:pass@localhost:5432/db",
     DATABASE_POOL_MAX: 1,
-    WEBSITE_BASE_URL: "https://writerflow.app",
+    WEBSITE_BASE_URL: "https://writerflow.aviusolutions.com",
     ...overrides
   };
 }

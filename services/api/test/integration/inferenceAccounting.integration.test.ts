@@ -48,9 +48,20 @@ describe.skipIf(!dbAvailable)("Stage 5.4 inference accounting against real Postg
   let appPool: pg.Pool;
   const keys = new LocalDevSigningKeyProvider();
 
-  beforeAll(() => {
+  beforeAll(async () => {
     migratorPool = new pg.Pool({ connectionString: MIGRATOR_URL });
     appPool = new pg.Pool({ connectionString: APP_URL });
+    // Migration 012 seeds alpha-flat-v1; ensure it exists when the local DB
+    // was migrated before 012 landed (same pattern as other integration tests).
+    await migratorPool.query(`
+      INSERT INTO pricing_versions (version_label, effective_at, conversion)
+      VALUES (
+        'alpha-flat-v1',
+        now(),
+        '{"description": "Stage 5.4 vertical-slice placeholder", "flatUnitsPerRequest": 1}'::jsonb
+      )
+      ON CONFLICT (version_label) DO NOTHING
+    `);
   });
 
   afterAll(async () => {
@@ -61,7 +72,7 @@ describe.skipIf(!dbAvailable)("Stage 5.4 inference accounting against real Postg
   async function provisionAccount(label: string): Promise<{ organizationId: string; userId: string; deviceId: string }> {
     const verifier = randomBytes(32).toString("base64url");
     const challenge = computeS256Challenge(verifier);
-    const auth = await authorizeDevice(appPool, "https://writerflow.app", {
+    const auth = await authorizeDevice(appPool, "https://writerflow.aviusolutions.com", {
       installId: `acct-${label}-${randomBytes(4).toString("hex")}`,
       deviceLabel: null,
       codeChallenge: challenge,

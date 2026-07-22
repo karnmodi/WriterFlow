@@ -7,11 +7,13 @@ import { LocalDevSigningKeyProvider } from "../../src/jwt/keys.js";
 import { computeS256Challenge } from "../../src/crypto/pkce.js";
 import { buildApp } from "../../src/app.js";
 import { fakeConfig } from "../helpers/fakeConfig.js";
-import type { EntraIdentity } from "../../src/entra/verifier.js";
+import { testEntraIdentity } from "../helpers/testIdentity.js";
 
 interface AccountSnapshotBody {
   userId: string;
   organizationId: string;
+  displayName: string | null;
+  email: string | null;
   device: { id: string; label: string | null; revoked: boolean; current: boolean };
   entitlement: { plan: string };
 }
@@ -69,13 +71,18 @@ describe.skipIf(!dbAvailable)("GET /me and DELETE /devices/:id against real Post
   async function pairNewDevice(subject: string, installId: string) {
     const verifier = randomBytes(32).toString("base64url");
     const challenge = computeS256Challenge(verifier);
-    const auth = await authorizeDevice(appPool, "https://writerflow.app", {
+    const auth = await authorizeDevice(appPool, "https://writerflow.aviusolutions.com", {
       installId,
       deviceLabel: "Test Mac",
       codeChallenge: challenge,
       codeChallengeMethod: "S256"
     });
-    const identity: EntraIdentity = { issuer: "https://writerflow.ciamlogin.com/t/v2.0", subject };
+    const email = `${subject.replace(/[^a-zA-Z0-9_-]/g, "_")}@example.com`;
+    const identity = testEntraIdentity(subject, {
+      displayName: "Karan Singh",
+      email,
+      displayClaims: { name: "Karan Singh", email }
+    });
     const approveResult = await approveDevice(appPool, identity, auth.userCode);
     if (approveResult.kind !== "approved") throw new Error(`expected approved, got ${approveResult.kind}`);
     const tokenResult = await pollDeviceToken(appPool, keys, auth.deviceCode, verifier);
@@ -84,7 +91,8 @@ describe.skipIf(!dbAvailable)("GET /me and DELETE /devices/:id against real Post
       accessToken: tokenResult.accessToken,
       deviceId: tokenResult.deviceId,
       userId: approveResult.snapshot.userId,
-      organizationId: approveResult.snapshot.organizationId
+      organizationId: approveResult.snapshot.organizationId,
+      email
     };
   }
 
@@ -103,6 +111,8 @@ describe.skipIf(!dbAvailable)("GET /me and DELETE /devices/:id against real Post
     expect(body.device.label).toBe("Test Mac");
     expect(body.device.revoked).toBe(false);
     expect(body.device.current).toBe(true);
+    expect(body.displayName).toBe("Karan Singh");
+    expect(body.email).toBe(session.email);
     expect(body.entitlement.plan).toBe("free");
   });
 
@@ -157,13 +167,17 @@ describe.skipIf(!dbAvailable)("GET /me and DELETE /devices/:id against real Post
     const subject = `revoke-refresh-user-${randomBytes(4).toString("hex")}`;
     const verifier = randomBytes(32).toString("base64url");
     const challenge = computeS256Challenge(verifier);
-    const auth = await authorizeDevice(appPool, "https://writerflow.app", {
+    const auth = await authorizeDevice(appPool, "https://writerflow.aviusolutions.com", {
       installId: "mac-refresh-revoke",
       deviceLabel: null,
       codeChallenge: challenge,
       codeChallengeMethod: "S256"
     });
-    const identity: EntraIdentity = { issuer: "https://writerflow.ciamlogin.com/t/v2.0", subject };
+    const identity = testEntraIdentity(subject, {
+      displayName: "Karan Singh",
+      email: `${subject}@example.com`,
+      displayClaims: { name: "Karan Singh", email: `${subject}@example.com` }
+    });
     const approveResult = await approveDevice(appPool, identity, auth.userCode);
     if (approveResult.kind !== "approved") throw new Error("expected approved");
     const tokenResult = await pollDeviceToken(appPool, keys, auth.deviceCode, verifier);

@@ -8,7 +8,7 @@ import { LocalDevSigningKeyProvider } from "../../src/jwt/keys.js";
 import { computeS256Challenge } from "../../src/crypto/pkce.js";
 import { buildApp } from "../../src/app.js";
 import { fakeConfig } from "../helpers/fakeConfig.js";
-import type { EntraIdentity } from "../../src/entra/verifier.js";
+import { testEntraIdentity } from "../helpers/testIdentity.js";
 
 /**
  * Docs/contracts/inference-stream.md's "Allowed log fields" contract and
@@ -72,13 +72,13 @@ describe.skipIf(!dbAvailable)("secrets never reach the backend request log", () 
   it("device_code, user_code, PKCE verifier, access token, and refresh token never appear verbatim in log output", async () => {
     const verifier = randomBytes(32).toString("base64url");
     const challenge = computeS256Challenge(verifier);
-    const auth = await authorizeDevice(appPool, "https://writerflow.app", {
+    const auth = await authorizeDevice(appPool, "https://writerflow.aviusolutions.com", {
       installId: "mac-log-safety",
       deviceLabel: "Log Safety Test Mac",
       codeChallenge: challenge,
       codeChallengeMethod: "S256"
     });
-    const identity: EntraIdentity = { issuer: "https://writerflow.ciamlogin.com/t/v2.0", subject: `log-safety-${randomBytes(4).toString("hex")}` };
+    const identity = testEntraIdentity(`log-safety-${randomBytes(4).toString("hex")}`);
     const approveResult = await approveDevice(appPool, identity, auth.userCode);
     if (approveResult.kind !== "approved") throw new Error(`expected approved, got ${approveResult.kind}`);
     const tokenResult = await pollDeviceToken(appPool, keys, auth.deviceCode, verifier);
