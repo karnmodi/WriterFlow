@@ -22,6 +22,7 @@ packaging/AppIcon.iconset/
 .env
 .env.local
 .env.services
+services/api/.dev-signing-key.json
 *.p8
 *.p12
 *.provisionprofile

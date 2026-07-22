@@ -23,9 +23,17 @@ echo ""
 SECRETS_DIR="${HOME}/Library/Application Support/WriterFlow"
 if [[ -f "${ROOT}/.env" ]]; then
     mkdir -p "${SECRETS_DIR}"
-    grep -E '^(API_KEY_|TARGET_URI=|AZURE_OPENAI_DEPLOYMENT_)' "${ROOT}/.env" > "${SECRETS_DIR}/secrets.env" || true
+    # Azure BYO keys + local API override. WRITERFLOW_API_BASE_URL must land in
+    # Application Support because ~/Applications/WriterFlow.app cannot walk up
+    # to the repo `.env` — without it, DEBUG builds fall through to
+    # apiwriterflow.aviusolutions.com and Account Sign In fails DNS before the browser opens.
+    grep -E '^(API_KEY_|TARGET_URI=|AZURE_OPENAI_DEPLOYMENT_|WRITERFLOW_API_BASE_URL=)' "${ROOT}/.env" \
+        > "${SECRETS_DIR}/secrets.env" || true
     chmod 600 "${SECRETS_DIR}/secrets.env" 2>/dev/null || true
     echo "▸ synced API credentials to ${SECRETS_DIR}/secrets.env"
+    if grep -q '^WRITERFLOW_API_BASE_URL=' "${SECRETS_DIR}/secrets.env" 2>/dev/null; then
+        echo "▸ WriterFlow API override: $(grep '^WRITERFLOW_API_BASE_URL=' "${SECRETS_DIR}/secrets.env" | cut -d= -f2-)"
+    fi
 fi
 
 echo "Next steps (one-time):"

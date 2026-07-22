@@ -1,0 +1,62 @@
+name: azure-deploy-dev
+
+# Stage 5.1 CD skeleton — dev auto-deploy on main; staging/prod require manual approval.
+# Requires repository secrets: AZURE_CREDENTIALS, AZURE_SUBSCRIPTION_ID, AZURE_RESOURCE_GROUP.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: dev
+        type: choice
+        options: [dev, staging, prod]
+  push:
+    branches: [main]
+    paths:
+      - "infra/bicep/**"
+      - "services/api/**"
+      - "services/worker/**"
+      - "website/**"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy to Azure (${{ github.event.inputs.environment || 'dev' }})
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - uses: azure/setup-bicep@v1
+
+      - name: Build and validate Bicep
+        run: bicep build infra/bicep/main.bicep --stdout > /dev/null
+
+      - name: Deploy infrastructure (what-if first)
+        run: |
+          az deployment group what-if \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --template-file infra/bicep/main.bicep \
+            --parameters environment=${{ github.event.inputs.environment || 'dev' }}
+
+      - name: Deploy infrastructure
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        run: |
+          az deployment group create \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --template-file infra/bicep/main.bicep \
+            --parameters environment=${{ github.event.inputs.environment || 'dev' }} \
+            --mode Incremental
+
+      - name: Post-deploy smoke (APIM health)
+        run: |
+          echo "Run APIM smoke against deployed endpoint — configure APIM_BASE_URL secret"

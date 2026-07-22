@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 CONFIG ?= debug
 
-.PHONY: help build test lint bundle run clean stop relaunch install install-run dmg verify-release release xcodeproj
+.PHONY: help build test lint bundle run clean stop relaunch install install-run dmg verify-release release xcodeproj scan-v2-release
 
 help:
 	@echo "WriterFlow build targets:"
@@ -13,9 +13,9 @@ help:
 	@echo "  make bundle      — build + wrap as build/WriterFlow.app"
 	@echo "  make install     — install to ~/Applications/WriterFlow.app (stable permissions)"
 	@echo "  make install-run — install + quit old + launch from ~/Applications"
-	@echo "  make run         — stop old instance, build bundle, launch build/"
+	@echo "  make run         — install to ~/Applications + launch (stable TCC path)"
 	@echo "  make stop        — quit all running WriterFlow instances"
-	@echo "  make relaunch    — clean + bundle + launch (fresh build)"
+	@echo "  make relaunch    — clean + install + launch (fresh build)"
 	@echo "  make clean       — remove .build and build/"
 	@echo "  make release     — V2 ONLY: Developer ID sign + notarize + staple (not a v1 requirement)"
 	@echo "  make dmg         — package build/WriterFlow.app into a drag-to-Applications DMG (branded installer window)"
@@ -51,23 +51,12 @@ stop:
 	@pkill -x WriterFlow 2>/dev/null && echo "Stopped WriterFlow." || echo "No WriterFlow process running."
 	@sleep 0.5
 
-run: bundle stop
-	open build/WriterFlow.app
-	@echo ""
-	@echo "WriterFlow launched."
-	@echo "  App path: $$(pwd)/build/WriterFlow.app"
-	@echo "  • Look for the highlighter  WF  icon in the menu bar (top-right)."
-	@echo "  • A setup window should appear — grant Accessibility + Input Monitoring."
-	@echo "  • In Input Monitoring: click + and select the app path above."
-	@echo ""
+# Prefer ~/Applications so Accessibility / Input Monitoring survive rebuilds.
+# Opening build/WriterFlow.app directly often looks granted but TCC is stale.
+run: install-run
 
-relaunch: clean bundle stop
-	open build/WriterFlow.app
-	@echo ""
-	@echo "WriterFlow relaunched (clean build)."
-	@echo "  App path: $$(pwd)/build/WriterFlow.app"
-	@echo "  Note: after clean builds, re-pair Accessibility (see Setup → Repair Accessibility)"
-	@echo ""
+relaunch: clean install-run
+	@echo "  Note: after clean builds, re-pair Accessibility to ~/Applications/WriterFlow.app if needed."
 
 install:
 	chmod +x scripts/install.sh
@@ -88,6 +77,9 @@ dmg:
 
 verify-release:
 	scripts/release-v1.sh
+
+scan-v2-release:
+	node scripts/scan-v2-release.mjs build/WriterFlow.app
 
 clean:
 	rm -rf .build build

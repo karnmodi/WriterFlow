@@ -46,6 +46,21 @@ if [[ -d "$BUNDLE" ]]; then
     cp -R "$BUNDLE" "$APP/Contents/Resources/"
 fi
 
+# SQLCipher is linked as @rpath/SQLCipher.framework — copy the macOS slice from
+# SPM's binary artifact into Contents/Frameworks so `open WriterFlow.app` works
+# outside of `swift run` (which resolves rpath via the build directory).
+SQLCIPHER_XCFRAMEWORK="${ROOT}/.build/artifacts/sqlcipher.swift/SQLCipher/SQLCipher.xcframework"
+SQLCIPHER_FRAMEWORK="${SQLCIPHER_XCFRAMEWORK}/macos-arm64_x86_64/SQLCipher.framework"
+if [[ -d "$SQLCIPHER_FRAMEWORK" ]]; then
+    mkdir -p "$APP/Contents/Frameworks"
+    rm -rf "$APP/Contents/Frameworks/SQLCipher.framework"
+    cp -R "$SQLCIPHER_FRAMEWORK" "$APP/Contents/Frameworks/"
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/WriterFlow" 2>/dev/null || true
+else
+    echo "✗ $SQLCIPHER_FRAMEWORK not found — run 'swift build' first so SPM fetches SQLCipher" >&2
+    exit 1
+fi
+
 # Ad-hoc signature. Developer ID is deferred to v2 (scripts/release.sh).
 #
 # For a release build this is a production packaging step: enable the hardened
