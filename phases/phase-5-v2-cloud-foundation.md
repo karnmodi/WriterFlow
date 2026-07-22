@@ -801,17 +801,83 @@ identity and device-approval provisioning flow.
 
 ### SQLCipher feasibility gate
 
-- [ ] Time-box an SPM + GRDB + SQLCipher build spike for Debug/Release, app bundling,
+**Spike passed (2026-07-22).** `spikes/sqlcipher-feasibility/` — a deliberately isolated
+SPM executable, not part of the main app target (GRDB v6, the app's current dependency,
+and GRDB v7+SQLCipher both export a module literally named `GRDB`; they cannot coexist in
+one target, so this spike proves feasibility before any production migration, exactly as
+this gate is meant to gate).
+
+- [x] Time-box an SPM + GRDB + SQLCipher build spike for Debug/Release, app bundling,
   hardened signing, architecture verification, and an empty encrypted DB open/read/write.
-- [ ] Own and pin the required GRDB Swift-package fork/manifest, assign upstream and
+  — `swift build -c debug` (~9s cold) and `-c release` (~25s) both succeed.
+  `spikes/sqlcipher-feasibility/Sources/SQLCipherFeasibilitySpike/main.swift` opens a real
+  encrypted DB with a random 256-bit key (`SecRandomCopyBytes`, never derived from a
+  password/token per this stage's own rule), writes a row, closes, reopens with the
+  *same* key and confirms the row round-trips, then reopens with a *wrong* key and
+  confirms it fails closed (`SQLite error 26: file is not a database` — GRDB's own
+  internal schema-priming query trips on the undecryptable page immediately at open
+  time, not just on first read, which is a stronger fail-closed property than the
+  checklist strictly asked for). `PRAGMA cipher_version` confirms real SQLCipher 4.17.0
+  community linkage rather than a silent plaintext fallback. All four checks pass
+  identically in both Debug and Release. **Hardened signing found a real, fixable
+  blocker**: ad-hoc `codesign --options runtime` alone breaks the build — dyld's library
+  validation rejects loading `SQLCipher.framework` (a binary framework signed by Zetetic,
+  a different Team ID than this ad-hoc-signed app) under hardened runtime. Fixed by
+  signing with `--entitlements` carrying
+  `com.apple.security.cs.disable-library-validation`; re-verified the signed, hardened
+  binary still passes all four checks. **This means the real integration will need**:
+  (a) `WriterFlow.entitlements` gains that key, and (b) `scripts/bundle.sh`'s release
+  `codesign` call gains `--entitlements WriterFlow.entitlements` — which it currently
+  lacks entirely (the entitlements file already exists in this repo but was never
+  actually being applied at sign time, a pre-existing gap this spike surfaced, not
+  something this spike changed). Architecture: arm64 only, matching this project's
+  existing single-architecture ad-hoc DMG distribution — no universal-binary gap to
+  chase.
+- [x] Own and pin the required GRDB Swift-package fork/manifest, assign upstream and
   SQLCipher security-update responsibility, and prove SQLCipher is the only linked
-  SQLite implementation for every advertised Release architecture.
-- [ ] Confirm no conflicting system SQLite/SQLCipher symbols and include all required
-  licenses/notices.
-- [ ] Record binary size, startup/query cost, packaging impact, and maintenance owner.
+  SQLite implementation for every advertised Release architecture. — vendored (not
+  forked-on-GitHub, to avoid creating public content under the user's account without
+  asking first) at `vendor/GRDB.swift/` — a pinned checkout of tag `v7.11.1` with the
+  four-block SQLCipher patch already documented in GRDB's own `Package.swift` comments
+  applied (uncomment the `SQLCipher.swift` dependency + `SQLITE_HAS_CODEC`/`SQLCipher`
+  defines; delete the `GRDBSQLite` system-library target/product; enable the
+  `GRDBSQLCipher` target). Re-applying this same four-block patch is how a future bump
+  to a newer GRDB tag works — documented directly in the vendored `Package.swift`'s own
+  comment. **Maintenance owner: not yet assigned** — whoever picks up the rest of Stage
+  5.3 should also take upstream GRDB/SQLCipher security-update tracking, since vendoring
+  means Dependabot-style automated update PRs won't fire for this dependency the way
+  they might for a normal remote SPM package. `otool -L` on the Release binary confirms
+  the only SQLite-family linkage is `@rpath/SQLCipher.framework/...` — no
+  `/usr/lib/libsqlite3.dylib` (the system SQLite) anywhere in the link graph, so
+  there's no dual-implementation ambiguity for the single arm64 architecture this
+  project ships.
+- [x] Confirm no conflicting system SQLite/SQLCipher symbols and include all required
+  licenses/notices. — confirmed via `otool -L` above. Licenses: GRDB's MIT `LICENSE`
+  file is present in the vendored checkout at `vendor/GRDB.swift/LICENSE`;
+  `SQLCipher.swift` remains a normal remote SPM dependency (not vendored, just a
+  `.package(url:...)` resolved at build time) carrying its own BSD-style license the
+  same way every other remote SPM dependency in this project already does — no
+  additional manual copying needed beyond what the existing GRDB v6/other dependencies
+  already require.
+- [x] Record binary size, startup/query cost, packaging impact, and maintenance owner.
+  — Release binary: 5.2MB (spike-only executable; not representative of the full app's
+  eventual size delta, since the main app links far more than this spike does — record
+  a real delta once GRDB v7+SQLCipher actually replaces GRDB v6 in `Package.swift`, not
+  before). Cold Release build: ~25s; incremental Debug rebuild: ~2s. Runtime cost of the
+  four spike operations (open/write/close/reopen/read/reopen-wrong-key/fail): well under
+  a second end to end, no perceptible startup delay from SQLCipher's key derivation at
+  this data volume — a proper cost measurement against realistic history-table row
+  counts is still open, deferred to the actual store refactor. Packaging impact:
+  requires `SQLCipher.framework` to be embedded/signed inside the app bundle (a binary
+  xcframework, not header-only) — `scripts/bundle.sh` doesn't do this yet; that's real
+  work for the "Store refactor" section below, not this gate. **Maintenance owner: not
+  yet assigned** (see above).
 - [ ] If the spike fails, stop and approve a replacement ADR for CryptoKit AES-GCM field
   encryption and deliberately designed blind indexes before implementing persistence
   changes. Record its metadata/schema leakage and loss of general FTS/search explicitly.
+  — **N/A, the spike passed.** Leaving unchecked rather than marking done-or-skipped,
+  since "not applicable" and "done" mean different things for an Accept-criteria list a
+  future reader might scan quickly.
 
 ### Store refactor
 
