@@ -9,9 +9,12 @@ import { registerDeviceRoutes } from "./routes/device.js";
 import { registerJwksRoutes } from "./routes/jwks.js";
 import { registerWebSessionRoutes } from "./routes/webSession.js";
 import { registerAccountRoutes } from "./routes/account.js";
+import { registerInferenceRoutes } from "./routes/inference.js";
 import { ApiError, sendError, type ErrorBody } from "./errors.js";
 import type { SigningKeyProvider } from "./jwt/keys.js";
 import type { EntraIdTokenVerifier } from "./entra/verifier.js";
+import type { InferenceProvider } from "./inference/provider.js";
+import { DevEchoProvider } from "./inference/devEchoProvider.js";
 
 export interface AppDependencies {
   config: AppConfig;
@@ -19,6 +22,11 @@ export interface AppDependencies {
   signingKeys: SigningKeyProvider;
   /** null when ENTRA_* env vars are unset — no tenant exists yet (cloud apply pending). */
   entraVerifier: EntraIdTokenVerifier | null;
+  /** Stage 5.4: defaults to DevEchoProvider (below) until a real Azure
+   * OpenAI resource exists (cloud apply pending, blocked on user cost
+   * approval). Optional so existing callers/tests that don't touch
+   * inference routes don't need to know this dependency exists. */
+  inferenceProvider?: InferenceProvider;
   /** Test-only seam: capture log output instead of writing to stdout. */
   logStream?: NodeJS.WritableStream;
 }
@@ -68,6 +76,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
   registerDeviceRoutes(app, deps.pool, deps.signingKeys, deps.config.WEBSITE_BASE_URL);
   registerWebSessionRoutes(app, deps.signingKeys, deps.entraVerifier);
   registerAccountRoutes(app, deps.pool, deps.signingKeys);
+  registerInferenceRoutes(app, deps.pool, deps.signingKeys, deps.inferenceProvider ?? new DevEchoProvider());
 
   app.setErrorHandler((error: FastifyError | ApiError, request, reply) => {
     if (error instanceof ApiError) {

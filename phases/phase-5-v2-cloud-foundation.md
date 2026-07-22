@@ -990,15 +990,54 @@ screen rather than empty data; no user-content settings remain in plaintext User
 These items land before the first Azure model call; Stage 5.5 hardens and generalizes
 them rather than introducing metering after provider traffic already exists.
 
-- [ ] In one transaction create `inference_requests`, a worst-case
+- [x] In one transaction create `inference_requests`, a worst-case
   `quota_reservation`, and a pending `usage_ledger` attempt under unique
   `(user_id, idempotency_key)` before provider access.
-- [ ] Enforce the minimum request-state transitions and a free-alpha allowance so a
+  — `services/api/src/inference/accounting.ts`'s `reserveInferenceRequest`: one
+  `withTenantContext` transaction inserts the `inference_requests` row and its
+  `quota_reservations` row together; a matching `(user_id, idempotency_key)` short-circuits
+  to the existing row instead of reserving twice. No `usage_ledger` row is written at
+  reserve time — the schema only allows a `committed`/`reversed` `status`, so "pending" is
+  represented by the reservation, not a ledger row; the ledger row is written atomically at
+  commit (below), not as a separate pending-then-updated row.
+- [x] Enforce the minimum request-state transitions and a free-alpha allowance so a
   duplicate or over-quota operation cannot reach Azure.
-- [ ] On every success/failure/cancel/disconnect, commit provider usage/internal cost or
+  — `OPERATION_STATE_TRANSITIONS` (`services/shared/src/operation.ts`, already existed from
+  Stage 5.0) is enforced by `accounting.ts`'s `assertTransition` under a row lock
+  (`SELECT ... FOR UPDATE`) on every `transitionState`/`commitInferenceRequest` call.
+  `reserveInferenceRequest` checks the current `usage_balances` row (get-or-create per
+  calendar month, `FREE_ALPHA_MONTHLY_UNITS` = 500) and throws `QuotaExceededError` before
+  any row is inserted if the request would exceed it — proven by an integration test that
+  pre-fills the balance to the cap and asserts zero `inference_requests` rows result.
+- [x] On every success/failure/cancel/disconnect, commit provider usage/internal cost or
   release the reservation as applicable. Content never enters these rows.
-- [ ] Make the first Fix Grammar vertical slice prove one operation, one provider
+  — `commitInferenceRequest` (success) and `releaseInferenceRequest` (failure/cancel) in
+  `accounting.ts`; `routes/inference.ts` calls the latter from both its `catch` block and a
+  `request.raw.on("close", ...)` listener, so a mid-stream client disconnect is handled the
+  same as a server-side failure. Neither function ever takes request/output text as a
+  parameter — only IDs and token counts.
+- [x] Make the first Fix Grammar vertical slice prove one operation, one provider
   attempt, and one immutable ledger attempt before expanding action parity.
+  — `POST /v2/inference/stream` (`services/api/src/routes/inference.ts`) implements exactly
+  `requestedAction: "fixGrammar"`; every other action returns `VALIDATION_FAILED` with a
+  message pointing at Stage 5.4 "Expand parity" as the reason, so this isn't a silent gap.
+  The provider itself is `DevEchoProvider` (`services/api/src/inference/devEchoProvider.ts`)
+  — a deterministic whitespace-collapsing stand-in, not real AI — because the real Azure
+  OpenAI resource this would call is Stage 5.4's separate "Azure model plane" work, blocked
+  on user cost approval. This lets the accounting/SSE/state-machine plumbing be proven end
+  to end (reserve → running → streaming → completed, one ledger row, one balance debit)
+  without spending money or shipping a fake "AI" correction to a real user; swapping in a
+  real provider later only means a second class against the `InferenceProvider` interface,
+  not touching the route or accounting code. `npm run check` (lint/typecheck/build/unit
+  tests) passes; a new integration test
+  (`services/api/test/integration/inferenceAccounting.integration.test.ts`) covers
+  reserve→commit, idempotent replay, release-on-failure (including double-release being a
+  no-op), and quota exhaustion — **not yet run against a real database**: Docker isn't
+  reachable in this sandboxed session (same limitation noted for the website Docker build
+  in Stage 5.2), so this is verified by lint/typecheck/build only, not by an actual DB run.
+  Migration `012_alpha_pricing_version.cjs` seeds the flat placeholder pricing version
+  `usage_ledger.pricing_version_id` requires — also unverified against a real database for
+  the same reason.
 
 ### Azure model plane
 
@@ -1012,19 +1051,52 @@ them rather than introducing metering after provider traffic already exists.
 
 ### Server inference endpoint
 
-- [ ] Implement `/v2/inference/stream` for an explicit v1 action, beginning with Fix
+- [x] Implement `/v2/inference/stream` for an explicit v1 action, beginning with Fix
   Grammar as the vertical slice.
+  — `services/api/src/routes/inference.ts`. Registered in `app.ts` alongside the other
+  route groups; `services/api/src/index.ts` wires the real (dev-stub) provider.
 - [ ] Validate auth, device, entitlement, input schema/size, idempotency, concurrency, and
   quota reservation before provider access.
+  — auth (`requireDeviceAuth`), device (checked device header must match the authenticated
+  device), input schema/size (`InferenceRequestEnvelopeSchema.safeParse`, which carries the
+  Stage 5.0 `maxLength`/`maxItems` caps), idempotency, and quota reservation are all done —
+  in that order, before `provider.fixGrammar` is ever called. **Not done**: no per-user/org
+  concurrency limit (nothing stops the same user opening N simultaneous streams today) and
+  no entitlement/plan check beyond the flat free-alpha quota (there's only one plan right
+  now, so there's nothing else to check yet — becomes real once Stage 5.5/Stripe exist).
 - [ ] Compile prompts from server resources with behavior parity to current
   `PromptBuilder`/`Prompts`; record prompt version, not content.
-- [ ] Stream typed SSE lifecycle events and provider text deltas.
+  — Not done. `route`/`promptVersion` are hardcoded constants in `routes/inference.ts`
+  matching `prompts/manifest.yaml`'s real `grammar@5.1.0` entry, but nothing actually reads
+  `prompts/intents/grammar.md` or assembles a provider message from it — there's no real
+  model call yet for a compiled prompt to go to (`DevEchoProvider` ignores it entirely).
+  This is real work still ahead once the Azure model plane exists.
+- [x] Stream typed SSE lifecycle events and provider text deltas.
+  — exact canonical order from `Docs/contracts/inference-stream.md`:
+  `request.accepted → decision → output.delta* → usage.summary → completed`, using the
+  literal `InferenceStreamEvent` union from `@writerflow/shared` so a shape drift would be
+  a compile error, not a runtime surprise.
 - [ ] Configure APIM `forward-request buffer-response="false"`, no response cache, and no
   request/response body logging for SSE.
+  — Infra work (`infra/apim`), not app code; not started this tick.
 - [ ] Send keepalive events if an allowed operation could be idle near platform timeout.
-- [ ] Sanitize provider errors and never return upstream body/resource/deployment details.
+  — Not implemented. Not yet meaningful against `DevEchoProvider`, which never blocks; real
+  keepalive timing needs a real provider's actual latency profile to tune against.
+- [x] Sanitize provider errors and never return upstream body/resource/deployment details.
+  — the `catch` block in `routes/inference.ts` always sends a fixed
+  `{code: "INTERNAL_ERROR", message: "Something went wrong. Please try again."}` regardless
+  of the underlying error; the real error is only logged server-side
+  (`request.log.error`, message only, matching the existing redact-path discipline).
+  Trivially true today since `DevEchoProvider` has no "upstream" to leak — worth
+  re-verifying once a real provider with real error bodies exists.
 - [ ] Cancel provider work promptly when the client cancels/disconnects where the SDK and
   platform permit.
+  — Partially done: `request.raw.on("close", ...)` releases the reservation immediately and
+  the streaming `for await` loop checks a shared `lifecycle.terminated` flag and stops
+  sending further deltas. **Not proven**: `DevEchoProvider` has no real cancellable
+  in-flight work (its generator resolves near-instantly), so this path can't yet
+  demonstrate an actual upstream provider call being aborted mid-flight — needs revisiting
+  once a real provider with a genuinely abortable request exists.
 
 ### Native transport
 
