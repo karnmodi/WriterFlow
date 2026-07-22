@@ -4,6 +4,13 @@ import GRDB
 /// Central GRDB connection for history, memory notes, and per-app rules.
 /// One `DatabaseQueue` for the whole app — GRDB serializes writes internally.
 enum WriterFlowDatabase {
+    /// On open/migration failure this still returns an in-memory queue as a
+    /// last resort — so the app can keep running rather than crashing
+    /// outright — but it is no longer a *silent* fallback (Stage 5.3 "Store
+    /// refactor"): `LaunchCoordinator.shared.state` flips to `.failed` with
+    /// a human-readable message, which `DashboardView` surfaces as a banner.
+    /// Nothing written to that in-memory queue this session is ever
+    /// persisted to disk.
     static let shared: DatabaseQueue = {
         do {
             try FileManager.default.createDirectory(
@@ -13,9 +20,12 @@ enum WriterFlowDatabase {
             let url = AzureModelsConfig.appSupportURL.appendingPathComponent("writerflow.db")
             let queue = try DatabaseQueue(path: url.path)
             try migrator.migrate(queue)
+            Task { @MainActor in LaunchCoordinator.shared.reportReady() }
             return queue
         } catch {
-            Log.store.error("WriterFlowDatabase failed to open, falling back to in-memory: \(String(describing: error), privacy: .public)")
+            Log.store.fault("WriterFlowDatabase failed to open — this session's data will NOT be saved to disk: \(String(describing: error), privacy: .public)")
+            let message = "Could not open your local WriterFlow data (\(error.localizedDescription)). History and personalization changes this session will not be saved."
+            Task { @MainActor in LaunchCoordinator.shared.reportFailure(message) }
             let queue = try! DatabaseQueue()
             try! migrator.migrate(queue)
             return queue

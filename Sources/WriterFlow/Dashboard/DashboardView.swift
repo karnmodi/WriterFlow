@@ -3,6 +3,7 @@ import SwiftUI
 struct DashboardView: View {
     @State private var selectedTab: DashboardTab? = .history
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @ObservedObject private var launchCoordinator = LaunchCoordinator.shared
     @StateObject private var historyViewModel = HistoryViewModel()
     @StateObject private var personalizationViewModel: PersonalizationViewModel
     @StateObject private var usageViewModel: UsageViewModel
@@ -20,12 +21,27 @@ struct DashboardView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
         } detail: {
-            detailContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .toolbar { sectionToolbar }
+            VStack(spacing: 0) {
+                if let bannerMessage {
+                    StatusBanner(message: bannerMessage, tone: .error)
+                        .padding([.horizontal, .top], DashboardChrome.sectionSpacing)
+                }
+                detailContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            .toolbar { sectionToolbar }
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 640, minHeight: 480)
+    }
+
+    /// Only the DB-open-failure case surfaces here today — `.locked` and
+    /// `.migrationRequired` aren't reachable yet (see `LaunchCoordinator`).
+    private var bannerMessage: String? {
+        if case .failed(let message) = launchCoordinator.state {
+            return message
+        }
+        return nil
     }
 
     private var sidebar: some View {

@@ -886,14 +886,48 @@ this gate is meant to gate).
   eager `AppDelegate → SettingsStore.shared → ConversionEventStore.shared →
   WriterFlowDatabase.shared` chain so it cannot open plaintext data before the migration
   lock.
+  — **Partially done.** `Sources/WriterFlow/App/LaunchCoordinator.swift` exists with the
+  full `opening`/`ready`/`locked`/`migrationRequired`/`recoveryRequired`/`failed` state
+  enum and is wired to `WriterFlowDatabase.shared`'s open path — see the next item. What's
+  NOT done yet: it doesn't run *before* the eager singleton chain (`SettingsStore.shared`,
+  `ConversionEventStore.shared`, etc. are still touched ad hoc, first-access-wins, all over
+  `AppDelegate`/`OverlayController`/`ActionEngine`/etc., not gated behind a single
+  pre-store check), and `.locked`/`.migrationRequired` are unreachable — there's no
+  encryption or migration yet for it to gate. Deliberately left as the harder remaining
+  slice: fully centralizing that singleton chain is a wide-blast-radius change better done
+  together with real encryption/migration than piecemeal ahead of it.
 - [ ] Replace `WriterFlowDatabase.shared` with an injected account-scoped database owner
   that has explicit `opening`, `ready`, `locked`, `migrationRequired`, `recoveryRequired`,
   and `failed` states.
-- [ ] Generate a random 256-bit local database key from system randomness and store it in
+  — **State enum exists and is live** (`LaunchCoordinator.State`), and
+  `WriterFlowDatabase.shared`'s open closure reports into it (`.ready` on success,
+  `.failed(message)` on open/migration failure), surfaced as a red banner in
+  `DashboardView`. Still `WriterFlowDatabase.shared` itself, not yet an injected,
+  account-scoped owner — no encryption key, no per-account namespacing yet (next items).
+- [x] Generate a random 256-bit local database key from system randomness and store it in
   a dedicated account-scoped `WhenUnlockedThisDeviceOnly` Keychain item.
+  — `Sources/WriterFlow/Store/DatabaseKeychain.swift`, mirroring `DeviceTokenKeychain`'s
+  pattern: `kSecClassGenericPassword`, no access group, `WhenUnlockedThisDeviceOnly` on
+  write, `SecRandomCopyBytes` for the 256-bit key, `keyOrCreate(scope:)` so the same key is
+  always reused rather than silently minted fresh and orphaning old data. Scope is an
+  opaque caller-supplied string (meant to be the `(issuer, subject)` hash from the not-yet-
+  built identity-binding item below); `nil`/empty scope maps to a distinct `"unscoped"`
+  account for pre-sign-in/local-only use. **Not yet wired to actually key a database** —
+  `WriterFlowDatabase` still opens a plain SQLite file; using this key requires the
+  SQLCipher `usePassphrase` call plus the V1 atomic migration (below), intentionally kept
+  as a separate, higher-risk step so encryption is never flipped on top of a user's real
+  existing plaintext data without a migration path.
 - [ ] Do not derive the DB key from password, OAuth token, refresh token, email, or network
   state.
-- [ ] Remove the production silent in-memory fallback on DB open/migration failure.
+  — Satisfied by construction in `DatabaseKeychain.generateKey()` (pure
+  `SecRandomCopyBytes`), but leaving unchecked until the key is actually in use, since an
+  unused generator proves nothing about the real code path.
+- [x] Remove the production silent in-memory fallback on DB open/migration failure.
+  — `WriterFlowDatabase.shared` still falls back to an in-memory `DatabaseQueue` so the app
+  doesn't crash outright on a disk error, but it is no longer *silent*:
+  `LaunchCoordinator.shared.state` flips to `.failed(message)` and `DashboardView` shows a
+  red `StatusBanner` for the rest of the session. `swift build`/`swift test` both clean (76
+  tests, 2 skipped, 0 failures) after this change.
 - [ ] Move voice profile and recent custom instructions from plaintext UserDefaults into
   encrypted tables.
 - [ ] Namespace history, memory, app rules, profile, usage cache, and custom history by
