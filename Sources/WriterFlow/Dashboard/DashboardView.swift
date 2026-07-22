@@ -35,8 +35,7 @@ struct DashboardView: View {
         .frame(minWidth: 640, minHeight: 480)
     }
 
-    /// Only the DB-open-failure case surfaces here today — `.locked` and
-    /// `.migrationRequired` aren't reachable yet (see `LaunchCoordinator`).
+    /// Surfaces DB-open failures and future locked/migration states.
     private var bannerMessage: String? {
         if case .failed(let message) = launchCoordinator.state {
             return message

@@ -1,10 +1,9 @@
 import SwiftUI
 
-/// Stage 5.2 "UI" checklist: Sign in / Account status, replacing the
-/// `#if DEBUG` manual pairing menu item as the real entry point. Device
-/// pairing (ADR-0011/0012) happens entirely browser-side — this view only
-/// shows the `user_code`/deep link and reflects `DeviceSessionProviding`'s
-/// state; it never becomes an OAuth client itself.
+/// Stage 5.2 Account tab: Sign in / account status. Device pairing
+/// (ADR-0011/0012) happens browser-side — this view only shows the
+/// `user_code`/deep link and reflects `DeviceSessionProviding`'s state; it
+/// never becomes an OAuth client itself.
 struct AccountView: View {
     @ObservedObject var viewModel: AccountViewModel
 
@@ -109,7 +108,7 @@ struct AccountView: View {
                     .font(.callout.monospaced().weight(.semibold))
                     .textSelection(.enabled)
             }
-            Text("If the browser didn't open, or you're pairing from another device, enter this code at writerflow.app/pair.")
+            Text("If the browser didn't open, or you're pairing from another device, enter this code at writerflow.aviusolutions.com/pair.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
             HStack(spacing: 10) {
@@ -124,7 +123,7 @@ struct AccountView: View {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                Text(snapshot.device.label ?? "This Mac")
+                Text(accountOwnerTitle(snapshot))
                     .font(.callout.weight(.medium))
                 if snapshot.device.revoked {
                     Text("Revoked")
@@ -132,6 +131,16 @@ struct AccountView: View {
                         .foregroundStyle(.red)
                 }
             }
+
+            if let secondaryEmail = accountOwnerSecondaryEmail(snapshot) {
+                Text(secondaryEmail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("This device: \(snapshot.device.label ?? "Mac")")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 8) {
                 StatTile(title: "Plan", value: snapshot.entitlement.plan.capitalized, subtitle: "Current subscription tier")
@@ -156,5 +165,30 @@ struct AccountView: View {
                 Button("Revoke This Device", role: .destructive) { Task { await viewModel.revokeDeviceAndSignOut() } }
             }
         }
+    }
+
+    private func accountOwnerTitle(_ snapshot: WriterFlowAPIClient.AccountSnapshot) -> String {
+        if let displayName = snapshot.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !displayName.isEmpty,
+           !Self.isPlaceholderDisplayName(displayName) {
+            return displayName
+        }
+        if let email = snapshot.email?.trimmingCharacters(in: .whitespacesAndNewlines), !email.isEmpty {
+            return email
+        }
+        return "Signed in"
+    }
+
+    private static func isPlaceholderDisplayName(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return ["unknown", "unknown user", "n/a", "na", "none"].contains(normalized)
+    }
+
+    private func accountOwnerSecondaryEmail(_ snapshot: WriterFlowAPIClient.AccountSnapshot) -> String? {
+        guard let email = snapshot.email?.trimmingCharacters(in: .whitespacesAndNewlines), !email.isEmpty else {
+            return nil
+        }
+        let title = accountOwnerTitle(snapshot)
+        return title == email ? nil : email
     }
 }

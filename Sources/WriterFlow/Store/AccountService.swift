@@ -27,7 +27,12 @@ actor AccountService: AccountServiceProviding {
 
     func fetchSnapshot() async throws -> WriterFlowAPIClient.AccountSnapshot {
         let token = try await session.accessToken()
-        return try await api.me(accessToken: token)
+        do {
+            return try await api.me(accessToken: token)
+        } catch DeviceSessionError.httpError(401) {
+            let refreshed = try await session.forceRefreshAccessToken()
+            return try await api.me(accessToken: refreshed)
+        }
     }
 
     func revokeCurrentDeviceAndSignOut() async throws {

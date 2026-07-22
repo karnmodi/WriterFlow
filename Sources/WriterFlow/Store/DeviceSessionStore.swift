@@ -116,7 +116,26 @@ actor DeviceSessionStore: DeviceSessionProviding {
         if stored.accessTokenExpiresAt.timeIntervalSinceNow > Self.expiryLeeway {
             return stored.accessToken
         }
+        return try await refreshAndPersist(stored: stored)
+    }
 
+    func forceRefreshAccessToken() async throws -> String {
+        guard let stored = DeviceTokenKeychain.read() else {
+            currentState = .signedOut
+            throw DeviceSessionError.notPaired
+        }
+        return try await refreshAndPersist(stored: stored)
+    }
+
+    func markSessionInvalid() async {
+        guard DeviceTokenKeychain.read() != nil else {
+            currentState = .signedOut
+            return
+        }
+        currentState = .needsRePair
+    }
+
+    private func refreshAndPersist(stored: DeviceTokenKeychain.StoredTokens) async throws -> String {
         do {
             let refreshed = try await api.refresh(refreshToken: stored.refreshToken)
             DeviceTokenKeychain.write(

@@ -28,6 +28,16 @@ protocol DeviceSessionProviding: Sendable {
     /// signing out never touches local history/settings data.
     func signOut() async
 
+    /// Marks the session invalid after the server rejected a cached access
+    /// token (e.g. dev-server JWT key rotation). Moves `state` to
+    /// `.needsRePair` without deleting the Keychain item.
+    func markSessionInvalid() async
+
+    /// Refreshes the access token even when the cached one has not expired.
+    /// Used when an authenticated API call returns 401 despite a locally
+    /// still-valid expiry.
+    func forceRefreshAccessToken() async throws -> String
+
     /// A foreground hint only (the `writerflow://paired` deep link) — never
     /// call this with anything that could be mistaken for a credential.
     /// Nudges an in-flight poll loop to check sooner; a no-op otherwise.

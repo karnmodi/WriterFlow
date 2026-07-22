@@ -47,10 +47,9 @@ final class AccountViewModel: ObservableObject {
             loadState = .signedOut
         case .pairing:
             // A pairing this ViewModel instance didn't start itself (e.g. the
-            // app relaunched mid-pairing, or the #if DEBUG menu item is being
-            // used) — there's no local task tracking it, so the safe move is
-            // to let the user start a fresh attempt rather than trying to
-            // resume watching someone else's in-flight poll.
+            // app relaunched mid-pairing) — there's no local task tracking it,
+            // so the safe move is to let the user start a fresh attempt rather
+            // than trying to resume watching someone else's in-flight poll.
             loadState = .signedOut
         case .needsRePair:
             loadState = .needsRePair
@@ -65,6 +64,9 @@ final class AccountViewModel: ObservableObject {
             let snapshot = try await accountService.fetchSnapshot()
             loadState = .loaded(snapshot)
         } catch DeviceSessionError.refreshFailed, DeviceSessionError.notPaired {
+            loadState = .needsRePair
+        } catch DeviceSessionError.httpError(401) {
+            await session.markSessionInvalid()
             loadState = .needsRePair
         } catch {
             loadState = .error(error.localizedDescription)

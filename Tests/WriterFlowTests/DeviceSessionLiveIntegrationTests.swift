@@ -35,7 +35,10 @@ final class DeviceSessionLiveIntegrationTests: XCTestCase {
         let challenge = try await store.beginPairing()
         XCTAssertFalse(challenge.deviceCode.isEmpty)
         XCTAssertTrue(challenge.userCode.contains("-"), "user_code should be the AAAA-AAAA shape the real server generates")
-        XCTAssertEqual(challenge.verificationURI.absoluteString, "https://writerflow.app/pair")
+        XCTAssertTrue(
+            challenge.verificationURI.path.hasSuffix("/pair"),
+            "verification URI should point at the /pair route, got \(challenge.verificationURI.absoluteString)"
+        )
 
         // Nothing approves this device_code — the real server must report
         // authorization_pending, proving the full request/response round

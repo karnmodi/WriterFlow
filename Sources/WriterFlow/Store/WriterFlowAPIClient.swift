@@ -8,19 +8,39 @@ import Foundation
 struct WriterFlowAPIConfig: Sendable {
     let baseURL: URL
 
-    static let production = WriterFlowAPIConfig(baseURL: URL(string: "https://api.writerflow.app/v2")!)
+    static let production = WriterFlowAPIConfig(baseURL: URL(string: "https://apiwriterflow.aviusolutions.com/v2")!)
 
     #if DEBUG
-    /// Reads `WRITERFLOW_API_BASE_URL` from the project `.env` (same file
-    /// `AzureOpenAIClient`'s dev path already reads), e.g.
-    /// `WRITERFLOW_API_BASE_URL=http://localhost:8080` while running
-    /// `npm run dev --workspace services/api` locally. Debug-only — this
-    /// override compiles out of release builds entirely.
+    /// Reads `WRITERFLOW_API_BASE_URL` for local `services/api`, e.g.
+    /// `http://localhost:8080`. Debug-only — compiles out of release builds.
+    ///
+    /// Lookup order (later wins): project `.env` (when running from the repo
+    /// tree) → Application Support `secrets.env` (what `make install` /
+    /// `make run` syncs, so `~/Applications/WriterFlow.app` still finds it) →
+    /// process environment. Without this, an installed debug app falls through
+    /// to production `apiwriterflow.aviusolutions.com`, which is not deployed yet and fails
+    /// DNS before Sign In can open the browser.
     static func resolved() -> WriterFlowAPIConfig {
         let exec = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? ".")
-        if let envFile = DotEnvLoader.findProjectEnvFile(startingAt: exec.deletingLastPathComponent()),
-           let env = DotEnvLoader.load(from: envFile),
-           let raw = env["WRITERFLOW_API_BASE_URL"], let url = URL(string: raw) {
+        var merged: [String: String] = [:]
+        if let projectEnv = DotEnvLoader.findProjectEnvFile(
+            startingAt: exec.deletingLastPathComponent()
+        ),
+           let env = DotEnvLoader.load(from: projectEnv) {
+            merged.merge(env) { _, new in new }
+        }
+        if let secrets = DotEnvLoader.load(from: KeychainStore.secretsFileURL) {
+            merged.merge(secrets) { _, new in new }
+        }
+        for (key, value) in ProcessInfo.processInfo.environment where !value.isEmpty {
+            merged[key] = value
+        }
+        if let raw = merged["WRITERFLOW_API_BASE_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !raw.isEmpty,
+           let url = URL(string: raw) {
+            Log.auth.info(
+                "WriterFlow API base URL override: \(url.absoluteString, privacy: .public)"
+            )
             return WriterFlowAPIConfig(baseURL: url)
         }
         return .production
@@ -140,6 +160,8 @@ actor WriterFlowAPIClient {
     struct AccountSnapshot: Decodable, Sendable {
         let userId: String
         let organizationId: String
+        let displayName: String?
+        let email: String?
         let device: AccountDevice
         let entitlement: AccountEntitlement
         let privacy: AccountPrivacy
@@ -166,7 +188,6 @@ actor WriterFlowAPIClient {
         let url = config.baseURL.appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path)
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(clientVersion, forHTTPHeaderField: "X-WriterFlow-Version")
         if let accessToken {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -190,6 +211,7 @@ actor WriterFlowAPIClient {
 
     private func send<Body: Encodable>(_ request: URLRequest, body: Body) async throws -> (Data, URLResponse) {
         var request = request
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
         return try await session.data(for: request)
     }

@@ -23,6 +23,8 @@ final class WriterFlowAPIClientAccountTests: XCTestCase {
         {
           "userId": "user-1",
           "organizationId": "org-1",
+          "displayName": "Karan Singh",
+          "email": "karan@example.com",
           "device": {
             "id": "device-1",
             "label": "Test Mac",
@@ -55,6 +57,8 @@ final class WriterFlowAPIClientAccountTests: XCTestCase {
 
         XCTAssertEqual(snapshot.userId, "user-1")
         XCTAssertEqual(snapshot.organizationId, "org-1")
+        XCTAssertEqual(snapshot.displayName, "Karan Singh")
+        XCTAssertEqual(snapshot.email, "karan@example.com")
         XCTAssertEqual(snapshot.device.id, "device-1")
         XCTAssertEqual(snapshot.device.label, "Test Mac")
         XCTAssertFalse(snapshot.device.revoked)
@@ -74,6 +78,7 @@ final class WriterFlowAPIClientAccountTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "GET")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer secret-access-token")
         XCTAssertNil(request.httpBody, "GET /me must never send a body")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Content-Type"), "GET /me must not claim a JSON body")
     }
 
     func testMeWithUnauthorizedThrowsHTTPError() async throws {
@@ -100,6 +105,8 @@ final class WriterFlowAPIClientAccountTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "DELETE")
         XCTAssertEqual(request.url?.path, "/v2/devices/device-1")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer access-token-1")
+        XCTAssertNil(request.httpBody, "DELETE /devices/:id must never send a body")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Content-Type"), "DELETE must not claim a JSON body")
     }
 
     func testRevokeDeviceWithNotFoundThrowsHTTPError() async throws {

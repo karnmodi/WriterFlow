@@ -77,8 +77,8 @@ struct SettingsTabView: View {
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 Picker("Show icon", selection: $settings.iconMode) {
-                    Text("While typing").tag(IconMode.onTyping)
                     Text("On field focus").tag(IconMode.alwaysOnFocus)
+                    Text("While typing").tag(IconMode.onTyping)
                     Text("Hotkey only").tag(IconMode.hotkeyOnly)
                 }
                 .pickerStyle(.radioGroup)
@@ -92,10 +92,10 @@ struct SettingsTabView: View {
 
     private var iconModeExplanation: String {
         switch settings.iconMode {
-        case .onTyping:
-            return "Icon appears near the caret while you're actively typing, and hides a moment after you stop. The default — icon shows up only when you're likely to want it."
         case .alwaysOnFocus:
-            return "Icon appears the instant any text field gets focus, even before you type a single character."
+            return "Icon appears the instant any text field gets focus — the default, so every input activates WriterFlow even before you type."
+        case .onTyping:
+            return "Icon appears when a text field is focused or you're actively typing, and hides a moment after you stop typing."
         case .hotkeyOnly:
             return "No floating icon at all — actions only open via the global hotkey. Best for a fully quiet menu bar experience."
         }

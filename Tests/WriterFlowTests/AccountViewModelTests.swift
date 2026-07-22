@@ -35,6 +35,8 @@ final class AccountViewModelTests: XCTestCase {
         {
           "userId": "user-1",
           "organizationId": "org-1",
+          "displayName": "Karan Singh",
+          "email": "karan@example.com",
           "device": {
             "id": "\(deviceId)",
             "label": "\(label)",
@@ -84,7 +86,22 @@ final class AccountViewModelTests: XCTestCase {
         }
         XCTAssertEqual(snapshot.device.id, "device-1")
         XCTAssertEqual(snapshot.device.label, "Test Mac")
+        XCTAssertEqual(snapshot.displayName, "Karan Singh")
+        XCTAssertEqual(snapshot.email, "karan@example.com")
         XCTAssertEqual(snapshot.entitlement.monthlyUnitsUsed, 3)
+    }
+
+    func testRefreshWhenMeReturns401SetsNeedsRePair() async {
+        seedSignedIn()
+        MockURLProtocol.stub(method: "GET", pathSuffix: "/me", statusCode: 401, json: Data("{}".utf8))
+        MockURLProtocol.stub(method: "POST", pathSuffix: "/token/refresh", statusCode: 401, json: Data("{}".utf8))
+        let viewModel = makeViewModel()
+
+        await viewModel.refresh()
+
+        guard case .needsRePair = viewModel.loadState else {
+            return XCTFail("expected .needsRePair after /me 401, got \(viewModel.loadState)")
+        }
     }
 
     func testRefreshWhenTokenRefreshFailsSetsNeedsRePair() async {
@@ -152,8 +169,8 @@ final class AccountViewModelTests: XCTestCase {
         {
           "deviceCode": "device-code-abc",
           "userCode": "ABCD-1234",
-          "verificationUri": "https://writerflow.app/pair",
-          "verificationUriComplete": "https://writerflow.app/pair?user_code=ABCD-1234",
+          "verificationUri": "https://writerflow.aviusolutions.com/pair",
+          "verificationUriComplete": "https://writerflow.aviusolutions.com/pair?user_code=ABCD-1234",
           "interval": 0,
           "expiresIn": 900
         }
@@ -179,8 +196,8 @@ final class AccountViewModelTests: XCTestCase {
         {
           "deviceCode": "device-code-abc",
           "userCode": "ABCD-1234",
-          "verificationUri": "https://writerflow.app/pair",
-          "verificationUriComplete": "https://writerflow.app/pair?user_code=ABCD-1234",
+          "verificationUri": "https://writerflow.aviusolutions.com/pair",
+          "verificationUriComplete": "https://writerflow.aviusolutions.com/pair?user_code=ABCD-1234",
           "interval": 5,
           "expiresIn": 900
         }

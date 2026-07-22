@@ -26,8 +26,8 @@ final class DeviceSessionStoreTests: XCTestCase {
         {
           "deviceCode": "device-code-abc",
           "userCode": "ABCD-1234",
-          "verificationUri": "https://writerflow.app/pair",
-          "verificationUriComplete": "https://writerflow.app/pair?user_code=ABCD-1234",
+          "verificationUri": "https://writerflow.aviusolutions.com/pair",
+          "verificationUriComplete": "https://writerflow.aviusolutions.com/pair?user_code=ABCD-1234",
           "interval": \(interval),
           "expiresIn": \(expiresIn)
         }
@@ -67,7 +67,7 @@ final class DeviceSessionStoreTests: XCTestCase {
 
         XCTAssertEqual(challenge.deviceCode, "device-code-abc")
         XCTAssertEqual(challenge.userCode, "ABCD-1234")
-        XCTAssertEqual(challenge.verificationURIComplete.absoluteString, "https://writerflow.app/pair?user_code=ABCD-1234")
+        XCTAssertEqual(challenge.verificationURIComplete.absoluteString, "https://writerflow.aviusolutions.com/pair?user_code=ABCD-1234")
 
         let state = await store.state
         XCTAssertEqual(state, .pairing(challenge))
