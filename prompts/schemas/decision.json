@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://api.writerflow.app/schemas/v2/prompt-decision.schema.json",
+  "$id": "https://apiwriterflow.aviusolutions.com/schemas/v2/prompt-decision.schema.json",
   "title": "PromptDecision",
   "description": "Server-side decision compiled before any provider call — the source the SSE 'decision' event (Docs/contracts/schemas/sse-events.schema.json) is populated from. Closed enums only; never influenced by untrusted content (V2-ARCHITECTURE.md §12.1, §12.3's typed PromptPlan). Phase 5 sets these deterministically from the explicit requestedAction; Phase 6 (Stage 6.3's classifier_fast) is the first caller that derives them from ambiguous signals.",
   "type": "object",

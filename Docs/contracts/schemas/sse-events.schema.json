@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://api.writerflow.app/schemas/v2/sse-events.schema.json",
+  "$id": "https://apiwriterflow.aviusolutions.com/schemas/v2/sse-events.schema.json",
   "title": "InferenceStreamEvent",
   "description": "Discriminated union of every event type on POST /v2/inference/stream. See Docs/contracts/inference-stream.md for canonical ordering.",
   "oneOf": [

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://api.writerflow.app/schemas/v2/inference-request.schema.json",
+  "$id": "https://apiwriterflow.aviusolutions.com/schemas/v2/inference-request.schema.json",
   "title": "InferenceRequestEnvelope",
   "type": "object",
   "additionalProperties": false,

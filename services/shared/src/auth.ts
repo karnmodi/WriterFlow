@@ -1,16 +1,16 @@
 /**
  * WriterFlow-minted device access token claims (ADR-0012). This is never an
  * Entra token — the Mac app never holds one. Issuer is always
- * https://api.writerflow.app; validated against WriterFlow's own JWKS.
+ * https://apiwriterflow.aviusolutions.com; validated against WriterFlow's own JWKS.
  */
-export const WRITERFLOW_TOKEN_ISSUER = "https://api.writerflow.app";
-export const WRITERFLOW_TOKEN_AUDIENCE = "https://api.writerflow.app";
+export const WRITERFLOW_TOKEN_ISSUER = "https://apiwriterflow.aviusolutions.com";
+export const WRITERFLOW_TOKEN_AUDIENCE = "https://apiwriterflow.aviusolutions.com";
 export const WRITERFLOW_ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 export const WRITERFLOW_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 export interface WriterFlowAccessTokenClaims {
-  iss: "https://api.writerflow.app";
-  aud: "https://api.writerflow.app";
+  iss: "https://apiwriterflow.aviusolutions.com";
+  aud: "https://apiwriterflow.aviusolutions.com";
   sub: string; // user id (WriterFlow-internal, not the Entra `sub`)
   device_id: string;
   org_id: string;
@@ -40,15 +40,45 @@ export interface AuthenticatedRequestContext {
  * id — the account may not exist yet; POST /v2/device/approve is what
  * resolves/creates it, keyed on this immutable identity pair.
  */
-export const WRITERFLOW_WEB_SESSION_TOKEN_AUDIENCE = "https://api.writerflow.app/web-session";
+export const WRITERFLOW_WEB_SESSION_TOKEN_AUDIENCE = "https://apiwriterflow.aviusolutions.com/web-session";
 export const WRITERFLOW_WEB_SESSION_TOKEN_TTL_SECONDS = 5 * 60;
 
 export interface WriterFlowWebSessionTokenClaims {
-  iss: "https://api.writerflow.app";
-  aud: "https://api.writerflow.app/web-session";
+  iss: "https://apiwriterflow.aviusolutions.com";
+  aud: "https://apiwriterflow.aviusolutions.com/web-session";
   entra_issuer: string;
   entra_subject: string;
+  /** JSON-encoded EntraDisplayClaims — display-only profile fields from the verified ID token. */
+  entra_display_claims?: string;
   iat: number;
   exp: number;
   jti: string;
+}
+
+/**
+ * WriterFlow-minted web-account token (ADR-0013). Distinct audience from both device
+ * access and the 5-minute pairing bridge. Minted by POST /web-account/token after
+ * Entra verification and user provisioning; stored in the website's httpOnly cookie.
+ */
+export const WRITERFLOW_WEB_ACCOUNT_TOKEN_AUDIENCE = "https://apiwriterflow.aviusolutions.com/web-account";
+export const WRITERFLOW_WEB_ACCOUNT_TOKEN_TTL_SECONDS = 60 * 60;
+
+export interface WriterFlowWebAccountTokenClaims {
+  iss: "https://apiwriterflow.aviusolutions.com";
+  aud: "https://apiwriterflow.aviusolutions.com/web-account";
+  sub: string; // WriterFlow user id
+  org_id: string;
+  entra_issuer: string;
+  entra_subject: string;
+  entra_display_claims?: string;
+  iat: number;
+  exp: number;
+  jti: string;
+}
+
+export interface AuthenticatedWebAccountRequest {
+  userId: string;
+  organizationId: string;
+  entraIssuer: string;
+  entraSubject: string;
 }

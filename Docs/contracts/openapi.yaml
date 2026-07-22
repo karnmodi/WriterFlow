@@ -10,9 +10,9 @@ info:
     Unknown request fields are rejected everywhere; this is a closed contract,
     not an extensible one, until a new version is published.
 servers:
-  - url: https://api.writerflow.app/v2
+  - url: https://apiwriterflow.aviusolutions.com/v2
     description: Production (private origin behind APIM)
-  - url: https://api.staging.writerflow.app/v2
+  - url: https://api.staging.writerflow.aviusolutions.com/v2
     description: Staging
 
 security:
@@ -26,7 +26,7 @@ components:
       bearerFormat: JWT
       description: >
         WriterFlow-minted device access token (ADR-0012), validated at APIM against
-        WriterFlow's own JWKS (iss=https://api.writerflow.app). NOT an Entra token —
+        WriterFlow's own JWKS (iss=https://apiwriterflow.aviusolutions.com). NOT an Entra token —
         Entra is validated only server-side by the web app. Not required for
         /v2/webhooks/stripe or the /v2/device/authorize|token pairing routes.
 
@@ -147,6 +147,26 @@ components:
         consentVersion:
           type: string
 
+    WebAccountSnapshot:
+      type: object
+      required: [userId, organizationId, entitlement, privacy]
+      additionalProperties: false
+      properties:
+        userId:
+          type: string
+        organizationId:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        entitlement:
+          $ref: '#/components/schemas/EntitlementSnapshot'
+        privacy:
+          $ref: '#/components/schemas/PrivacyPreferences'
+
     AccountSnapshot:
       type: object
       required: [userId, organizationId, device, entitlement, privacy]
@@ -157,6 +177,14 @@ components:
           description: Opaque WriterFlow user ID. Never the IdP subject or email.
         organizationId:
           type: string
+        displayName:
+          type: string
+          nullable: true
+          description: Account owner's display name from the IdP (Microsoft sign-in). Display-only — never a join key.
+        email:
+          type: string
+          nullable: true
+          description: Account owner's email from the IdP. Display-only — never a join key.
         device:
           $ref: '#/components/schemas/Device'
         entitlement:
@@ -233,7 +261,7 @@ components:
         verificationUri:
           type: string
           format: uri
-          description: e.g. https://writerflow.app/pair
+          description: e.g. https://writerflow.aviusolutions.com/pair
         verificationUriComplete:
           type: string
           format: uri
@@ -453,6 +481,72 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeviceTokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /web-account/token:
+    post:
+      summary: Mint a durable web-account JWT after Entra ID token verification (ADR-0013).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idToken]
+              properties:
+                idToken:
+                  type: string
+                accessToken:
+                  type: string
+      responses:
+        '200':
+          description: Web-account access token issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken, expiresIn]
+                properties:
+                  accessToken:
+                    type: string
+                  expiresIn:
+                    type: integer
+                  created:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /web/me:
+    get:
+      summary: Website account snapshot (no device row).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebAccountSnapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /web-session/bridge:
+    post:
+      summary: Mint a 5-minute pairing bridge token from a web-account bearer.
+      responses:
+        '200':
+          description: Short-lived web-session token for POST /device/approve.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessToken, expiresIn]
+                properties:
+                  accessToken:
+                    type: string
+                  expiresIn:
+                    type: integer
         '401':
           $ref: '#/components/responses/Unauthorized'
 
