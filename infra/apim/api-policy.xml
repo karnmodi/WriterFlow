@@ -15,6 +15,9 @@
 <policies>
   <inbound>
     <base />
+    <set-header name="X-WriterFlow-Origin" exists-action="override">
+      <value>{{writerflow-origin-secret}}</value>
+    </set-header>
     <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized" require-scheme="Bearer" output-token-variable-name="jwt">
       <openid-config url="{{writerflow-jwks-uri}}" />
       <audiences>

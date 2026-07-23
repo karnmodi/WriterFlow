@@ -1,0 +1,14 @@
+.git
+.build
+build
+DerivedData
+vendor
+node_modules
+**/node_modules
+website/.next
+website/.env*
+.env*
+*.dmg
+*.xcarchive
+coverage
+**/coverage

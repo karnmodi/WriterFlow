@@ -18,10 +18,39 @@ param keyVaultUri string
 param imageTag string = 'latest'
 param minReplicas int = 1
 param maxReplicas int = 10
+param configureCustomDomain bool = false
+param customHostname string = 'writerflow.aviusolutions.com'
+@description('Non-secret runtime settings, each shaped as { name, value }.')
+param environmentVariables array = []
+@description('Key Vault-backed settings, each shaped as { name, secretRef, keyVaultUrl }.')
+param secretEnvironmentVariables array = []
+
+var configuredEnvironment = [for setting in environmentVariables: {
+  name: setting.name
+  value: setting.value
+}]
+var configuredSecretEnvironment = [for secret in secretEnvironmentVariables: {
+  name: secret.name
+  secretRef: secret.secretRef
+}]
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
   name: '${namePrefix}-website-identity'
   location: location
+}
+
+resource environment 'Microsoft.App/managedEnvironments@2024-10-02-preview' existing = {
+  name: last(split(containerAppsEnvironmentId, '/'))
+}
+
+resource managedCertificate 'Microsoft.App/managedEnvironments/managedCertificates@2024-10-02-preview' = if (configureCustomDomain) {
+  parent: environment
+  name: '${namePrefix}-website-cert'
+  location: location
+  properties: {
+    subjectName: customHostname
+    domainControlValidation: 'CNAME'
+  }
 }
 
 resource websiteApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
@@ -41,6 +70,13 @@ resource websiteApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
         targetPort: 3000
         transport: 'auto'
         allowInsecure: false
+        customDomains: configureCustomDomain ? [
+          {
+            name: customHostname
+            certificateId: managedCertificate!.id
+            bindingType: 'SniEnabled'
+          }
+        ] : []
       }
       registries: [
         {
@@ -48,6 +84,11 @@ resource websiteApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
           identity: identity.id
         }
       ]
+      secrets: [for secret in secretEnvironmentVariables: {
+        name: secret.secretRef
+        keyVaultUrl: secret.keyVaultUrl
+        identity: identity.id
+      }]
     }
     template: {
       containers: [
@@ -58,12 +99,16 @@ resource websiteApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
             cpu: json('0.5')
             memory: '1Gi'
           }
-          env: [
+          env: concat([
             {
               name: 'KEY_VAULT_URI'
               value: keyVaultUri
             }
-          ]
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: identity.properties.clientId
+            }
+          ], configuredEnvironment, configuredSecretEnvironment)
           probes: [
             {
               type: 'Liveness'
@@ -102,3 +147,4 @@ resource websiteApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
 
 output fqdn string = websiteApp.properties.configuration.ingress.fqdn
 output identityPrincipalId string = identity.properties.principalId
+output identityClientId string = identity.properties.clientId

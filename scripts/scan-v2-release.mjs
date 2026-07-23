@@ -8,13 +8,18 @@ import { join } from "node:path";
 
 const root = process.argv[2] ?? "build/WriterFlow.app";
 const forbidden = [
-  /openai\.azure\.com/i,
+  /https:\/\/(?!YOUR-RESOURCE)[a-z0-9][a-z0-9-]*\.(?:openai|cognitiveservices)\.azure\.com/i,
   /api-key\s*[:=]/i,
   /deployment[-_]?(name|id)/i,
   /ENTRA_WEB_CLIENT_SECRET/i,
+  /WRITERFLOW_API_BASE_URL/i,
   /\.dev-signing-key\.json/i,
-  /sk-[a-zA-Z0-9]{20,}/
+  /sk-[a-zA-Z0-9]{20,}/,
+  /postgres(?:ql)?:\/\/[^\s"']+/i,
+  /Bearer\s+[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/
 ];
+const required = [/apiwriterflow\.aviusolutions\.com/i];
+const foundRequired = new Set();
 
 const failures = [];
 
@@ -25,11 +30,14 @@ function scanFile(path) {
   } catch {
     return;
   }
-  const content = text.toString("utf8", 0, Math.min(text.length, 512_000));
+  const content = text.toString("utf8");
   for (const pattern of forbidden) {
     if (pattern.test(content)) {
       failures.push(`${path}: matched ${pattern}`);
     }
+  }
+  for (const pattern of required) {
+    if (pattern.test(content)) foundRequired.add(pattern);
   }
 }
 
@@ -47,13 +55,19 @@ function walk(dir) {
 try {
   walk(root);
 } catch (err) {
-  console.error(`Cannot scan ${root}:`, (err as Error).message);
+  console.error(`Cannot scan ${root}:`, err instanceof Error ? err.message : String(err));
   process.exit(1);
 }
 
 if (failures.length) {
   console.error("Release scanner failed:\n", failures.join("\n"));
   process.exit(1);
+}
+for (const pattern of required) {
+  if (!foundRequired.has(pattern)) {
+    console.error(`Release scanner failed: required production endpoint ${pattern} was not found`);
+    process.exit(1);
+  }
 }
 
 console.log(`Release scanner passed for ${root}`);

@@ -12,6 +12,9 @@ param privateDnsZoneId string
 param disablePublicNetworkAccess bool
 @allowed(['dev', 'staging', 'prod'])
 param environmentName string
+param useCmk bool = environmentName == 'prod'
+param keyVaultName string = ''
+param cmkKeyUri string = ''
 
 // Dev-only placeholder default. Staging/prod callers must pass this from a
 // Key Vault reference in the deployment pipeline, never rely on the default —
@@ -37,10 +40,42 @@ var backupRetentionDaysByEnvironment = {
   prod: 35
 }
 
+resource cmkIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = if (useCmk) {
+  name: '${namePrefix}-pg-cmk-identity'
+  location: location
+}
+
+resource keyVault 'Microsoft.KeyVault/vaults@2024-11-01' existing = if (useCmk) {
+  name: keyVaultName
+}
+
+var keyVaultCryptoServiceEncryptionUserRole = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  'e147488a-f6f5-4113-8e2d-b22465e65bf6'
+)
+
+resource cmkRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (useCmk) {
+  name: guid(keyVault!.id, cmkIdentity!.id, keyVaultCryptoServiceEncryptionUserRole)
+  scope: keyVault!
+  properties: {
+    principalId: cmkIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultCryptoServiceEncryptionUserRole
+  }
+}
+
 resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   name: '${namePrefix}-pg'
   location: location
   sku: skuByEnvironment[environmentName]
+  identity: useCmk ? {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${cmkIdentity!.id}': {}
+    }
+  } : {
+    type: 'None'
+  }
   properties: {
     version: '17'
     administratorLogin: 'writerflow_migrator'
@@ -64,7 +99,15 @@ resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
     highAvailability: {
       mode: environmentName == 'prod' ? 'ZoneRedundant' : 'Disabled'
     }
+    dataEncryption: useCmk ? {
+      type: 'AzureKeyVault'
+      primaryKeyURI: cmkKeyUri
+      primaryUserAssignedIdentityId: cmkIdentity!.id
+    } : {
+      type: 'SystemManaged'
+    }
   }
+  dependsOn: useCmk ? [cmkRole] : []
 }
 
 resource enforceTls 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2024-08-01' = {

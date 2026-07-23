@@ -9,17 +9,32 @@ param location string
 param containerAppsEnvironmentId string
 param containerRegistryLoginServer string
 param keyVaultUri string
+param appSuffix string = 'api'
+param identitySuffix string = '${appSuffix}-identity'
 param imageTag string = 'latest'
 param minReplicas int = 1
 param maxReplicas int = 10
+@description('Non-secret runtime settings, each shaped as { name, value }.')
+param environmentVariables array = []
+@description('Key Vault-backed settings, each shaped as { name, secretRef, keyVaultUrl }.')
+param secretEnvironmentVariables array = []
+
+var configuredEnvironment = [for setting in environmentVariables: {
+  name: setting.name
+  value: setting.value
+}]
+var configuredSecretEnvironment = [for secret in secretEnvironmentVariables: {
+  name: secret.name
+  secretRef: secret.secretRef
+}]
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
-  name: '${namePrefix}-api-identity'
+  name: '${namePrefix}-${identitySuffix}'
   location: location
 }
 
 resource apiApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
-  name: '${namePrefix}-api'
+  name: '${namePrefix}-${appSuffix}'
   location: location
   identity: {
     type: 'UserAssigned'
@@ -42,6 +57,11 @@ resource apiApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
           identity: identity.id
         }
       ]
+      secrets: [for secret in secretEnvironmentVariables: {
+        name: secret.secretRef
+        keyVaultUrl: secret.keyVaultUrl
+        identity: identity.id
+      }]
     }
     template: {
       containers: [
@@ -52,7 +72,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
             cpu: json('0.5')
             memory: '1Gi'
           }
-          env: [
+          env: concat([
             {
               name: 'KEY_VAULT_URI'
               value: keyVaultUri
@@ -61,7 +81,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
               name: 'AZURE_CLIENT_ID'
               value: identity.properties.clientId
             }
-          ]
+          ], configuredEnvironment, configuredSecretEnvironment)
           probes: [
             {
               type: 'Liveness'
@@ -100,3 +120,4 @@ resource apiApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
 
 output fqdn string = apiApp.properties.configuration.ingress.fqdn
 output identityPrincipalId string = identity.properties.principalId
+output identityClientId string = identity.properties.clientId

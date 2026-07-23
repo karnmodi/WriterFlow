@@ -1,12 +1,6 @@
 <!--
-  Operation-level override for the two bearer-exempt pairing routes:
-  POST /v2/device/authorize and POST /v2/device/token
-  (V2-ARCHITECTURE.md §5.2: "the only user-facing routes exempt from a bearer
-  token; they are gated by the PKCE-bound device_code and rate limits
-  instead"). Removes the base policy's validate-jwt and applies a strict,
-  IP-keyed rate limit plus a body-size cap since these are unauthenticated.
-
-  Status: code complete; cloud apply pending.
+  Developer-tier APIM variant: validate-content/content-type-map is not
+  supported on wfprod-apim-dev; IP rate limit only for bearer-exempt pairing.
 -->
 <policies>
   <inbound>
@@ -18,9 +12,6 @@
          60/min covers authorize + poll + deep-link hint without opening
          user_code guessing. Backend slow_down still enforces per-code cadence. -->
     <rate-limit-by-key calls="60" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
-    <validate-content unspecified-content-type-action="prevent" max-size="4096" size-exceeded-action="prevent">
-      <content-type-map any-content-type="application/json" missing-content-type="application/json" />
-    </validate-content>
   </inbound>
   <backend>
     <base />

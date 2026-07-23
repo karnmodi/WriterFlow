@@ -1,4 +1,5 @@
-// APIM Standard v2, outbound VNet integration into its delegated subnet
+// Developer APIM is the cost-controlled private-beta gateway. Standard v2
+// remains available for a future private-origin production profile.
 // (V2-ARCHITECTURE.md §2, Stage 5.1 "Put APIM Standard v2 outbound VNet
 // integration in its delegated subnet and link private DNS so the Container
 // Apps environment wildcard domain resolves to its internal static IP").
@@ -17,20 +18,57 @@ param publisherEmail string = 'engineering@writerflow.aviusolutions.com'
 param publisherName string = 'WriterFlow'
 param writerflowIssuer string = 'https://apiwriterflow.aviusolutions.com'
 param writerflowJwksUri string = 'https://apiwriterflow.aviusolutions.com/.well-known/jwks.json'
+@description('Versionless Key Vault secret URI used to authenticate APIM to a public Container Apps origin.')
+param originSharedSecretUri string = ''
+@description('Use cost-controlled Developer APIM without VNet integration. The API backend must then be publicly reachable.')
+param developerFallback bool = false
+@description('Enable only after the StandardV2 service exists and DNS validation points at its gateway.')
+param configureCustomDomain bool = false
+param customGatewayHostname string = 'apiwriterflow.aviusolutions.com'
 
 resource apim 'Microsoft.ApiManagement/service@2024-06-01-preview' = {
-  name: '${namePrefix}-apim'
+  name: developerFallback ? '${namePrefix}-apim-dev' : '${namePrefix}-apim'
   location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
   sku: {
-    name: 'StandardV2'
+    name: developerFallback ? 'Developer' : 'StandardV2'
     capacity: 1
   }
-  properties: {
+  properties: union({
     publisherEmail: publisherEmail
     publisherName: publisherName
+  }, developerFallback ? {} : union({
     virtualNetworkType: 'External'
     virtualNetworkConfiguration: {
       subnetResourceId: outboundSubnetId
+    }
+  }, configureCustomDomain ? {
+    hostnameConfigurations: [
+      {
+        type: 'Proxy'
+        hostName: customGatewayHostname
+        certificateSource: 'Managed'
+        defaultSslBinding: true
+        negotiateClientCertificate: false
+      }
+    ]
+  } : {}))
+}
+
+resource originSecretNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-06-01-preview' = {
+  parent: apim
+  name: 'writerflow-origin-secret'
+  properties: empty(originSharedSecretUri) ? {
+    displayName: 'writerflow-origin-secret'
+    value: 'origin-secret-not-configured'
+    secret: true
+  } : {
+    displayName: 'writerflow-origin-secret'
+    secret: true
+    keyVault: {
+      secretIdentifier: originSharedSecretUri
     }
   }
 }
@@ -70,7 +108,9 @@ resource apiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-06-01-pre
   name: 'policy'
   properties: {
     format: 'rawxml'
-    value: loadTextContent('../../apim/api-policy.xml')
+    value: developerFallback
+      ? loadTextContent('../../apim/api-policy-dev.xml')
+      : loadTextContent('../../apim/api-policy.xml')
   }
 }
 
@@ -89,7 +129,9 @@ resource deviceAuthorizePolicy 'Microsoft.ApiManagement/service/apis/operations/
   name: 'policy'
   properties: {
     format: 'rawxml'
-    value: loadTextContent('../../apim/pairing-operations-policy.xml')
+    value: developerFallback
+      ? loadTextContent('../../apim/pairing-operations-policy-dev.xml')
+      : loadTextContent('../../apim/pairing-operations-policy.xml')
   }
 }
 
@@ -108,9 +150,127 @@ resource deviceTokenPolicy 'Microsoft.ApiManagement/service/apis/operations/poli
   name: 'policy'
   properties: {
     format: 'rawxml'
-    value: loadTextContent('../../apim/pairing-operations-policy.xml')
+    value: developerFallback
+      ? loadTextContent('../../apim/pairing-operations-policy-dev.xml')
+      : loadTextContent('../../apim/pairing-operations-policy.xml')
   }
 }
+
+resource tokenRefreshOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
+  parent: api
+  name: 'token-refresh'
+  properties: {
+    displayName: 'Refresh device token'
+    method: 'POST'
+    urlTemplate: '/token/refresh'
+  }
+}
+
+resource tokenRefreshPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2024-06-01-preview' = {
+  parent: tokenRefreshOperation
+  name: 'policy'
+  properties: {
+    format: 'rawxml'
+    value: developerFallback
+      ? loadTextContent('../../apim/pairing-operations-policy-dev.xml')
+      : loadTextContent('../../apim/pairing-operations-policy.xml')
+  }
+}
+
+var webPairingOperations = [
+  {
+    name: 'device-approve'
+    displayName: 'Approve device'
+    method: 'POST'
+    urlTemplate: '/device/approve'
+  }
+  {
+    name: 'web-session-token'
+    displayName: 'Mint web session token'
+    method: 'POST'
+    urlTemplate: '/web-session/token'
+  }
+  {
+    // ADR-0013 account sign-in — Entra ID token in body, no device JWT.
+    name: 'web-account-token'
+    displayName: 'Mint web account token'
+    method: 'POST'
+    urlTemplate: '/web-account/token'
+  }
+  {
+    // ADR-0013 — web-account bearer (not device JWT with device_id).
+    name: 'web-session-bridge'
+    displayName: 'Bridge web session for pairing'
+    method: 'POST'
+    urlTemplate: '/web-session/bridge'
+  }
+  {
+    // ADR-0013 — web-account bearer for website Account page.
+    name: 'web-me'
+    displayName: 'Get web account snapshot'
+    method: 'GET'
+    urlTemplate: '/web/me'
+  }
+]
+
+resource webPairingOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = [for operation in webPairingOperations: {
+  parent: api
+  name: operation.name
+  properties: {
+    displayName: operation.displayName
+    method: operation.method
+    urlTemplate: operation.urlTemplate
+  }
+}]
+
+resource webPairingPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2024-06-01-preview' = [for (operation, index) in webPairingOperations: {
+  parent: webPairingOperation[index]
+  name: 'policy'
+  properties: {
+    format: 'rawxml'
+    value: developerFallback
+      ? loadTextContent('../../apim/pairing-operations-policy-dev.xml')
+      : loadTextContent('../../apim/pairing-operations-policy.xml')
+  }
+}]
+
+var authenticatedOperations = [
+  {
+    name: 'account-me'
+    displayName: 'Get current account'
+    method: 'GET'
+    urlTemplate: '/me'
+  }
+  {
+    name: 'device-revoke'
+    displayName: 'Revoke device'
+    method: 'DELETE'
+    urlTemplate: '/devices/{id}'
+  }
+  {
+    name: 'cohort-flags'
+    displayName: 'Get cohort flags'
+    method: 'GET'
+    urlTemplate: '/cohort/flags'
+  }
+]
+
+resource authenticatedOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = [for operation in authenticatedOperations: {
+  parent: api
+  name: operation.name
+  properties: {
+    displayName: operation.displayName
+    method: operation.method
+    urlTemplate: operation.urlTemplate
+    templateParameters: operation.name == 'device-revoke' ? [
+      {
+        name: 'id'
+        type: 'string'
+        required: true
+      }
+    ] : []
+  }
+}]
 
 resource inferenceStreamOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = {
   parent: api
@@ -168,3 +328,5 @@ resource jwksOperationPolicy 'Microsoft.ApiManagement/service/apis/operations/po
 }
 
 output gatewayUrl string = apim.properties.gatewayUrl
+output gatewayHost string = '${apim.name}.azure-api.net'
+output identityPrincipalId string = apim.identity.principalId

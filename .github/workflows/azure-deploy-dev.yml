@@ -1,7 +1,8 @@
-name: azure-deploy-dev
+name: azure-private-beta-deploy
 
-# Stage 5.1 CD skeleton — dev auto-deploy on main; staging/prod require manual approval.
-# Requires repository secrets: AZURE_CREDENTIALS, AZURE_SUBSCRIPTION_ID, AZURE_RESOURCE_GROUP.
+# Configure separate GitHub environments named staging and production. Production
+# must require an approver. Each environment supplies AZURE_* workload-identity
+# variables and Key Vault secret URIs; no Azure client secret is used.
 
 on:
   workflow_dispatch:
@@ -9,54 +10,172 @@ on:
       environment:
         description: Target environment
         required: true
-        default: dev
+        default: staging
         type: choice
-        options: [dev, staging, prod]
-  push:
-    branches: [main]
-    paths:
-      - "infra/bicep/**"
-      - "services/api/**"
-      - "services/worker/**"
-      - "website/**"
+        options: [staging, production]
 
 permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: azure-${{ inputs.environment }}
+  cancel-in-progress: false
+
 jobs:
-  deploy:
-    name: Deploy to Azure (${{ github.event.inputs.environment || 'dev' }})
+  validate:
+    name: Validate release candidate
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'dev' }}
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24.x"
+          cache: "npm"
+      - uses: azure/setup-bicep@v1
+      - run: npm ci
+      - run: npm run check
+      - name: Verify website
+        working-directory: website
+        run: npm ci && npm test && npm run check
+        env:
+          NEXT_PUBLIC_RELEASE_STATUS: private-beta
+          NEXT_PUBLIC_SITE_ORIGIN: https://writerflow.aviusolutions.com
+      - run: bicep build infra/bicep/main.bicep --stdout > /dev/null
+      - run: bicep lint infra/bicep/main.bicep
 
+  deploy:
+    name: Deploy immutable release to ${{ inputs.environment }}
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      NAME_PREFIX: ${{ vars.AZURE_NAME_PREFIX }}
+      REGISTRY_NAME: ${{ vars.AZURE_CONTAINER_REGISTRY }}
+      PROFILE: private-beta-public
+      ENVIRONMENT_NAME: dev
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
       - uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - uses: azure/setup-bicep@v1
-
-      - name: Build and validate Bicep
-        run: bicep build infra/bicep/main.bicep --stdout > /dev/null
-
-      - name: Deploy infrastructure (what-if first)
+      - name: Validate private-beta environment configuration
+        env:
+          DATABASE_URL_SECRET_URI: ${{ vars.DATABASE_URL_SECRET_URI }}
+          MIGRATION_DATABASE_URL_SECRET_URI: ${{ vars.MIGRATION_DATABASE_URL_SECRET_URI }}
+          ENTRA_CLIENT_SECRET_URI: ${{ vars.ENTRA_CLIENT_SECRET_URI }}
+          APIM_ORIGIN_SECRET_URI: ${{ vars.APIM_ORIGIN_SECRET_URI }}
+          ENTRA_TENANT_ISSUER: ${{ vars.ENTRA_TENANT_ISSUER }}
+          ENTRA_JWKS_URI: ${{ vars.ENTRA_JWKS_URI }}
+          ENTRA_WEB_CLIENT_ID: ${{ vars.ENTRA_WEB_CLIENT_ID }}
+        run: |
+          for name in DATABASE_URL_SECRET_URI MIGRATION_DATABASE_URL_SECRET_URI \
+            ENTRA_CLIENT_SECRET_URI APIM_ORIGIN_SECRET_URI ENTRA_TENANT_ISSUER \
+            ENTRA_JWKS_URI ENTRA_WEB_CLIENT_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is required for the private-beta deployment"
+              exit 1
+            fi
+          done
+      - name: Production topology what-if
         run: |
           az deployment group what-if \
-            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --resource-group "$RESOURCE_GROUP" \
             --template-file infra/bicep/main.bicep \
-            --parameters environment=${{ github.event.inputs.environment || 'dev' }}
-
-      - name: Deploy infrastructure
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+            --parameters \
+              environmentName="$ENVIRONMENT_NAME" \
+              deploymentProfile="$PROFILE" \
+              namePrefix="$NAME_PREFIX" \
+              imageTag="$IMAGE_TAG" \
+              postgresAdministratorPassword=${{ secrets.POSTGRES_ADMINISTRATOR_PASSWORD }} \
+              databaseUrlSecretUri="${{ vars.DATABASE_URL_SECRET_URI }}" \
+              migrationDatabaseUrlSecretUri="${{ vars.MIGRATION_DATABASE_URL_SECRET_URI }}" \
+              workerDatabaseUrlSecretUri="${{ vars.WORKER_DATABASE_URL_SECRET_URI }}" \
+              entraClientSecretUri="${{ vars.ENTRA_CLIENT_SECRET_URI }}" \
+              apimOriginSecretUri="${{ vars.APIM_ORIGIN_SECRET_URI }}" \
+              entraTenantIssuer="${{ vars.ENTRA_TENANT_ISSUER }}" \
+              entraJwksUri="${{ vars.ENTRA_JWKS_URI }}" \
+              entraWebClientId="${{ vars.ENTRA_WEB_CLIENT_ID }}"
+      - name: Build immutable images in ACR
+        run: |
+          az acr build --registry "$REGISTRY_NAME" --image "writerflow-api:$IMAGE_TAG" --file services/api/Dockerfile .
+          az acr build --registry "$REGISTRY_NAME" --image "writerflow-worker:$IMAGE_TAG" --file services/worker/Dockerfile .
+          az acr build --registry "$REGISTRY_NAME" --image "writerflow-migrations:$IMAGE_TAG" --file services/api/Dockerfile.migrations .
+          az acr build --registry "$REGISTRY_NAME" --image "writerflow-apim-edge:$IMAGE_TAG" --file scripts/cloud/apim-edge/Dockerfile scripts/cloud/apim-edge
+          az acr build --registry "$REGISTRY_NAME" --image "writerflow-website:$IMAGE_TAG" \
+            --file website/Dockerfile \
+            --build-arg NEXT_PUBLIC_RELEASE_STATUS=private-beta \
+            --build-arg NEXT_PUBLIC_SITE_ORIGIN=https://writerflow.aviusolutions.com .
+      - name: Run least-privilege migrations inside the private environment
+        run: |
+          JOB_NAME="$NAME_PREFIX-migrations"
+          az containerapp job show --resource-group "$RESOURCE_GROUP" --name "$JOB_NAME" >/dev/null || {
+            echo "::error::Bootstrap the migration job using the private-beta deployment runbook before promotion."
+            exit 1
+          }
+          az containerapp job update \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$JOB_NAME" \
+            --image "$REGISTRY_NAME.azurecr.io/writerflow-migrations:$IMAGE_TAG" >/dev/null
+          EXECUTION_NAME="$(az containerapp job start \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$JOB_NAME" \
+            --query name -o tsv)"
+          for attempt in $(seq 1 60); do
+            STATUS="$(az containerapp job execution list \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$JOB_NAME" \
+              --query "[?name=='$EXECUTION_NAME'].properties.status | [0]" -o tsv)"
+            case "$STATUS" in
+              Succeeded) break ;;
+              Failed) echo "::error::Migration execution failed"; exit 1 ;;
+            esac
+            if [ "$attempt" -eq 60 ]; then
+              echo "::error::Migration execution timed out"; exit 1
+            fi
+            sleep 10
+          done
+      - name: Capture rollback revisions
+        id: rollback
+        run: |
+          echo "api=$(az containerapp revision list -g "$RESOURCE_GROUP" -n "$NAME_PREFIX-api-public" --query '[?properties.active].name | [0]' -o tsv)" >> "$GITHUB_OUTPUT"
+          echo "website=$(az containerapp revision list -g "$RESOURCE_GROUP" -n "$NAME_PREFIX-website" --query '[?properties.active].name | [0]' -o tsv)" >> "$GITHUB_OUTPUT"
+      - name: Incremental infrastructure and workload deployment
         run: |
           az deployment group create \
-            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --resource-group "$RESOURCE_GROUP" \
             --template-file infra/bicep/main.bicep \
-            --parameters environment=${{ github.event.inputs.environment || 'dev' }} \
+            --parameters \
+              environmentName="$ENVIRONMENT_NAME" \
+              deploymentProfile="$PROFILE" \
+              namePrefix="$NAME_PREFIX" \
+              imageTag="$IMAGE_TAG" \
+              postgresAdministratorPassword=${{ secrets.POSTGRES_ADMINISTRATOR_PASSWORD }} \
+              databaseUrlSecretUri="${{ vars.DATABASE_URL_SECRET_URI }}" \
+              migrationDatabaseUrlSecretUri="${{ vars.MIGRATION_DATABASE_URL_SECRET_URI }}" \
+              workerDatabaseUrlSecretUri="${{ vars.WORKER_DATABASE_URL_SECRET_URI }}" \
+              entraClientSecretUri="${{ vars.ENTRA_CLIENT_SECRET_URI }}" \
+              apimOriginSecretUri="${{ vars.APIM_ORIGIN_SECRET_URI }}" \
+              entraTenantIssuer="${{ vars.ENTRA_TENANT_ISSUER }}" \
+              entraJwksUri="${{ vars.ENTRA_JWKS_URI }}" \
+              entraWebClientId="${{ vars.ENTRA_WEB_CLIENT_ID }}" \
             --mode Incremental
-
-      - name: Post-deploy smoke (APIM health)
+      - name: Private-network negative probes and APIM smoke
+        env:
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          APIM_GATEWAY_URL: ${{ vars.APIM_GATEWAY_URL }}
+          APIWRITERFLOW_URL: https://apiwriterflow.aviusolutions.com
+          API_APP_NAME: ${{ vars.AZURE_NAME_PREFIX }}-api-public
+        run: scripts/cloud/apim-smoke.sh
+      - name: Roll back workload traffic after a failed promotion
+        if: failure() && steps.rollback.outputs.api != ''
         run: |
-          echo "Run APIM smoke against deployed endpoint — configure APIM_BASE_URL secret"
+          az containerapp revision activate -g "$RESOURCE_GROUP" -n "$NAME_PREFIX-api-public" --revision "${{ steps.rollback.outputs.api }}"
+          az containerapp ingress traffic set -g "$RESOURCE_GROUP" -n "$NAME_PREFIX-api-public" --revision-weight "${{ steps.rollback.outputs.api }}=100"
+          az containerapp revision activate -g "$RESOURCE_GROUP" -n "$NAME_PREFIX-website" --revision "${{ steps.rollback.outputs.website }}"
+          az containerapp ingress traffic set -g "$RESOURCE_GROUP" -n "$NAME_PREFIX-website" --revision-weight "${{ steps.rollback.outputs.website }}=100"

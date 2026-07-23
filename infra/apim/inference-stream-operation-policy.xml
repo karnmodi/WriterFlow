@@ -7,9 +7,9 @@
 <policies>
   <inbound>
     <base />
-    <set-header name="Idempotency-Key" exists-action="skip">
-      <value>@(context.RequestId.ToString())</value>
-    </set-header>
+    <!-- Preserve the client-generated Idempotency-Key exactly. The backend
+         requires and validates it; APIM must never synthesize a different
+         operation identity on a retry. -->
   </inbound>
   <backend>
     <forward-request buffer-request-body="true" buffer-response="false" timeout="120" />
