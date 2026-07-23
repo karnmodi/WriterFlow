@@ -70,7 +70,8 @@ fi
 # interrupted by transient signing hiccups.
 if [[ "$CONFIG" == "release" ]]; then
     echo "▸ ad-hoc codesigning with hardened runtime (release)"
-    codesign --force --sign - --options runtime --timestamp=none "$APP"
+    codesign --force --sign - --options runtime --timestamp=none \
+        --entitlements "$ROOT/WriterFlow.entitlements" "$APP"
 else
     codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1 || true
 fi

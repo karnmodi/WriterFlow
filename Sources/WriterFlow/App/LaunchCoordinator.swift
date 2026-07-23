@@ -39,4 +39,8 @@ final class LaunchCoordinator: ObservableObject {
     func reportFailure(_ message: String) {
         state = .failed(message)
     }
+
+    func reportRecoveryRequired(_ message: String) {
+        state = .recoveryRequired(message)
+    }
 }

@@ -84,4 +84,22 @@ enum DatabaseKeychain {
         precondition(write(key, scope: scope), "failed to persist a newly generated database key to the Keychain")
         return key
     }
+
+    /// Copies the pre-sign-in key into the first immutable account scope.
+    /// The key bytes stay unchanged, so an already-open SQLCipher database
+    /// remains valid while future launches use the account-scoped item.
+    static func bindUnscopedKey(to scope: String) -> Bool {
+        if read(scope: scope) != nil { return true }
+        guard let unscoped = read(scope: nil) else { return false }
+        return write(unscoped, scope: scope)
+    }
+
+    /// Overwrites an account-scoped key with the pre-sign-in key. Used when the
+    /// scoped item was minted separately and no longer decrypts the on-disk
+    /// database (the ciphertext was encrypted with `unscoped`).
+    static func repairAccountKeyFromUnscoped(scope: String) -> Bool {
+        guard let unscoped = read(scope: nil) else { return false }
+        if read(scope: scope) == unscoped { return true }
+        return write(unscoped, scope: scope)
+    }
 }

@@ -48,8 +48,22 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        var capturedRequest = request
+        if capturedRequest.httpBody == nil, let stream = capturedRequest.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
+            defer { buffer.deallocate() }
+            while stream.hasBytesAvailable {
+                let count = stream.read(buffer, maxLength: 4096)
+                guard count > 0 else { break }
+                data.append(buffer, count: count)
+            }
+            capturedRequest.httpBody = data
+        }
         Self.lock.lock()
-        Self.recordedRequests.append(request)
+        Self.recordedRequests.append(capturedRequest)
         let method = request.httpMethod ?? "GET"
         let path = request.url?.path ?? ""
         let matchingKey = Self.queuedStubs.keys.first { $0.method == method && path.hasSuffix($0.pathSuffix) }

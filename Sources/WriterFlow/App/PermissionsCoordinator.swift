@@ -19,14 +19,19 @@ final class PermissionsCoordinator: ObservableObject {
             "AXTrustedCheckOptionPrompt": false
         ] as CFDictionary)
         let direct = AXIsProcessTrusted()
-        accessibility = withOptions || direct
-        inputMonitoring = CGPreflightListenEventAccess()
+        let ax = withOptions || direct
+        let im = CGPreflightListenEventAccess()
 
-        let ax = accessibility
-        let im = inputMonitoring
-        Log.app.debug(
-            "Permissions refresh ax=\(ax, privacy: .public) im=\(im, privacy: .public) trusted=\(direct, privacy: .public) path=\(AppBundleLocator.appPath, privacy: .public)"
-        )
+        let axChanged = ax != accessibility
+        let imChanged = im != inputMonitoring
+        if axChanged { accessibility = ax }
+        if imChanged { inputMonitoring = im }
+
+        if axChanged || imChanged {
+            Log.app.debug(
+                "Permissions refresh ax=\(ax, privacy: .public) im=\(im, privacy: .public) trusted=\(direct, privacy: .public) path=\(AppBundleLocator.appPath, privacy: .public)"
+            )
+        }
     }
 
     func startPolling() {

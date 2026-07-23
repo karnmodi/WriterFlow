@@ -4,6 +4,7 @@ import XCTest
 private actor FakeDeviceSession: DeviceSessionProviding {
     private let fixedState: DeviceSessionState
     private let token: String
+    private var refreshCount = 0
 
     init(state: DeviceSessionState, token: String = "access-token-1") {
         self.fixedState = state
@@ -11,6 +12,7 @@ private actor FakeDeviceSession: DeviceSessionProviding {
     }
 
     var state: DeviceSessionState { fixedState }
+    var needsRelaunchAfterAccountSwitch: Bool { false }
     func beginPairing() async throws -> PairingChallenge { throw DeviceSessionError.notPaired }
     func awaitPairedToken() async throws { throw DeviceSessionError.notPaired }
     func accessToken() async throws -> String {
@@ -19,7 +21,11 @@ private actor FakeDeviceSession: DeviceSessionProviding {
     }
     func signOut() async {}
     func markSessionInvalid() async {}
-    func forceRefreshAccessToken() async throws -> String { try await accessToken() }
+    func forceRefreshAccessToken() async throws -> String {
+        refreshCount += 1
+        return "access-token-refreshed"
+    }
+    func forcedRefreshCount() -> Int { refreshCount }
     func handleForegroundHint() async {}
     func cancelPairing() async {}
 }
@@ -37,8 +43,9 @@ final class WriterFlowInferenceTransportTests: XCTestCase {
 
     private let testConfig = WriterFlowAPIConfig(baseURL: URL(string: "https://test.invalid/v2")!)
 
-    private func makeRequest() -> InferenceFixGrammarRequest {
+    private func makeRequest() -> InferenceRequest {
         .init(
+            action: .fixGrammar,
             operationId: UUID(),
             retryOf: nil,
             bundleId: "com.apple.Notes",
@@ -50,6 +57,8 @@ final class WriterFlowInferenceTransportTests: XCTestCase {
             conversation: nil,
             hasSelection: false,
             hasVisibleThread: false,
+            customInstruction: nil,
+            promptBuilder: nil,
             outputModeHint: "replace"
         )
     }
@@ -95,6 +104,41 @@ final class WriterFlowInferenceTransportTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-WriterFlow-Device"), "device-1")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/event-stream")
         XCTAssertNotNil(request.value(forHTTPHeaderField: "Idempotency-Key"))
+    }
+
+    func testCustomActionSendsRequestedActionAndInstruction() async throws {
+        let body = sseBody([
+            #"{"type":"decision","intent":"custom","confidence":null,"outputMode":"insert_before","route":"rewrite_standard","reasonCode":null}"#,
+            #"{"type":"output.delta","delta":"Launch summary"}"#,
+            #"{"type":"completed","requestId":"30000000-0000-4000-8000-000000000005","promptVersion":"custom@5.1.0"}"#
+        ])
+        MockURLProtocol.stub(method: "POST", pathSuffix: "/inference/stream", statusCode: 200, json: body)
+        let session = FakeDeviceSession(state: .signedIn(deviceId: "device-1"))
+        let transport = WriterFlowInferenceTransport(deviceSession: session, config: testConfig, session: MockURLProtocol.session)
+        let request = InferenceRequestBuilder.build(
+            action: .custom,
+            snapshot: FieldSnapshot(
+                fullText: "WriterFlow launches Friday.",
+                selectedText: "",
+                selectedRange: NSRange(location: 0, length: 0),
+                role: "AXTextArea",
+                appBundleID: "com.apple.Notes",
+                windowTitle: "Note"
+            ),
+            site: nil,
+            conversation: nil,
+            customInstruction: "Write a short title"
+        )
+
+        _ = try await collect(transport.stream(request))
+
+        let urlRequest = try XCTUnwrap(MockURLProtocol.requests().first)
+        let data = try XCTUnwrap(urlRequest.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let task = try XCTUnwrap(json["task"] as? [String: Any])
+        XCTAssertEqual(task["requestedAction"] as? String, "custom")
+        XCTAssertEqual(task["customInstruction"] as? String, "Write a short title")
+        XCTAssertEqual(task["outputModeHint"] as? String, "insert_before")
     }
 
     func testDeltaBeforeDecisionIsRejectedAsInvalidOrder() async throws {
@@ -145,6 +189,51 @@ final class WriterFlowInferenceTransportTests: XCTestCase {
             XCTAssertEqual(code, "QUOTA_EXCEEDED")
             XCTAssertEqual(message, "Monthly usage limit reached.")
         }
+    }
+
+    func testUnauthorizedInferenceRefreshesOnceAndRetries() async throws {
+        MockURLProtocol.stub(
+            method: "POST",
+            pathSuffix: "/inference/stream",
+            statusCode: 401,
+            json: Data()
+        )
+        MockURLProtocol.stub(
+            method: "POST",
+            pathSuffix: "/inference/stream",
+            statusCode: 200,
+            json: sseBody([
+                #"{"type":"request.accepted","requestId":"30000000-0000-4000-8000-000000000006"}"#,
+                #"{"type":"decision","intent":"grammar","confidence":null,"outputMode":"replace","route":"grammar_fast","reasonCode":null}"#,
+                #"{"type":"output.delta","delta":"Fixed."}"#,
+                #"{"type":"usage.summary","usedUnits":2,"remainingUnits":498}"#,
+                #"{"type":"completed","requestId":"30000000-0000-4000-8000-000000000006","promptVersion":"grammar@5.1.0"}"#
+            ])
+        )
+        let deviceSession = FakeDeviceSession(state: .signedIn(deviceId: "device-1"))
+        let transport = WriterFlowInferenceTransport(
+            deviceSession: deviceSession,
+            config: testConfig,
+            session: MockURLProtocol.session
+        )
+
+        let events = try await collect(transport.stream(makeRequest()))
+
+        XCTAssertEqual(events.last, .completed(
+            requestId: "30000000-0000-4000-8000-000000000006",
+            promptVersion: "grammar@5.1.0"
+        ))
+        let refreshCount = await deviceSession.forcedRefreshCount()
+        XCTAssertEqual(refreshCount, 1)
+        let requests = MockURLProtocol.requests()
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests[0].value(forHTTPHeaderField: "Authorization"), "Bearer access-token-1")
+        XCTAssertEqual(requests[1].value(forHTTPHeaderField: "Authorization"), "Bearer access-token-refreshed")
+        XCTAssertEqual(
+            requests[0].value(forHTTPHeaderField: "Idempotency-Key"),
+            requests[1].value(forHTTPHeaderField: "Idempotency-Key"),
+            "a token refresh retry must remain the same idempotent operation"
+        )
     }
 
     func testNotSignedInThrowsWithoutMakingARequest() async throws {

@@ -23,6 +23,8 @@ final class OverlayController {
         didSet { iconState.isBusy = previewStreaming }
     }
     private var previewCanReplace: Bool = false
+    private var previewErrorMessage: String?
+    private var previewStreamStartedAt: Date?
     private var previewActionTitle: String = ""
     private var previewOriginalText: String = ""
     private var pendingSnapshot: FieldSnapshot?
@@ -172,6 +174,8 @@ final class OverlayController {
             action: pendingAction,
             isStreaming: previewStreaming,
             canReplace: previewCanReplace,
+            errorMessage: previewErrorMessage,
+            streamStartedAt: previewStreamStartedAt,
             onSelectVariant: { [weak self] index in self?.selectPreviewVariant(index) },
             onSelectClarifyAnswer: { [weak self] questionID, answer in
                 self?.selectClarifyAnswer(questionID: questionID, answer: answer)
@@ -306,6 +310,8 @@ final class OverlayController {
         previewOriginalText = ""
         previewStreaming = true
         previewCanReplace = false
+        previewErrorMessage = nil
+        previewStreamStartedAt = Date()
         pendingAction = action
         pendingSnapshot = nil
         pendingEvent = nil
@@ -325,6 +331,7 @@ final class OverlayController {
     }
 
     func appendVariant(_ index: Int, delta: String) {
+        previewErrorMessage = nil
         previewVariants.append(to: index, delta: delta)
         refreshPreviewContent()
     }
@@ -358,6 +365,8 @@ final class OverlayController {
         previewClarifySelections = [:]
         previewOriginalText = snapshot.actionText
         previewStreaming = false
+        previewErrorMessage = nil
+        previewStreamStartedAt = nil
         let output = variants.selectedText
         previewCanReplace = !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && snapshot.supportsReplace
@@ -393,16 +402,30 @@ final class OverlayController {
         previewClarifyQuestions = []
         previewClarifySelections = [:]
         previewCanReplace = false
+        previewErrorMessage = nil
+        previewStreamStartedAt = Date()
         refreshPreviewContent()
 
         onPromptBuilderAnswersSelected?(answers, field)
     }
 
     func failPreview(message: String) {
+        // Keep the card open with an explicit error — dismissing + toast alone
+        // looked like a silent hang under rate-limit / overload.
         previewStreaming = false
         previewCanReplace = false
-        dismissPreview()
+        previewErrorMessage = message
+        previewStreamStartedAt = nil
+        if !isPreviewVisible, let field = currentField {
+            positionPanelAboveIcon(previewPanel, size: effectivePreviewSize, field: field)
+            isPreviewVisible = true
+            previewPanel.orderFrontRegardless()
+            previewPanel.alphaValue = 1
+        }
+        refreshPreviewContent()
+        installPreviewKeyMonitor()
         ErrorToast.show(message, belowIcon: dockIconAnchor())
+        Log.overlay.error("Preview failed: \(message, privacy: .public)")
     }
 
     // MARK: - Event logging

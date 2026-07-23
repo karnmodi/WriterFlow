@@ -88,7 +88,10 @@ final class SettingsStore: ObservableObject {
 
     /// Last 5 Custom-action instructions, most recent first — quick-repeat chips.
     @Published var recentCustomInstructions: [String] {
-        didSet { defaults.set(recentCustomInstructions, forKey: Keys.recentCustomInstructions) }
+        didSet {
+            guard let data = try? JSONEncoder().encode(recentCustomInstructions) else { return }
+            WriterFlowDatabase.setSettingData(data, forKey: Keys.recentCustomInstructions)
+        }
     }
 
     /// Stage 3.1 history retention window; defaults to 90 days.
@@ -104,7 +107,7 @@ final class SettingsStore: ObservableObject {
     @Published var voiceProfile: VoiceProfile {
         didSet {
             if let data = try? JSONEncoder().encode(voiceProfile) {
-                defaults.set(data, forKey: Keys.voiceProfile)
+                WriterFlowDatabase.setSettingData(data, forKey: Keys.voiceProfile)
             }
         }
     }
@@ -147,10 +150,14 @@ final class SettingsStore: ObservableObject {
         } else {
             self.launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         }
-        self.recentCustomInstructions = defaults.stringArray(forKey: Keys.recentCustomInstructions) ?? []
+        let encryptedRecent = WriterFlowDatabase.settingData(forKey: Keys.recentCustomInstructions)
+            .flatMap { try? JSONDecoder().decode([String].self, from: $0) }
+        let legacyRecent = defaults.stringArray(forKey: Keys.recentCustomInstructions) ?? []
+        self.recentCustomInstructions = encryptedRecent ?? legacyRecent
         let retentionRaw = defaults.object(forKey: Keys.historyRetention) as? Int
         self.historyRetention = retentionRaw.flatMap(RetentionPeriod.init(rawValue:)) ?? .days90
-        if let data = defaults.data(forKey: Keys.voiceProfile),
+        let encryptedVoice = WriterFlowDatabase.settingData(forKey: Keys.voiceProfile)
+        if let data = encryptedVoice ?? defaults.data(forKey: Keys.voiceProfile),
            let profile = try? JSONDecoder().decode(VoiceProfile.self, from: data) {
             self.voiceProfile = profile
         } else {
@@ -163,6 +170,20 @@ final class SettingsStore: ObservableObject {
             self.hotkeyCombo = .default
         }
         self.forceClipboardFallback = defaults.bool(forKey: Keys.forceClipboardFallback)
+        var recentPersisted = encryptedRecent != nil
+        if !recentPersisted, let data = try? JSONEncoder().encode(legacyRecent) {
+            recentPersisted = WriterFlowDatabase.setSettingData(data, forKey: Keys.recentCustomInstructions)
+        }
+        var voicePersisted = encryptedVoice != nil
+        if !voicePersisted, let data = try? JSONEncoder().encode(voiceProfile) {
+            voicePersisted = WriterFlowDatabase.setSettingData(data, forKey: Keys.voiceProfile)
+        }
+        if recentPersisted {
+            defaults.removeObject(forKey: Keys.recentCustomInstructions)
+        }
+        if voicePersisted {
+            defaults.removeObject(forKey: Keys.voiceProfile)
+        }
         Task {
             await ConversionEventStore.shared.migrateLegacyLogIfNeeded()
             await ConversionEventStore.shared.purgeExpired(retentionDays: self.historyRetention.days)

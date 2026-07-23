@@ -17,7 +17,10 @@ final class FloatingPanel: NSPanel {
         )
         isFloatingPanel = true
         self.level = level
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        // Do NOT use `.transient` — macOS auto-orders those out when WriterFlow is not
+        // the frontmost app, which is exactly when the floating icon must stay visible
+        // over Notes/Slack/etc. `.ignoresCycle` keeps ⌘` from landing on the overlay.
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false

@@ -8,24 +8,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
     private var pauseMenuItem: NSMenuItem?
     private var statusMenuItem: NSMenuItem?
     private let permissions = PermissionsCoordinator()
-    private lazy var onboarding = OnboardingWindowController(permissions: permissions, modelsConfig: modelsConfig)
+    private lazy var onboarding = OnboardingWindowController(permissions: permissions)
     private lazy var dashboardWindow = DashboardWindowController(modelsConfig: modelsConfig, deviceSession: deviceSession)
     private let focusMonitor = FocusMonitor()
     private let overlay = OverlayController()
     private let globalHotkey = GlobalHotkey()
-    private let settings = SettingsStore.shared
-    private let modelsConfig = AzureModelsConfig.load()
+    private let dependencies = AppDependencies.shared
+    private lazy var settings = SettingsStore.shared
+    private lazy var modelsConfig = dependencies.modelsConfig
     // Stage 5.2: device-session state lives in one place, queried via the
     // protocol — not scattered ad hoc Keychain reads through AppDelegate
     // the way the v1 BYO-key readiness check at `needsAzureSetup` below is.
-    private let deviceSession: DeviceSessionProviding = DeviceSessionStore()
-    private lazy var inferenceTransport = WriterFlowInferenceTransport(deviceSession: deviceSession)
+    private lazy var deviceSession = dependencies.deviceSession
+    private lazy var writerFlowAPI = dependencies.writerFlowAPI
+    private lazy var inferenceTransport = dependencies.inferenceTransport
     private lazy var actionEngine = ActionEngine(
-        config: modelsConfig,
+        legacyClient: dependencies.legacyActionClient,
         inferenceTransport: inferenceTransport,
         deviceSession: deviceSession
     )
-    private lazy var recommendationEngine = RecommendationEngine(config: modelsConfig)
+    private lazy var recommendationEngine = RecommendationEngine(
+        classifier: dependencies.recommendationClassifier
+    )
     private var cancellables: Set<AnyCancellable> = []
     private var hadAccessibility = false
     private var hadInputMonitoring = false
@@ -36,6 +40,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         // Stage 4.4: bail out early if we relocated to /Applications and are relaunching
         // from there — nothing below should stand up against the DMG-mounted copy.
         AppRelocator.relocateIfNeededFromDMG()
+
+        // Open/migrate/unlock the encrypted store before constructing Dashboard
+        // view models or any singleton that can read account content.
+        _ = WriterFlowDatabase.shared
+        refreshTransportPolicy()
 
         installStatusItem()
         Log.app.info("WriterFlow launched")
@@ -55,7 +64,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         // settings, and usage all work without any permission grant (they're local-data screens).
         dashboardWindow.visibilityDelegate = self
         onboarding.visibilityDelegate = self
-        onboarding.onOpenDashboard = { [weak self] in self?.dashboardWindow.show() }
+        onboarding.onOpenDashboard = { [weak self] in
+            self?.dashboardWindow.show()
+            NotificationCenter.default.post(name: .openWriterFlowAccount, object: nil)
+        }
         dashboardWindow.show()
 
         #if DEBUG
@@ -167,6 +179,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         )
     }
 
+    private func refreshTransportPolicy() {
+        Task {
+            do {
+                let token = try await deviceSession.accessToken()
+                let flags = try await writerFlowAPI.cohortFlags(accessToken: token)
+                TransportPreferences.apply(
+                    useCloudInference: flags.useCloudInference,
+                    allowByoFallback: flags.allowByoFallback
+                )
+            } catch {
+                // Private-beta default is cloud and fail-closed. A stale or
+                // unavailable flag response must never silently expose BYO.
+                TransportPreferences.apply(useCloudInference: true, allowByoFallback: false)
+                Log.auth.notice("Cohort flags unavailable; using cloud-only default")
+            }
+        }
+    }
+
     @objc private func appDidBecomeActive() {
         permissions.refresh()
         applyPermissionState()
@@ -209,14 +239,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         let im = imNow ? "✓" : "✗"
         statusMenuItem?.title = "Permissions — Accessibility \(ax)  Input Monitoring \(im)"
 
-        if !axNow {
-            Log.app.error("Accessibility not granted — WriterFlow cannot detect text fields")
-        }
-        if !imNow {
-            Log.app.error("Input Monitoring not granted — icon still shows on every focused text field (degraded mode)")
+        let axChanged = axNow != hadAccessibility
+        let imChanged = imNow != hadInputMonitoring
+        if axChanged || imChanged {
+            if !axNow {
+                Log.app.error("Accessibility not granted — WriterFlow cannot detect text fields")
+            }
+            if !imNow {
+                Log.app.error("Input Monitoring not granted — icon still shows on every focused text field (degraded mode)")
+            }
+            if permissions.allGranted {
+                Log.app.info("All permissions granted")
+            }
         }
         if permissions.allGranted {
-            Log.app.info("All permissions granted")
             permissions.stopPolling()
             if onboarding.isVisible {
                 onboarding.close(userInitiated: false)

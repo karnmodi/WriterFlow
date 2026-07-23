@@ -11,9 +11,16 @@ enum InferenceTransportError: Error, LocalizedError, Sendable {
     }
 }
 
-/// Mirrors `inference-request.schema.json`'s fixGrammar slice and
-/// `InferenceStreamEvent` from the server SSE contract.
-struct InferenceFixGrammarRequest: Sendable, Equatable {
+/// Mirrors the explicit-action slice of `inference-request.schema.json`.
+struct InferenceRequest: Sendable, Equatable {
+    struct PromptBuilderTask: Sendable, Equatable {
+        let phase: String
+        let flowId: UUID
+        let brief: String?
+        let answers: [String]
+    }
+
+    let action: WritingAction
     let operationId: UUID
     let retryOf: UUID?
     let bundleId: String
@@ -26,6 +33,8 @@ struct InferenceFixGrammarRequest: Sendable, Equatable {
     let conversation: String?
     let hasSelection: Bool
     let hasVisibleThread: Bool
+    let customInstruction: String?
+    let promptBuilder: PromptBuilderTask?
     /// "replace" | "insert_before"
     let outputModeHint: String
 }
@@ -41,57 +50,29 @@ enum InferenceStreamEvent: Sendable, Equatable {
 /// Stage 5.4 transport abstraction. `ActionEngine` routes fixGrammar here when
 /// the user is signed in and `TransportPreferences.useCloudInference` is on.
 @preconcurrency protocol InferenceTransport: Sendable {
-    func streamFixGrammar(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error>
-    func streamElaborate(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error>
-    func streamFormal(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error>
-    func streamCasual(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error>
-    func streamReply(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error>
-    func streamCustom(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error>
-    func streamPromptBuilder(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error>
+    func stream(_ request: InferenceRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error>
 }
 
 extension InferenceTransport {
-    func streamElaborate(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
-        Self.unsupportedStream(.elaborate)
-    }
-
-    func streamFormal(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
-        Self.unsupportedStream(.formal)
-    }
-
-    func streamCasual(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
-        Self.unsupportedStream(.casual)
-    }
-
-    func streamReply(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
-        Self.unsupportedStream(.reply)
-    }
-
-    func streamCustom(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
-        Self.unsupportedStream(.custom)
-    }
-
-    func streamPromptBuilder(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
-        Self.unsupportedStream(.promptBuilder)
-    }
-
-    private static func unsupportedStream(_ action: WritingAction) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.finish(throwing: InferenceTransportError.unsupportedAction(action))
-        }
+    func streamFixGrammar(_ request: InferenceRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
+        stream(request)
     }
 }
 
 enum InferenceRequestBuilder {
-    static func fixGrammar(
+    static func build(
+        action: WritingAction,
         snapshot: FieldSnapshot,
         site: String?,
         conversation: String?,
+        customInstruction: String? = nil,
+        promptBuilder: InferenceRequest.PromptBuilderTask? = nil,
         operationId: UUID = UUID(),
         retryOf: UUID? = nil
-    ) -> InferenceFixGrammarRequest {
+    ) -> InferenceRequest {
         let hasSelection = !snapshot.selectedText.isEmpty
-        return InferenceFixGrammarRequest(
+        return InferenceRequest(
+            action: action,
             operationId: operationId,
             retryOf: retryOf,
             bundleId: snapshot.appBundleID ?? "unknown",
@@ -103,8 +84,35 @@ enum InferenceRequestBuilder {
             conversation: conversation,
             hasSelection: hasSelection,
             hasVisibleThread: !(conversation?.isEmpty ?? true),
-            outputModeHint: "replace"
+            customInstruction: customInstruction,
+            promptBuilder: promptBuilder,
+            outputModeHint: outputMode(action: action, customInstruction: customInstruction)
         )
+    }
+
+    static func fixGrammar(
+        snapshot: FieldSnapshot,
+        site: String?,
+        conversation: String?,
+        operationId: UUID = UUID(),
+        retryOf: UUID? = nil
+    ) -> InferenceRequest {
+        build(
+            action: .fixGrammar,
+            snapshot: snapshot,
+            site: site,
+            conversation: conversation,
+            operationId: operationId,
+            retryOf: retryOf
+        )
+    }
+
+    private static func outputMode(action: WritingAction, customInstruction: String?) -> String {
+        if action == .promptBuilder { return "insert_before" }
+        guard action == .custom, let customInstruction else { return "replace" }
+        let instruction = customInstruction.lowercased()
+        let insertTerms = ["title", "headline", "subject line", "summary", "tl;dr", "caption"]
+        return insertTerms.contains(where: instruction.contains) ? "insert_before" : "replace"
     }
 }
 
@@ -114,7 +122,7 @@ func cloudInferenceEnabled(
     sessionState: DeviceSessionState,
     hasTransport: Bool
 ) -> Bool {
-    guard action == .fixGrammar, useCloudInference, hasTransport else { return false }
+    guard useCloudInference, hasTransport else { return false }
     if case .signedIn = sessionState { return true }
     return false
 }

@@ -8,5 +8,7 @@
          final transport and entitlements before enabling the v2 signed workflow. -->
     <key>com.apple.security.network.client</key>
     <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
 </dict>
 </plist>

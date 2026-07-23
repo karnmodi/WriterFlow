@@ -6,6 +6,7 @@ struct SettingsTabView: View {
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var watchdog = AXWatchdog.shared
     @State private var compatibilitySnapshot: [String: CompatibilityMap.Entry] = [:]
+    @State private var allowByoFallback = TransportPreferences.allowByoFallback
 
     init(modelsConfig: AzureModelsConfig) {
         _viewModel = StateObject(wrappedValue: SettingsTabViewModel(modelsConfig: modelsConfig))
@@ -27,15 +28,22 @@ struct SettingsTabView: View {
                 ) {
                     hotkeyCard
                     iconBehaviorCard
-                    apiKeyCard
+                    if allowByoFallback {
+                        apiKeyCard
+                    }
                     reliabilityCard
                     generalCard
                 }
 
-                modelsCard
+                if allowByoFallback {
+                    modelsCard
+                }
             }
         }
-        .task { compatibilitySnapshot = await CompatibilityMap.shared.snapshot() }
+        .task {
+            compatibilitySnapshot = await CompatibilityMap.shared.snapshot()
+            allowByoFallback = TransportPreferences.allowByoFallback
+        }
     }
 
     // MARK: - Hotkey
@@ -101,12 +109,12 @@ struct SettingsTabView: View {
         }
     }
 
-    // MARK: - Azure connection (BYO)
+    // MARK: - Azure connection (emergency migration rollback only)
 
     private var apiKeyCard: some View {
         DashboardCard(
-            title: "Azure OpenAI (your key)",
-            subtitle: "Bring your own Azure resource — WriterFlow never ships a shared key.",
+            title: "Legacy Azure rollback",
+            subtitle: "Temporary migration fallback enabled by WriterFlow support.",
             icon: "key.fill",
             iconTint: .yellow
         ) {

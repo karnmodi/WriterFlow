@@ -3,15 +3,19 @@ import XCTest
 
 final class TransportPreferencesTests: XCTestCase {
     private let key = "writerflow.transport.useCloudInference"
+    private let fallbackKey = "writerflow.transport.allowByoFallback"
 
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: key)
+        UserDefaults.standard.removeObject(forKey: fallbackKey)
         super.tearDown()
     }
 
-    func testUseCloudInferenceDefaultsToFalse() {
+    func testPrivateBetaDefaultsToCloudOnly() {
         UserDefaults.standard.removeObject(forKey: key)
-        XCTAssertFalse(TransportPreferences.useCloudInference)
+        UserDefaults.standard.removeObject(forKey: fallbackKey)
+        XCTAssertTrue(TransportPreferences.useCloudInference)
+        XCTAssertFalse(TransportPreferences.allowByoFallback)
     }
 
     func testUseCloudInferencePersists() {
@@ -23,7 +27,7 @@ final class TransportPreferencesTests: XCTestCase {
 }
 
 final class InferenceTransportRoutingTests: XCTestCase {
-    func testCloudInferenceEnabledOnlyForSignedInFixGrammarWithFlagAndTransport() {
+    func testCloudInferenceEnabledForSignedInExplicitActionsWithFlagAndTransport() {
         XCTAssertTrue(cloudInferenceEnabled(
             action: .fixGrammar,
             useCloudInference: true,
@@ -48,8 +52,14 @@ final class InferenceTransportRoutingTests: XCTestCase {
             sessionState: .signedIn(deviceId: "device-1"),
             hasTransport: false
         ))
-        XCTAssertFalse(cloudInferenceEnabled(
+        XCTAssertTrue(cloudInferenceEnabled(
             action: .elaborate,
+            useCloudInference: true,
+            sessionState: .signedIn(deviceId: "device-1"),
+            hasTransport: true
+        ))
+        XCTAssertTrue(cloudInferenceEnabled(
+            action: .promptBuilder,
             useCloudInference: true,
             sessionState: .signedIn(deviceId: "device-1"),
             hasTransport: true

@@ -42,12 +42,38 @@ enum AccountDatabaseScope {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Records issuer/subject from a device session when they become available,
-    /// and binds the derived hash if this profile is not bound yet.
-    static func recordDeviceSessionIdentity(issuer: String, subject: String) {
+    /// Records issuer/subject from a device session when they become available.
+    /// Returns false for a different identity once this macOS profile is bound.
+    @discardableResult
+    static func recordDeviceSessionIdentity(issuer: String, subject: String) -> Bool {
+        let incomingHash = identityHash(issuer: issuer, subject: subject)
+        if let existing = boundIdentityHash, existing != incomingHash {
+            return false
+        }
         UserDefaults.standard.set(issuer, forKey: entraIssuerKey)
         UserDefaults.standard.set(subject, forKey: entraSubjectKey)
         bindIdentityIfUnbound(issuer: issuer, subject: subject)
+        return true
+    }
+
+    /// Extracts only the WriterFlow JWT's non-secret issuer/subject claims.
+    /// Signature/authentication is still enforced by APIM and the API; this
+    /// local decode is solely for binding encrypted storage to that identity.
+    @discardableResult
+    static func recordWriterFlowAccessTokenIdentity(_ token: String) -> Bool {
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return true }
+        var encoded = String(parts[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        encoded.append(String(repeating: "=", count: (4 - encoded.count % 4) % 4))
+        guard let data = Data(base64Encoded: encoded),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let issuer = payload["iss"] as? String,
+              let subject = payload["sub"] as? String,
+              !issuer.isEmpty,
+              !subject.isEmpty else { return true }
+        return recordDeviceSessionIdentity(issuer: issuer, subject: subject)
     }
 
     /// Applies a cached device-session identity pair if the profile has not
@@ -66,14 +92,28 @@ enum AccountDatabaseScope {
             return existing
         }
         let hash = identityHash(issuer: issuer, subject: subject)
+        if DatabaseKeychain.read(scope: nil) != nil {
+            precondition(
+                DatabaseKeychain.bindUnscopedKey(to: hash),
+                "failed to bind the encrypted database key to the account"
+            )
+        }
         boundIdentityHash = hash
         return hash
     }
 
-    /// Test-only reset — production code must never call this.
-    static func resetForTesting() {
+    /// Clears the macOS-profile binding so a newly approved WriterFlow account
+    /// can take over this Mac. Prior account-scoped encrypted databases remain
+    /// on disk under their identity-hash folders and are not opened.
+    static func clearBindingForAccountSwitch() {
         boundIdentityHash = nil
         UserDefaults.standard.removeObject(forKey: entraIssuerKey)
         UserDefaults.standard.removeObject(forKey: entraSubjectKey)
+        Log.store.notice("Cleared local WriterFlow account binding for account switch")
+    }
+
+    /// Test-only reset — production code must never call this.
+    static func resetForTesting() {
+        clearBindingForAccountSwitch()
     }
 }

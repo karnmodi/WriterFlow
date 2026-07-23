@@ -37,6 +37,18 @@ enum WritingAction: CaseIterable, Sendable, Equatable {
 
     var isEnabled: Bool { true }
 
+    var apiValue: String {
+        switch self {
+        case .elaborate: return "elaborate"
+        case .formal: return "formal"
+        case .casual: return "casual"
+        case .fixGrammar: return "fixGrammar"
+        case .reply: return "reply"
+        case .promptBuilder: return "promptBuilder"
+        case .custom: return "custom"
+        }
+    }
+
     /// List rows shown in the popover — Custom has its own text-input row instead
     /// of a selectable list row (see `ActionPopoverView`), so it's excluded here.
     static var popoverOrder: [WritingAction] { allCases.filter { $0 != .custom } }

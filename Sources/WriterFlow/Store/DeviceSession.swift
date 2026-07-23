@@ -47,6 +47,11 @@ protocol DeviceSessionProviding: Sendable {
     /// the pairing UI) — `awaitPairedToken()` throws `.pairingCancelled` and
     /// `state` returns to `.signedOut`. A no-op if nothing is in flight.
     func cancelPairing() async
+
+    /// True after pairing switched this Mac to a different WriterFlow account.
+    /// The encrypted local store was opened under the previous identity, so
+    /// the UI should relaunch before writing history/personalization.
+    var needsRelaunchAfterAccountSwitch: Bool { get async }
 }
 
 enum DeviceSessionState: Equatable, Sendable {
@@ -76,6 +81,7 @@ enum DeviceSessionError: Error, LocalizedError, Sendable {
     case pairingCancelled
     case notPaired
     case refreshFailed
+    case accountMismatch
 
     var errorDescription: String? {
         switch self {
@@ -87,6 +93,8 @@ enum DeviceSessionError: Error, LocalizedError, Sendable {
         case .pairingCancelled: return "Pairing cancelled."
         case .notPaired: return "Sign in required."
         case .refreshFailed: return "Your session expired. Please sign in again."
+        case .accountMismatch:
+            return "This Mac profile is bound to a different WriterFlow account. Sign back into the original account or remove local data first."
         }
     }
 }

@@ -6,6 +6,9 @@ enum WriterFlowInferenceError: Error, LocalizedError, Sendable {
     case server(code: String, message: String)
     case malformedStream
     case invalidOrder
+    case firstTokenTimeout
+    case rateLimited
+    case modelUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -14,16 +17,19 @@ enum WriterFlowInferenceError: Error, LocalizedError, Sendable {
         case .server(_, let message): return message
         case .malformedStream: return "WriterFlow's response stream ended unexpectedly."
         case .invalidOrder: return "WriterFlow's response stream was out of order."
+        case .firstTokenTimeout:
+            return "The model took too long to start — it may be overloaded. Please try again."
+        case .rateLimited:
+            return "The writing model is at capacity. Please try again in a moment."
+        case .modelUnavailable:
+            return "The writing model is temporarily unavailable. Please try again."
         }
     }
 }
 
 /// Stage 5.4 native transport: SSE client for `POST /v2/inference/stream`
 /// (services/api/src/routes/inference.ts), following
-/// Docs/contracts/inference-stream.md's canonical event order. fixGrammar is
-/// wired into `ActionEngine` when signed in and `TransportPreferences
-/// .useCloudInference` is enabled; other actions remain BYO Azure until
-/// Stage 5.4 parity expands.
+/// Docs/contracts/inference-stream.md's canonical event order.
 actor WriterFlowInferenceTransport: InferenceTransport {
     private let config: WriterFlowAPIConfig
     private let session: URLSession
@@ -42,7 +48,7 @@ actor WriterFlowInferenceTransport: InferenceTransport {
         self.clientVersion = clientVersion
     }
 
-    nonisolated func streamFixGrammar(_ request: InferenceFixGrammarRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
+    nonisolated func stream(_ request: InferenceRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -65,32 +71,113 @@ actor WriterFlowInferenceTransport: InferenceTransport {
     }
 
     private func run(
-        _ request: InferenceFixGrammarRequest,
+        _ request: InferenceRequest,
         continuation: AsyncThrowingStream<InferenceStreamEvent, Error>.Continuation
     ) async throws {
         let accessToken = try await deviceSession.accessToken()
         guard case .signedIn(let deviceId) = await deviceSession.state else {
             throw WriterFlowInferenceError.notSignedIn
         }
+        try await runAttempt(
+            request,
+            accessToken: accessToken,
+            deviceId: deviceId,
+            idempotencyKey: UUID().uuidString,
+            mayRefresh: true,
+            continuation: continuation
+        )
+    }
 
+    private func runAttempt(
+        _ request: InferenceRequest,
+        accessToken: String,
+        deviceId: String,
+        idempotencyKey: String,
+        mayRefresh: Bool,
+        continuation: AsyncThrowingStream<InferenceStreamEvent, Error>.Continuation
+    ) async throws {
         var urlRequest = URLRequest(url: config.baseURL.appendingPathComponent("inference/stream"))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         urlRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        urlRequest.setValue(UUID().uuidString, forHTTPHeaderField: "Idempotency-Key")
+        urlRequest.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
         urlRequest.setValue(clientVersion, forHTTPHeaderField: "X-WriterFlow-Version")
         urlRequest.setValue(deviceId, forHTTPHeaderField: "X-WriterFlow-Device")
-        urlRequest.timeoutInterval = 60
+        // Overall request budget. First-token watchdog below is stricter so
+        // SSE keepalives cannot keep a spinner alive forever.
+        urlRequest.timeoutInterval = 45
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: Self.body(for: request))
 
         let (bytes, response) = try await session.bytes(for: urlRequest)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            if http.statusCode == 401, mayRefresh {
+                let refreshed = try await deviceSession.forceRefreshAccessToken()
+                try await runAttempt(
+                    request,
+                    accessToken: refreshed,
+                    deviceId: deviceId,
+                    idempotencyKey: idempotencyKey,
+                    mayRefresh: false,
+                    continuation: continuation
+                )
+                return
+            }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                await deviceSession.markSessionInvalid()
+                throw WriterFlowInferenceError.notSignedIn
+            }
+            let bodyMessage = await Self.errorMessage(from: bytes)
+            if http.statusCode == 429 {
+                throw WriterFlowInferenceError.server(
+                    code: "RATE_LIMITED",
+                    message: bodyMessage ?? WriterFlowInferenceError.rateLimited.errorDescription!
+                )
+            }
+            if http.statusCode == 503 {
+                throw WriterFlowInferenceError.server(
+                    code: "MODEL_UNAVAILABLE",
+                    message: bodyMessage ?? WriterFlowInferenceError.modelUnavailable.errorDescription!
+                )
+            }
+            if let message = bodyMessage {
+                throw WriterFlowInferenceError.server(code: "HTTP_\(http.statusCode)", message: message)
+            }
             throw WriterFlowInferenceError.httpError(http.statusCode)
         }
 
         let order = OrderTracker()
+        let firstTokenGate = FirstTokenGate()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await Task.sleep(nanoseconds: 15_000_000_000)
+                if await firstTokenGate.stillWaiting {
+                    throw WriterFlowInferenceError.firstTokenTimeout
+                }
+            }
+            group.addTask {
+                try await self.consumeSSE(
+                    bytes: bytes,
+                    order: order,
+                    firstTokenGate: firstTokenGate,
+                    continuation: continuation
+                )
+            }
+
+            // First finished child wins: either first-token timeout or stream end.
+            try await group.next()
+            group.cancelAll()
+        }
+    }
+
+    private func consumeSSE(
+        bytes: URLSession.AsyncBytes,
+        order: OrderTracker,
+        firstTokenGate: FirstTokenGate,
+        continuation: AsyncThrowingStream<InferenceStreamEvent, Error>.Continuation
+    ) async throws {
         for try await line in bytes.lines {
+            if Task.isCancelled { return }
             guard line.hasPrefix("data:") else { continue }
             let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
             guard let data = payload.data(using: .utf8),
@@ -98,12 +185,26 @@ actor WriterFlowInferenceTransport: InferenceTransport {
                   let type = json["type"] as? String
             else { continue }
 
+            if type == "output.delta" {
+                await firstTokenGate.markArrived()
+            }
             if try handle(type: type, json: json, order: order, continuation: continuation) {
-                return // terminal event already sent
+                await firstTokenGate.markArrived()
+                return
             }
         }
         // Stream ended without a terminal `completed`/`error` event.
         throw WriterFlowInferenceError.malformedStream
+    }
+
+    /// Tracks whether any visible rewrite content (or a terminal event) has
+    /// arrived — used so a concurrent watchdog can fail hung silent reasoning.
+    private actor FirstTokenGate {
+        private(set) var stillWaiting = true
+
+        func markArrived() {
+            stillWaiting = false
+        }
     }
 
     /// Returns `true` once a terminal event (`completed`) has been yielded
@@ -151,10 +252,25 @@ actor WriterFlowInferenceTransport: InferenceTransport {
             return true
 
         case "error":
-            throw WriterFlowInferenceError.server(
-                code: json["code"] as? String ?? "INTERNAL_ERROR",
-                message: json["message"] as? String ?? "Something went wrong. Please try again."
-            )
+            let code = (json["code"] as? String ?? "INTERNAL_ERROR").uppercased()
+            let message = json["message"] as? String
+            switch code {
+            case "RATE_LIMITED":
+                throw WriterFlowInferenceError.server(
+                    code: code,
+                    message: message ?? WriterFlowInferenceError.rateLimited.errorDescription!
+                )
+            case "MODEL_UNAVAILABLE":
+                throw WriterFlowInferenceError.server(
+                    code: code,
+                    message: message ?? WriterFlowInferenceError.modelUnavailable.errorDescription!
+                )
+            default:
+                throw WriterFlowInferenceError.server(
+                    code: code,
+                    message: message ?? "Something went wrong. Please try again."
+                )
+            }
 
         default:
             // Docs/contracts/inference-stream.md: an event type the client
@@ -165,15 +281,16 @@ actor WriterFlowInferenceTransport: InferenceTransport {
         return false
     }
 
-    private static func body(for request: InferenceFixGrammarRequest) -> [String: Any] {
-        [
+    private static func body(for request: InferenceRequest) -> [String: Any] {
+        // Omit optional UUID fields when unset. JSON null for `retryOf` fails
+        // the server's Zod envelope (`z.uuid().optional()` is not nullable).
+        var body: [String: Any] = [
             "operationId": request.operationId.uuidString.lowercased(),
-            "retryOf": request.retryOf?.uuidString.lowercased() as Any,
             "mode": "explicit",
             "task": [
-                "requestedAction": "fixGrammar",
-                "customInstruction": NSNull(),
-                "promptBuilder": NSNull(),
+                "requestedAction": request.action.apiValue,
+                "customInstruction": request.customInstruction as Any,
+                "promptBuilder": promptBuilderBody(request.promptBuilder),
                 "outputModeHint": request.outputModeHint
             ],
             "target": [
@@ -192,9 +309,57 @@ actor WriterFlowInferenceTransport: InferenceTransport {
                 "hasSelection": request.hasSelection,
                 "hasVisibleThread": request.hasVisibleThread,
                 "inputLength": request.draft.count,
-                "appTone": NSNull()
+                "appTone": appTone(for: request.site)
             ],
+            // Local history, memory notes, and app-rule instructions are
+            // intentionally never uploaded. Only the reviewed closed-enum
+            // appTone signal above crosses the boundary in private beta.
             "personalization": NSNull()
+        ]
+        if let retryOf = request.retryOf {
+            body["retryOf"] = retryOf.uuidString.lowercased()
+        }
+        return body
+    }
+
+    private static func errorMessage(from bytes: URLSession.AsyncBytes) async -> String? {
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                data.append(byte)
+                if data.count > 4_096 { break }
+            }
+        } catch {
+            return nil
+        }
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let message = json["message"] as? String,
+            !message.isEmpty
+        else {
+            return nil
+        }
+        return message
+    }
+
+    private static func appTone(for site: String?) -> Any {
+        switch site {
+        case "gmail", "outlook", "linkedin":
+            return "formal"
+        case "slack", "whatsapp-web", "whatsapp-desktop", "telegram":
+            return "casual"
+        default:
+            return "neutral"
+        }
+    }
+
+    private static func promptBuilderBody(_ task: InferenceRequest.PromptBuilderTask?) -> Any {
+        guard let task else { return NSNull() }
+        return [
+            "phase": task.phase,
+            "flowId": task.flowId.uuidString.lowercased(),
+            "brief": task.brief as Any,
+            "answers": task.answers
         ]
     }
 }

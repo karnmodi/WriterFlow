@@ -17,6 +17,8 @@ struct PreviewCardView: View {
     let action: WritingAction?
     let isStreaming: Bool
     let canReplace: Bool
+    let errorMessage: String?
+    let streamStartedAt: Date?
     var onSelectVariant: (Int) -> Void
     var onSelectClarifyAnswer: (String, String) -> Void
     var onContinueClarify: () -> Void
@@ -58,10 +60,19 @@ struct PreviewCardView: View {
     }
 
     private var headerSubtitle: String {
+        if let errorMessage, !errorMessage.isEmpty {
+            return "Couldn't finish — retry when ready"
+        }
         if isStreaming, promptBuilderPhase == .analyzing {
             return "Understanding your brief…"
         }
         if isStreaming, promptBuilderPhase == .prompt {
+            return "Generating…"
+        }
+        if isStreaming, activeText.isEmpty {
+            return "Waiting for model…"
+        }
+        if isStreaming {
             return "Generating…"
         }
         if isClarifyMode { return "Clarify a few details" }
@@ -121,30 +132,46 @@ struct PreviewCardView: View {
 
     @ViewBuilder
     private var rewriteContent: some View {
+        if let errorMessage, !errorMessage.isEmpty {
+            errorBanner(errorMessage)
+        }
         if usesMultiVariant {
             variantPicker
         }
-        ScrollView {
-            Group {
-                if activeText.isEmpty, isStreaming {
-                    Text("Thinking…")
-                        .foregroundStyle(.secondary)
-                } else if showsDiff {
-                    diffedText
-                } else if activeText.isEmpty {
-                    Text("Thinking…")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(activeText)
-                }
-            }
-            .font(.system(size: 13))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .textSelection(.enabled)
-        }
-        .frame(height: usesMultiVariant ? 168 : 118)
+        StreamingPreviewScroll(
+            text: activeText,
+            isStreaming: isStreaming,
+            showsDiff: showsDiff,
+            originalText: originalText,
+            placeholder: waitingPlaceholder,
+            height: usesMultiVariant ? 168 : 140,
+            streamStartedAt: streamStartedAt
+        )
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+
+    private var waitingPlaceholder: String {
+        if let errorMessage, !errorMessage.isEmpty {
+            return ""
+        }
+        return "Waiting for model…"
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.system(size: 12))
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
     }
 
     private var variantPicker: some View {
@@ -218,25 +245,23 @@ struct PreviewCardView: View {
 
     private var promptContent: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let errorMessage, !errorMessage.isEmpty {
+                errorBanner(errorMessage)
+            }
             DashboardSectionCaption(text: "Prompt")
                 .padding(.horizontal, 14)
                 .padding(.top, 8)
                 .padding(.bottom, 4)
 
-            ScrollView {
-                Group {
-                    if activeText.isEmpty {
-                        Text("Thinking…")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(activeText)
-                    }
-                }
-                .font(.system(size: 13))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-            }
-            .frame(height: 180)
+            StreamingPreviewScroll(
+                text: activeText,
+                isStreaming: isStreaming,
+                showsDiff: false,
+                originalText: "",
+                placeholder: waitingPlaceholder,
+                height: 180,
+                streamStartedAt: streamStartedAt
+            )
             .padding(.horizontal, 14)
             .padding(.bottom, 8)
         }
@@ -281,9 +306,88 @@ struct PreviewCardView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
     }
+}
+
+/// Scrollable preview body that stays usable while tokens stream in —
+/// grows with content, shows a scrollbar, and pins to the latest text
+/// during generation so long rewrites don't trap the user at the top.
+private struct StreamingPreviewScroll: View {
+    let text: String
+    let isStreaming: Bool
+    let showsDiff: Bool
+    let originalText: String
+    let placeholder: String
+    let height: CGFloat
+    let streamStartedAt: Date?
+
+    private let bottomID = "preview-stream-bottom"
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: true) {
+                Group {
+                    if text.isEmpty {
+                        waitingStatus
+                    } else if showsDiff {
+                        diffedText
+                    } else {
+                        Text(text)
+                    }
+                }
+                .font(.system(size: 13))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 2)
+                .id(bottomID)
+            }
+            .frame(height: height)
+            .onChange(of: text) { _, _ in
+                guard isStreaming, !text.isEmpty else { return }
+                withAnimation(.easeOut(duration: 0.1)) {
+                    proxy.scrollTo(bottomID, anchor: .bottom)
+                }
+            }
+            .onAppear {
+                guard !text.isEmpty else { return }
+                proxy.scrollTo(bottomID, anchor: .bottom)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var waitingStatus: some View {
+        if placeholder.isEmpty {
+            EmptyView()
+        } else if isStreaming, let started = streamStartedAt {
+            TimelineView(.periodic(from: started, by: 0.5)) { context in
+                let seconds = max(0, Int(context.date.timeIntervalSince(started)))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(placeholder)
+                        .foregroundStyle(.secondary)
+                    Text(progressCaption(seconds: seconds))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        } else {
+            Text(placeholder)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func progressCaption(seconds: Int) -> String {
+        if seconds < 2 {
+            return "Starting request…"
+        }
+        if seconds < 8 {
+            return "Waiting \(seconds)s — model is preparing a reply"
+        }
+        return "Waiting \(seconds)s — high load can delay the first token"
+    }
 
     private var diffedText: Text {
-        WordDiff.segments(from: originalText, to: activeText).enumerated().reduce(Text("")) { partial, item in
+        WordDiff.segments(from: originalText, to: text).enumerated().reduce(Text("")) { partial, item in
             let (index, segment) = item
             let prefix = index == 0 ? "" : " "
             var word = Text(prefix + segment.text)

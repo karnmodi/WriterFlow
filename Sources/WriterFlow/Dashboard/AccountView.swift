@@ -6,6 +6,7 @@ import SwiftUI
 /// never becomes an OAuth client itself.
 struct AccountView: View {
     @ObservedObject var viewModel: AccountViewModel
+    @ObservedObject private var cloudUsage = CloudUsageStore.shared
 
     var body: some View {
         DashboardFormContainer(
@@ -146,8 +147,8 @@ struct AccountView: View {
                 StatTile(title: "Plan", value: snapshot.entitlement.plan.capitalized, subtitle: "Current subscription tier")
                 StatTile(
                     title: "Monthly Units",
-                    value: "\(snapshot.entitlement.monthlyUnitsUsed)/\(snapshot.entitlement.monthlyUnitsIncluded)",
-                    subtitle: "Used this billing cycle"
+                    value: "\(cloudUsage.usedUnits ?? snapshot.entitlement.monthlyUnitsUsed)/\(snapshot.entitlement.monthlyUnitsIncluded)",
+                    subtitle: cloudUsage.remainingUnits.map { "\($0) remaining" } ?? "Used this billing cycle"
                 )
                 StatTile(
                     title: "Sync",
@@ -156,7 +157,7 @@ struct AccountView: View {
                 )
             }
 
-            Text("Signed in as this device. Local history and personalization stay available even if you sign out.")
+            Text("Drafts are sent to WriterFlow's cloud only when you choose an action. Local history stays encrypted on this Mac and is not uploaded.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 

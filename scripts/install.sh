@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# LOCAL DEVELOPMENT ONLY: install WriterFlow to a stable path so macOS permissions
-# persist across rebuilds. This script copies `.env` credentials into a plaintext
-# Application Support fallback and must never be used to prepare a public v1 artifact.
+# Install WriterFlow to a stable path so macOS permissions persist across rebuilds.
+# Debug installs may sync local development configuration. Release installs preserve
+# the hardened bundle signature and never copy repository credentials.
 set -euo pipefail
 
 CONFIG="${1:-debug}"
@@ -15,18 +15,19 @@ echo "▸ installing to ${INSTALL_APP}"
 rm -rf "${INSTALL_APP}"
 mkdir -p "${HOME}/Applications"
 ditto "${ROOT}/build/WriterFlow.app" "${INSTALL_APP}"
-codesign --force --deep --sign - --timestamp=none "${INSTALL_APP}" >/dev/null 2>&1 || true
+if [[ "$CONFIG" == "release" ]]; then
+    codesign --verify --deep --strict "${INSTALL_APP}"
+else
+    codesign --force --deep --sign - --timestamp=none "${INSTALL_APP}" >/dev/null 2>&1 || true
+fi
 
 echo "▸ installed ${INSTALL_APP}"
 echo ""
 
 SECRETS_DIR="${HOME}/Library/Application Support/WriterFlow"
-if [[ -f "${ROOT}/.env" ]]; then
+if [[ "$CONFIG" != "release" && -f "${ROOT}/.env" ]]; then
     mkdir -p "${SECRETS_DIR}"
-    # Azure BYO keys + local API override. WRITERFLOW_API_BASE_URL must land in
-    # Application Support because ~/Applications/WriterFlow.app cannot walk up
-    # to the repo `.env` — without it, DEBUG builds fall through to
-    # apiwriterflow.aviusolutions.com and Account Sign In fails DNS before the browser opens.
+    # Azure BYO keys + local API override for debug builds only.
     grep -E '^(API_KEY_|TARGET_URI=|AZURE_OPENAI_DEPLOYMENT_|WRITERFLOW_API_BASE_URL=)' "${ROOT}/.env" \
         > "${SECRETS_DIR}/secrets.env" || true
     chmod 600 "${SECRETS_DIR}/secrets.env" 2>/dev/null || true

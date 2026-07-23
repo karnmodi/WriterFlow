@@ -14,18 +14,23 @@ actor DeviceSessionStore: DeviceSessionProviding {
     private var pendingChallenge: (challenge: PairingChallenge, verifier: String)?
     private var activeSleepTask: Task<Void, Never>?
     private var cancelRequested = false
+    private var relaunchAfterAccountSwitch = false
 
     init(api: WriterFlowAPIClient = WriterFlowAPIClient(), installID: String = InstallIdentifier.current) {
         self.api = api
         self.installID = installID
         if let stored = DeviceTokenKeychain.read() {
-            self.currentState = .signedIn(deviceId: stored.deviceID)
+            self.currentState = AccountDatabaseScope.recordWriterFlowAccessTokenIdentity(stored.accessToken)
+                ? .signedIn(deviceId: stored.deviceID)
+                : .needsRePair
         } else {
             self.currentState = .signedOut
         }
     }
 
     var state: DeviceSessionState { currentState }
+
+    var needsRelaunchAfterAccountSwitch: Bool { relaunchAfterAccountSwitch }
 
     func beginPairing() async throws -> PairingChallenge {
         let pkce = PKCE.generate()
@@ -70,17 +75,7 @@ actor DeviceSessionStore: DeviceSessionProviding {
             let result = try await api.pollToken(deviceCode: challenge.deviceCode, codeVerifier: verifier)
             switch result {
             case .issued(let tokens):
-                DeviceTokenKeychain.write(
-                    .init(
-                        deviceID: tokens.deviceId,
-                        accessToken: tokens.accessToken,
-                        accessTokenExpiresAt: Date().addingTimeInterval(TimeInterval(tokens.expiresIn)),
-                        refreshToken: tokens.refreshToken
-                    )
-                )
-                pendingChallenge = nil
-                currentState = .signedIn(deviceId: tokens.deviceId)
-                Log.auth.info("Device paired successfully")
+                try persistPairedTokens(tokens)
                 return
             case .pending(let status):
                 switch status {
@@ -138,6 +133,9 @@ actor DeviceSessionStore: DeviceSessionProviding {
     private func refreshAndPersist(stored: DeviceTokenKeychain.StoredTokens) async throws -> String {
         do {
             let refreshed = try await api.refresh(refreshToken: stored.refreshToken)
+            guard AccountDatabaseScope.recordWriterFlowAccessTokenIdentity(refreshed.accessToken) else {
+                throw DeviceSessionError.accountMismatch
+            }
             DeviceTokenKeychain.write(
                 .init(
                     deviceID: refreshed.deviceId,
@@ -148,6 +146,9 @@ actor DeviceSessionStore: DeviceSessionProviding {
             )
             currentState = .signedIn(deviceId: refreshed.deviceId)
             return refreshed.accessToken
+        } catch DeviceSessionError.accountMismatch {
+            currentState = .needsRePair
+            throw DeviceSessionError.accountMismatch
         } catch {
             // Never a silent sign-out (V2-ARCHITECTURE.md §5.4) — keep the
             // stale Keychain item so a future explicit re-pair can still see
@@ -169,6 +170,36 @@ actor DeviceSessionStore: DeviceSessionProviding {
         guard pendingChallenge != nil else { return }
         cancelRequested = true
         activeSleepTask?.cancel()
+    }
+
+    /// Persists tokens from a successful `/device/token` poll. If this Mac was
+    /// bound to a different WriterFlow account, switch the local binding — the
+    /// prior encrypted store stays under its identity hash and is not opened —
+    /// then ask the UI to relaunch so GRDB attaches to the new scope.
+    private func persistPairedTokens(_ tokens: WriterFlowAPIClient.TokenResponse) throws {
+        var switchedAccount = false
+        if !AccountDatabaseScope.recordWriterFlowAccessTokenIdentity(tokens.accessToken) {
+            Log.auth.notice("Approved WriterFlow account differs from local binding; switching account scope")
+            AccountDatabaseScope.clearBindingForAccountSwitch()
+            guard AccountDatabaseScope.recordWriterFlowAccessTokenIdentity(tokens.accessToken) else {
+                pendingChallenge = nil
+                currentState = .needsRePair
+                throw DeviceSessionError.accountMismatch
+            }
+            switchedAccount = true
+        }
+        DeviceTokenKeychain.write(
+            .init(
+                deviceID: tokens.deviceId,
+                accessToken: tokens.accessToken,
+                accessTokenExpiresAt: Date().addingTimeInterval(TimeInterval(tokens.expiresIn)),
+                refreshToken: tokens.refreshToken
+            )
+        )
+        pendingChallenge = nil
+        currentState = .signedIn(deviceId: tokens.deviceId)
+        relaunchAfterAccountSwitch = switchedAccount
+        Log.auth.info("Device paired successfully")
     }
 
     func handleForegroundHint() async {

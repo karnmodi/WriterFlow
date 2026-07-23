@@ -1,5 +1,9 @@
 import SwiftUI
 
+extension Notification.Name {
+    static let openWriterFlowAccount = Notification.Name("writerflow.openAccount")
+}
+
 struct DashboardView: View {
     @State private var selectedTab: DashboardTab? = .history
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -31,16 +35,21 @@ struct DashboardView: View {
             }
             .toolbar { sectionToolbar }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openWriterFlowAccount)) { _ in
+            selectedTab = .account
+        }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 640, minHeight: 480)
     }
 
     /// Surfaces DB-open failures and future locked/migration states.
     private var bannerMessage: String? {
-        if case .failed(let message) = launchCoordinator.state {
+        switch launchCoordinator.state {
+        case .failed(let message), .recoveryRequired(let message):
             return message
+        case .opening, .ready, .locked, .migrationRequired:
+            return nil
         }
-        return nil
     }
 
     private var sidebar: some View {

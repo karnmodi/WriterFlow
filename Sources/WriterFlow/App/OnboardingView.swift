@@ -2,35 +2,18 @@ import SwiftUI
 
 struct OnboardingView: View {
     @ObservedObject var permissions: PermissionsCoordinator
-    @StateObject private var connection: SettingsViewModel
-    @State private var defaultDeployment: String
-    @State private var heavyDeployment: String
-    @State private var useOneModel: Bool
 
     var onOpenDashboard: () -> Void
     var onDone: () -> Void
 
     init(
         permissions: PermissionsCoordinator,
-        modelsConfig: AzureModelsConfig,
         onOpenDashboard: @escaping () -> Void,
         onDone: @escaping () -> Void
     ) {
         self.permissions = permissions
         self.onOpenDashboard = onOpenDashboard
         self.onDone = onDone
-        _connection = StateObject(wrappedValue: SettingsViewModel(modelsConfig: modelsConfig))
-        let d = modelsConfig.slots.default.deployment
-        let h = modelsConfig.slots.heavy.deployment
-        _defaultDeployment = State(initialValue: d)
-        _heavyDeployment = State(initialValue: h)
-        _useOneModel = State(initialValue: d == h && d == modelsConfig.slots.grammar.deployment)
-    }
-
-    private var azureReady: Bool {
-        connection.hasSavedKey
-            && AzureModelsConfig.isUsableResponsesURL(connection.endpointURL)
-            && !connection.endpointURL.contains("YOUR-RESOURCE")
     }
 
     var body: some View {
@@ -44,7 +27,7 @@ struct OnboardingView: View {
                 VStack(spacing: 14) {
                     accessibilityCard
                     inputMonitoringCard
-                    azureCard
+                    cloudServiceCard
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 8)
@@ -107,73 +90,26 @@ struct OnboardingView: View {
         )
     }
 
-    private var azureCard: some View {
+    private var cloudServiceCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 14) {
-                Image(systemName: azureReady ? "checkmark.circle.fill" : "circle")
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(azureReady ? .green : .secondary, azureReady ? .green.opacity(0.2) : .clear)
+                Image(systemName: "person.crop.circle.badge.checkmark")
+                    .foregroundStyle(.blue)
                     .font(.title2)
                     .frame(width: 28, height: 28)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Your Azure OpenAI key")
-                            .font(.headline)
-                        if azureReady {
-                            Text("Connected")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.green)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Capsule().fill(.green.opacity(0.12)))
-                        }
-                    }
-
-                    Text("WriterFlow is bring-your-own-key: paste the endpoint and API key from your Azure OpenAI resource. Usage bills your Azure account — nothing is shared or bundled.")
+                    Text("Connect your WriterFlow account")
+                        .font(.headline)
+                    Text("Open Dashboard → Account to sign in in your browser and approve this Mac. WriterFlow never receives your Microsoft password.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-
-                    if !azureReady {
-                        Group {
-                            labeledField("Responses endpoint", text: $connection.endpointURL, mono: true)
-                            labeledSecure("API key", text: $connection.apiKeyInput)
-                            labeledField("Default deployment name", text: $defaultDeployment, mono: true)
-                            Toggle("Use the same deployment for grammar + classifier", isOn: $useOneModel)
-                                .font(.caption)
-                            if !useOneModel {
-                                labeledField("Heavy / classifier deployment", text: $heavyDeployment, mono: true)
-                            }
-                        }
-
-                        HStack(spacing: 10) {
-                            Button {
-                                saveAzureSetup()
-                            } label: {
-                                if connection.isValidating {
-                                    ProgressView().controlSize(.small)
-                                } else {
-                                    Text("Validate & Save")
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(connection.isValidating || connection.apiKeyInput.isEmpty)
-
-                            Button("Open Dashboard Settings") { onOpenDashboard() }
-                                .buttonStyle(.link)
-                        }
-
-                        if let message = connection.statusMessage {
-                            Text(message)
-                                .font(.caption)
-                                .foregroundStyle(connection.statusIsError ? .red : .green)
-                        }
-                    } else {
-                        Text("You can change endpoint, key, and deployments any time in Dashboard → Settings.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
+                    Text("Your draft is processed in WriterFlow's cloud only after you choose an action. History remains encrypted on this Mac.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Button("Open Account") { onOpenDashboard() }
+                        .buttonStyle(.borderedProminent)
                 }
             }
         }
@@ -184,70 +120,20 @@ struct OnboardingView: View {
                 .fill(Color(nsColor: .controlBackgroundColor))
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(
-                            azureReady ? Color.green.opacity(0.25) : Color(nsColor: .separatorColor),
-                            lineWidth: 1
-                        )
+                        .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
                 }
         }
-    }
-
-    private func labeledField(_ title: String, text: Binding<String>, mono: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            TextField(title, text: text)
-                .textFieldStyle(.roundedBorder)
-                .font(mono ? .system(.caption, design: .monospaced) : .callout)
-                .disabled(connection.isValidating)
-        }
-    }
-
-    private func labeledSecure(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            SecureField(title, text: text)
-                .textFieldStyle(.roundedBorder)
-                .disabled(connection.isValidating)
-        }
-    }
-
-    private func saveAzureSetup() {
-        var config = AzureModelsConfig.loadFromDisk() ?? AzureModelsConfig.load()
-        config.responsesURL = connection.endpointURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let defaultName = defaultDeployment.trimmingCharacters(in: .whitespacesAndNewlines)
-        let heavyName = useOneModel
-            ? defaultName
-            : heavyDeployment.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !defaultName.isEmpty else {
-            connection.statusIsError = true
-            connection.statusMessage = "Enter a default deployment name."
-            return
-        }
-        guard !heavyName.isEmpty else {
-            connection.statusIsError = true
-            connection.statusMessage = "Enter a heavy deployment name, or enable “same deployment”."
-            return
-        }
-        config.slots.default.deployment = defaultName
-        config.slots.grammar.deployment = defaultName
-        config.slots.heavy.deployment = heavyName
-        config.save()
-        connection.validateAndSave(updatingDeploymentsFrom: config)
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Welcome to WriterFlow")
                 .font(.system(size: 26, weight: .bold))
-            Text("Grant two permissions, then connect your Azure OpenAI key. The Dashboard works without a key — AI actions need one.")
+            Text("Grant two permissions, then connect your WriterFlow account in the Dashboard.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Label("Password fields are never read. Your key stays in the macOS Keychain.", systemImage: "lock.shield")
+            Label("Password fields are never read. Account tokens stay in the macOS Keychain.", systemImage: "lock.shield")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -272,7 +158,7 @@ struct OnboardingView: View {
                 Button("I'll do this later") { onDone() }
                     .buttonStyle(.bordered)
                 Button(action: onDone) {
-                    Text(permissions.allGranted && azureReady ? "Get started" : "Continue")
+                    Text(permissions.allGranted ? "Get started" : "Continue")
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)

@@ -6,7 +6,7 @@ private extension Duration {
     }
 }
 
-/// Orchestrates AX read → Azure OpenAI stream → ConversionEvent logging.
+/// Orchestrates AX read → authenticated WriterFlow cloud stream → ConversionEvent logging.
 @MainActor
 final class ActionEngine {
     typealias StreamHandler = (String) -> Void
@@ -27,9 +27,10 @@ final class ActionEngine {
         let conversationContext: String?
         let customInstruction: String?
         let site: String?
+        let flowID: UUID
     }
 
-    private let client: AzureOpenAIClient
+    private let legacyClient: any LegacyActionInferenceClient
     private let inferenceTransport: (any InferenceTransport)?
     private let deviceSession: (any DeviceSessionProviding)?
     private var runningTask: Task<Void, Never>?
@@ -44,11 +45,11 @@ final class ActionEngine {
     var onFailed: ((String) -> Void)?
 
     init(
-        config: AzureModelsConfig,
+        legacyClient: any LegacyActionInferenceClient,
         inferenceTransport: (any InferenceTransport)? = nil,
         deviceSession: (any DeviceSessionProviding)? = nil
     ) {
-        self.client = AzureOpenAIClient(config: config)
+        self.legacyClient = legacyClient
         self.inferenceTransport = inferenceTransport
         self.deviceSession = deviceSession
     }
@@ -155,12 +156,28 @@ final class ActionEngine {
         guard !Task.isCancelled else { return }
 
         if action == .promptBuilder {
+            if TransportPreferences.useCloudInference,
+               !(await shouldUseCloudInference(for: action)) {
+                let message = "Sign in to use WriterFlow's cloud models."
+                onFailed?(message)
+                ErrorToast.show(message)
+                return
+            }
+            if !TransportPreferences.useCloudInference,
+               !TransportPreferences.allowByoFallback {
+                let message = "WriterFlow's cloud service is temporarily unavailable. Try again shortly."
+                onFailed?(message)
+                ErrorToast.show(message)
+                return
+            }
+            let flowID = UUID()
             promptBuilderSession = PromptBuilderSession(
                 field: field,
                 snapshot: snapshot,
                 conversationContext: conversationContext,
                 customInstruction: customInstruction,
-                site: site
+                site: site,
+                flowID: flowID
             )
             await executePromptBuilderAnalyze(
                 field: field,
@@ -170,25 +187,41 @@ final class ActionEngine {
                 inputText: inputText,
                 trimmedInput: trimmedInput,
                 trimmedNote: trimmedNote,
-                site: site
+                site: site,
+                flowID: flowID
             )
             return
         }
 
         let personalization = personalizationContext(bundleID: field.appBundleID, site: site)
 
-        if await shouldUseCloudInference(for: action),
-           let transport = inferenceTransport {
-            await executeCloudFixGrammar(
+        if TransportPreferences.useCloudInference {
+            guard await shouldUseCloudInference(for: action),
+                  let transport = inferenceTransport else {
+                let message = "Sign in to use WriterFlow's cloud models."
+                onFailed?(message)
+                ErrorToast.show(message)
+                return
+            }
+            await executeCloudAction(
+                action: action,
                 field: field,
                 snapshot: snapshot,
                 conversationContext: conversationContext,
+                customInstruction: customInstruction,
                 inputText: inputText,
                 trimmedInput: trimmedInput,
                 trimmedNote: trimmedNote,
                 site: site,
                 transport: transport
             )
+            return
+        }
+
+        guard TransportPreferences.allowByoFallback else {
+            let message = "WriterFlow's cloud service is temporarily unavailable. Try again shortly."
+            onFailed?(message)
+            ErrorToast.show(message)
             return
         }
 
@@ -231,7 +264,7 @@ final class ActionEngine {
         var firstTokenLogged = false
 
         do {
-            let stream = await client.stream(action: action, prompt: prompt)
+            let stream = await legacyClient.stream(action: action, prompt: prompt)
             for try await delta in stream {
                 if Task.isCancelled { return }
                 if !firstTokenLogged {
@@ -259,7 +292,7 @@ final class ActionEngine {
             "ActionEngine done action=\(action.title, privacy: .public) outChars=\(finalOutput.count, privacy: .public) ms=\(ms, privacy: .public)"
         )
 
-        let usage = await client.consumeLastUsage()
+        let usage = await legacyClient.consumeLastUsage()
         event.output = finalOutput
         event.model = usage?.model
         event.tokensIn = usage?.tokensIn
@@ -279,10 +312,12 @@ final class ActionEngine {
         )
     }
 
-    private func executeCloudFixGrammar(
+    private func executeCloudAction(
+        action: WritingAction,
         field: FocusedField,
         snapshot: FieldSnapshot,
         conversationContext: String?,
+        customInstruction: String?,
         inputText: String,
         trimmedInput: String,
         trimmedNote: String,
@@ -292,18 +327,20 @@ final class ActionEngine {
         var event = ConversionEvent(
             appBundleID: field.appBundleID,
             site: site,
-            action: .fixGrammar,
+            action: action,
             input: trimmedInput.isEmpty ? trimmedNote : inputText
         )
 
-        let request = InferenceRequestBuilder.fixGrammar(
+        let request = InferenceRequestBuilder.build(
+            action: action,
             snapshot: snapshot,
             site: site,
-            conversation: conversationContext
+            conversation: conversationContext,
+            customInstruction: customInstruction
         )
 
         Log.engine.info(
-            "ActionEngine start action=Fix Grammar transport=cloud chars=\(inputText.count, privacy: .public) contextChars=\(conversationContext?.count ?? 0, privacy: .public)"
+            "ActionEngine start action=\(action.title, privacy: .public) transport=cloud chars=\(inputText.count, privacy: .public) contextChars=\(conversationContext?.count ?? 0, privacy: .public)"
         )
 
         var rawOutput = ""
@@ -312,7 +349,7 @@ final class ActionEngine {
         var firstTokenLogged = false
 
         do {
-            let stream = transport.streamFixGrammar(request)
+            let stream = transport.stream(request)
             for try await streamEvent in stream {
                 if Task.isCancelled { return }
                 switch streamEvent {
@@ -327,7 +364,9 @@ final class ActionEngine {
                     onStreamDelta?(clean)
                 case .completed(_, let version):
                     promptVersion = version
-                case .requestAccepted, .decision, .usageSummary:
+                case .usageSummary(let usedUnits, let remainingUnits):
+                    CloudUsageStore.shared.update(usedUnits: usedUnits, remainingUnits: remainingUnits)
+                case .requestAccepted, .decision:
                     break
                 }
             }
@@ -343,13 +382,13 @@ final class ActionEngine {
         let ms = elapsed.milliseconds
         let finalOutput = OutputSanitizer.sanitize(rawOutput)
         Log.engine.info(
-            "ActionEngine done action=Fix Grammar transport=cloud outChars=\(finalOutput.count, privacy: .public) ms=\(ms, privacy: .public)"
+            "ActionEngine done action=\(action.title, privacy: .public) transport=cloud outChars=\(finalOutput.count, privacy: .public) ms=\(ms, privacy: .public)"
         )
 
         event.output = finalOutput
         event.model = promptVersion
         event.latencyMs = ms
-        onCompleted?(.fixGrammar, .single(finalOutput), snapshot, event)
+        onCompleted?(action, .single(finalOutput), snapshot, event)
     }
 
     private func executeMultiVariant(
@@ -383,7 +422,7 @@ final class ActionEngine {
         var modelName: String?
         let started = ContinuousClock.now
 
-        await withTaskGroup(of: (Int, Result<(String, (model: String, tokensIn: Int, tokensOut: Int)?), Error>).self) { group in
+        await withTaskGroup(of: (Int, Result<(String, LegacyInferenceUsage?), Error>).self) { group in
             for index in 0..<PreviewVariants.count {
                 group.addTask {
                     let prompt = PromptBuilder.build(
@@ -396,7 +435,7 @@ final class ActionEngine {
                     )
                     var rawOutput = ""
                     do {
-                        let stream = await self.client.stream(action: action, prompt: prompt)
+                        let stream = await self.legacyClient.stream(action: action, prompt: prompt)
                         for try await delta in stream {
                             if Task.isCancelled { return (index, .failure(CancellationError())) }
                             let clean = OutputSanitizer.sanitize(delta)
@@ -406,7 +445,7 @@ final class ActionEngine {
                             }
                         }
                         let finalOutput = OutputSanitizer.sanitize(rawOutput)
-                        let usage = await self.client.consumeLastUsage()
+                        let usage = await self.legacyClient.consumeLastUsage()
                         await MainActor.run {
                             self.onVariantStreamCompleted?(index)
                         }
@@ -475,8 +514,15 @@ final class ActionEngine {
         inputText: String,
         trimmedInput: String,
         trimmedNote: String,
-        site: String?
+        site: String?,
+        flowID: UUID
     ) async {
+        guard TransportPreferences.useCloudInference || TransportPreferences.allowByoFallback else {
+            let message = "WriterFlow's cloud service is temporarily unavailable. Try again shortly."
+            onFailed?(message)
+            ErrorToast.show(message)
+            return
+        }
         let prompt = PromptBuilder.build(
             action: .promptBuilder,
             snapshot: snapshot,
@@ -491,21 +537,52 @@ final class ActionEngine {
         )
 
         var rawOutput = ""
+        var cloudPromptVersion: String?
         let started = ContinuousClock.now
 
         do {
-            let stream = await client.stream(action: .promptBuilder, prompt: prompt)
-            for try await delta in stream {
-                if Task.isCancelled { return }
-                let clean = OutputSanitizer.sanitize(delta)
-                rawOutput += clean
+            if TransportPreferences.useCloudInference, let transport = inferenceTransport {
+                let request = InferenceRequestBuilder.build(
+                    action: .promptBuilder,
+                    snapshot: snapshot,
+                    site: site,
+                    conversation: conversationContext,
+                    promptBuilder: .init(
+                        phase: "analyze",
+                        flowId: flowID,
+                        brief: customInstruction ?? snapshot.actionText,
+                        answers: []
+                    )
+                )
+                for try await event in transport.stream(request) {
+                    if Task.isCancelled { return }
+                    switch event {
+                    case .delta(let delta):
+                        rawOutput += OutputSanitizer.sanitize(delta)
+                        let split = PromptBuilderOutputParser.splitStreaming(rawOutput)
+                        if split.mode == .prompt { onStreamPromptBuilder?(split.prompt) }
+                    case .completed(_, let version):
+                        cloudPromptVersion = version
+                    case .usageSummary(let usedUnits, let remainingUnits):
+                        CloudUsageStore.shared.update(usedUnits: usedUnits, remainingUnits: remainingUnits)
+                    case .requestAccepted, .decision:
+                        break
+                    }
+                }
+            } else {
+                let stream = await legacyClient.stream(action: .promptBuilder, prompt: prompt)
+                for try await delta in stream {
+                    if Task.isCancelled { return }
+                    let clean = OutputSanitizer.sanitize(delta)
+                    rawOutput += clean
 
-                let split = PromptBuilderOutputParser.splitStreaming(rawOutput)
-                switch split.mode {
-                case .prompt:
-                    onStreamPromptBuilder?(split.prompt)
-                case .clarify, .undetermined:
-                    break
+                    let split = PromptBuilderOutputParser.splitStreaming(rawOutput)
+                    switch split.mode {
+                    case .prompt:
+                        onStreamPromptBuilder?(split.prompt)
+                    case .clarify, .undetermined:
+                        break
+                    }
                 }
             }
         } catch {
@@ -533,7 +610,7 @@ final class ActionEngine {
             Log.engine.info(
                 "ActionEngine done action=Prompt Builder outChars=\(finalOutput.count, privacy: .public) ms=\(ms, privacy: .public)"
             )
-            let usage = await client.consumeLastUsage()
+            let usage = TransportPreferences.useCloudInference ? nil : await legacyClient.consumeLastUsage()
             var event = ConversionEvent(
                 appBundleID: field.appBundleID,
                 site: site,
@@ -541,7 +618,7 @@ final class ActionEngine {
                 input: trimmedInput.isEmpty ? trimmedNote : inputText
             )
             event.output = finalOutput
-            event.model = usage?.model
+            event.model = cloudPromptVersion ?? usage?.model
             event.tokensIn = usage?.tokensIn
             event.tokensOut = usage?.tokensOut
             event.latencyMs = ms
@@ -555,6 +632,12 @@ final class ActionEngine {
         answers: [(question: String, answer: String)]
     ) async {
         guard !Task.isCancelled else { return }
+        guard TransportPreferences.useCloudInference || TransportPreferences.allowByoFallback else {
+            let message = "WriterFlow's cloud service is temporarily unavailable. Try again shortly."
+            onFailed?(message)
+            ErrorToast.show(message)
+            return
+        }
 
         let prompt = PromptBuilder.build(
             action: .promptBuilder,
@@ -574,18 +657,51 @@ final class ActionEngine {
         )
 
         var rawOutput = ""
+        var cloudPromptVersion: String?
         let started = ContinuousClock.now
 
         do {
-            let stream = await client.stream(action: .promptBuilder, prompt: prompt)
-            for try await delta in stream {
-                if Task.isCancelled { return }
-                let clean = OutputSanitizer.sanitize(delta)
-                rawOutput += clean
+            if TransportPreferences.useCloudInference, let transport = inferenceTransport {
+                let request = InferenceRequestBuilder.build(
+                    action: .promptBuilder,
+                    snapshot: session.snapshot,
+                    site: session.site,
+                    conversation: session.conversationContext,
+                    promptBuilder: .init(
+                        phase: "finalize",
+                        flowId: session.flowID,
+                        brief: session.customInstruction ?? session.snapshot.actionText,
+                        answers: answers.map { "\($0.question): \($0.answer)" }
+                    )
+                )
+                for try await event in transport.stream(request) {
+                    if Task.isCancelled { return }
+                    switch event {
+                    case .delta(let delta):
+                        rawOutput += OutputSanitizer.sanitize(delta)
+                        let split = PromptBuilderOutputParser.splitStreaming(rawOutput)
+                        if split.mode == .prompt || split.mode == .undetermined {
+                            onStreamPromptBuilder?(split.prompt)
+                        }
+                    case .completed(_, let version):
+                        cloudPromptVersion = version
+                    case .usageSummary(let usedUnits, let remainingUnits):
+                        CloudUsageStore.shared.update(usedUnits: usedUnits, remainingUnits: remainingUnits)
+                    case .requestAccepted, .decision:
+                        break
+                    }
+                }
+            } else {
+                let stream = await legacyClient.stream(action: .promptBuilder, prompt: prompt)
+                for try await delta in stream {
+                    if Task.isCancelled { return }
+                    let clean = OutputSanitizer.sanitize(delta)
+                    rawOutput += clean
 
-                let split = PromptBuilderOutputParser.splitStreaming(rawOutput)
-                if split.mode == .prompt || split.mode == .undetermined {
-                    onStreamPromptBuilder?(split.prompt)
+                    let split = PromptBuilderOutputParser.splitStreaming(rawOutput)
+                    if split.mode == .prompt || split.mode == .undetermined {
+                        onStreamPromptBuilder?(split.prompt)
+                    }
                 }
             }
         } catch {
@@ -611,7 +727,7 @@ final class ActionEngine {
             "ActionEngine done action=Prompt Builder finalize outChars=\(finalOutput.count, privacy: .public) ms=\(ms, privacy: .public)"
         )
 
-        let usage = await client.consumeLastUsage()
+        let usage = TransportPreferences.useCloudInference ? nil : await legacyClient.consumeLastUsage()
         var event = ConversionEvent(
             appBundleID: session.field.appBundleID,
             site: session.site,
@@ -619,7 +735,7 @@ final class ActionEngine {
             input: trimmedInput.isEmpty ? trimmedNote : inputText
         )
         event.output = finalOutput
-        event.model = usage?.model
+        event.model = cloudPromptVersion ?? usage?.model
         event.tokensIn = usage?.tokensIn
         event.tokensOut = usage?.tokensOut
         event.latencyMs = ms
@@ -635,10 +751,13 @@ final class ActionEngine {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
                 return "You're offline — try again once you're connected."
             case .timedOut:
-                return "Request timed out — try again."
+                return "Request timed out — the model may be overloaded. Try again."
             default:
                 break
             }
+        }
+        if let inference = error as? WriterFlowInferenceError {
+            return inference.errorDescription ?? inference.localizedDescription
         }
         return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }

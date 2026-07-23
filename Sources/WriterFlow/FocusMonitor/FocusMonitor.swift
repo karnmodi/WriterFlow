@@ -19,12 +19,16 @@ final class FocusMonitor {
     private var currentField: FocusedField?
     private var typingActive: Bool = false
     private var stopTypingTask: Task<Void, Never>?
+    private var pendingBlurTask: Task<Void, Never>?
     private var frameTimer: Timer?
     private var quirksApplied: Set<pid_t> = []
     private var isRunning: Bool = false
 
     // 4-second debounce per phase-0 spec.
     private let typingStopDelay: TimeInterval = 4.0
+    /// AX often emits a nil/non-editable focus blip when an app rebuilds its tree
+    /// (quirks, Electron, Chrome). Hold blur briefly so the icon doesn't flash away.
+    private let blurSettleDelayNanoseconds: UInt64 = 250_000_000
     func start() {
         guard !isRunning else { return }
         isRunning = true
@@ -83,9 +87,10 @@ final class FocusMonitor {
         frameTimer?.invalidate()
         frameTimer = nil
 
-        if let previous = currentField {
-            delegate?.focusMonitor(self, fieldDidBlur: previous.appBundleID)
-            currentField = nil
+        pendingBlurTask?.cancel()
+        pendingBlurTask = nil
+        if currentField != nil {
+            commitClearCurrentField()
         }
         Log.focus.info("FocusMonitor stopped")
     }
@@ -100,12 +105,13 @@ final class FocusMonitor {
     }
 
     private func attach(to app: NSRunningApplication) {
-        // Skip WriterFlow itself.
+        // Skip WriterFlow itself — do not tear down the host-field observer when our
+        // Dashboard/menu briefly activates, or the floating icon vanishes mid-edit.
         if app.processIdentifier == ProcessInfo.processInfo.processIdentifier { return }
 
-        // Detach previous.
+        // Detach previous. Real app switches clear immediately (no blur settle delay).
         currentAppObserver?.stop()
-        clearCurrentField()
+        clearCurrentField(immediate: true)
 
         let observer = AppObserver(pid: app.processIdentifier, bundleID: app.bundleIdentifier)
         observer.onFocusChanged = { [weak self, weak observer] element in
@@ -172,6 +178,8 @@ final class FocusMonitor {
     }
 
     private func applyClassifiedField(_ field: FocusedField) {
+        pendingBlurTask?.cancel()
+        pendingBlurTask = nil
         if currentField != field {
             currentField = field
             delegate?.focusMonitor(self, fieldDidFocus: field)
@@ -179,7 +187,24 @@ final class FocusMonitor {
         }
     }
 
-    private func clearCurrentField() {
+    private func clearCurrentField(immediate: Bool = false) {
+        if immediate {
+            pendingBlurTask?.cancel()
+            pendingBlurTask = nil
+            commitClearCurrentField()
+            return
+        }
+        guard currentField != nil, pendingBlurTask == nil else { return }
+        let delay = blurSettleDelayNanoseconds
+        pendingBlurTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.pendingBlurTask = nil
+            self.commitClearCurrentField()
+        }
+    }
+
+    private func commitClearCurrentField() {
         stopTypingTask?.cancel()
         stopTypingTask = nil
         frameTimer?.invalidate()

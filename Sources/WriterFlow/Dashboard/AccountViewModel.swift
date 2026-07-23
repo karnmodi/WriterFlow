@@ -81,6 +81,12 @@ final class AccountViewModel: ObservableObject {
             openBrowser(for: challenge)
             loadState = .awaitingApproval(challenge)
             try await session.awaitPairedToken()
+            if await session.needsRelaunchAfterAccountSwitch {
+                statusMessage = "Signed in with a different account. Relaunching so local data stays isolated…"
+                statusIsError = false
+                relaunchAppForAccountSwitch()
+                return
+            }
             await loadSnapshot()
         } catch DeviceSessionError.pairingCancelled {
             loadState = .signedOut
@@ -90,6 +96,10 @@ final class AccountViewModel: ObservableObject {
             loadState = .signedOut
         } catch DeviceSessionError.pairingExpired {
             statusMessage = "Sign-in code expired. Try again."
+            statusIsError = true
+            loadState = .signedOut
+        } catch DeviceSessionError.accountMismatch {
+            statusMessage = DeviceSessionError.accountMismatch.localizedDescription
             statusIsError = true
             loadState = .signedOut
         } catch {
@@ -109,6 +119,24 @@ final class AccountViewModel: ObservableObject {
     private func openBrowser(for challenge: PairingChallenge) {
         if !NSWorkspace.shared.open(challenge.verificationURIComplete) {
             Log.auth.error("Could not open verification URL in browser")
+        }
+    }
+
+    private func relaunchAppForAccountSwitch() {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(
+            at: Bundle.main.bundleURL,
+            configuration: configuration
+        ) { _, error in
+            if let error {
+                Log.auth.error(
+                    "Account-switch relaunch failed: \(error.localizedDescription, privacy: .public)"
+                )
+            }
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
         }
     }
 

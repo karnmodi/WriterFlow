@@ -4,7 +4,7 @@ import Foundation
 /// explicitly opens the action popover. Never runs from passive typing signals.
 @MainActor
 final class RecommendationEngine {
-    private let client: AzureOpenAIClient
+    private let classifier: any RecommendationClassifying
     private var runningTask: Task<Void, Never>?
     private var runningTaskField: FocusedField?
     /// Identifies which `recommend()` call is the current one — a stale (superseded) task's
@@ -20,8 +20,8 @@ final class RecommendationEngine {
     /// so callers can discard stale results if the focused field has since changed.
     var onRecommendation: ((WritingAction, FocusedField) -> Void)?
 
-    init(config: AzureModelsConfig) {
-        self.client = AzureOpenAIClient(config: config)
+    init(classifier: any RecommendationClassifying) {
+        self.classifier = classifier
     }
 
     func cancel() {
@@ -77,7 +77,7 @@ final class RecommendationEngine {
                 let fieldText = snapshot?.actionText ?? ""
                 let toneBias = AppAdapterRegistry.adapter(for: target.appBundleID).toneBias
 
-                let action = try await client.classifyAction(
+                let action = try await classifier.classifyAction(
                     fieldText: fieldText,
                     hasVisibleThread: hasThread,
                     toneBias: toneBias

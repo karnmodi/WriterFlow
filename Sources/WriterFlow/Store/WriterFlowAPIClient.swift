@@ -17,9 +17,8 @@ struct WriterFlowAPIConfig: Sendable {
     /// Lookup order (later wins): project `.env` (when running from the repo
     /// tree) → Application Support `secrets.env` (what `make install` /
     /// `make run` syncs, so `~/Applications/WriterFlow.app` still finds it) →
-    /// process environment. Without this, an installed debug app falls through
-    /// to production `apiwriterflow.aviusolutions.com`, which is not deployed yet and fails
-    /// DNS before Sign In can open the browser.
+    /// process environment. Without an override, even a debug app uses the
+    /// live production APIM gateway.
     static func resolved() -> WriterFlowAPIConfig {
         let exec = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? ".")
         var merged: [String: String] = [:]
@@ -123,6 +122,10 @@ actor WriterFlowAPIClient {
                 throw DeviceSessionError.decodingFailed
             }
             return .pending(decoded.status)
+        case 429:
+            // APIM/edge throttle must not abort an otherwise-valid pairing —
+            // treat like OAuth slow_down so the next poll backs off.
+            return .pending("slow_down")
         default:
             throw DeviceSessionError.httpError(http.statusCode)
         }
@@ -167,10 +170,19 @@ actor WriterFlowAPIClient {
         let privacy: AccountPrivacy
     }
 
+    struct CohortFlags: Decodable, Sendable, Equatable {
+        let useCloudInference: Bool
+        let allowByoFallback: Bool
+    }
+
     /// `GET /v2/me` — requires a bearer WriterFlow access token (not the
     /// bearer-exempt pairing routes above).
     func me(accessToken: String) async throws -> AccountSnapshot {
         try await get(path: "/me", accessToken: accessToken)
+    }
+
+    func cohortFlags(accessToken: String) async throws -> CohortFlags {
+        try await get(path: "/cohort/flags", accessToken: accessToken)
     }
 
     /// `DELETE /v2/devices/{id}` — 204 on success; 404 if `deviceId` isn't
