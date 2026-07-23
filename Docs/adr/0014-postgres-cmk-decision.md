@@ -8,9 +8,9 @@
 - Key Vault in `infra/bicep/modules/keyvault.bicep` already provisions the CMK key resource; wire `postgres.bicep` `customerManagedKey` parameter when `environment == 'prod'`.
 
 ## Implementation checklist
-- [ ] Add `useCmk: bool` parameter to `infra/bicep/modules/postgres.bicep`
-- [ ] Pass Key Vault key URI from `keyvault.bicep` output when `useCmk` is true
-- [ ] Document key rotation runbook in `Docs/runbooks/postgres-cmk-rotation.md`
+- [x] Add `useCmk: bool` parameter to `infra/bicep/modules/postgres.bicep`
+- [x] Pass Key Vault key URI from `keyvault.bicep` output when `useCmk` is true
+- [x] Document key rotation runbook in `Docs/runbooks/postgres-cmk-rotation.md`
 - [ ] Verify backup/restore with CMK in staging before prod cutover
 
 **Status:** documented; Bicep wiring is cloud-apply pending alongside first `az deployment`.

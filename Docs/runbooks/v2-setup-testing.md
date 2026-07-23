@@ -333,25 +333,23 @@ out and that pairing again issues a fresh device.
 ## B. Optional: deploy to real Azure
 
 Do this once Track A has convinced you the flow works. It proves the actual cloud path
-(Container Apps, API Management, managed Postgres) but doesn't change what you can test
-— `/pair` is still a stub, so you'll repeat the same manual exchange from Track A step
-9, just pointed at the deployed API instead of `localhost`.
+(Container Apps, API Management, managed Postgres, and the real Entra `/pair` flow).
 
 ### 1. Know the cost before you deploy
 
 | Resource | SKU | Approx. monthly |
 |---|---|---:|
-| API Management | Standard v2 | $150–200 |
+| API Management | Existing Developer tier | existing fixed charge; no Standard v2 beta instance |
 | Postgres Flexible Server (dev) | Standard_B1ms, Burstable | $15–30 |
 | Container Apps (API + website) | Consumption, pay-per-use | $5–20 |
 | Container Registry | Standard | ~$20 |
 | Key Vault + Log Analytics | Standard / pay-per-GB | a few $ |
-| **Total, dev environment** | | **~$190–270/mo** |
+| Azure OpenAI | GlobalStandard | pay per input/output token; no dedicated model compute |
 
-> **Heads up.** The repo's own dev budget cap (`infra/bicep/modules/budget.bicep`) is
-> set to **$100/month** — less than API Management alone. Raise
-> `monthlyAmountByEnvironment.dev` before deploying, or the budget alert fires
-> immediately. Also change `notificationEmail` in that same file from the placeholder
+> **Heads up.** Standard v2 is intentionally deferred because its current list
+> price is about $700/month. Keep the budget notification recipient current in
+> `infra/bicep/modules/budget.bicep` and review the Azure calculator before any
+> future tier change. Also change `notificationEmail` in that same file from the placeholder
 > `engineering@writerflow.aviusolutions.com` to an inbox you actually read — it isn't exposed as a
 > deploy-time parameter yet.
 

@@ -6,7 +6,7 @@ source-of-truth order first; this directory is the next layer down, produced *fr
 
 | Path | What it is |
 |---|---|
-| `adr/0001`–`0012` | Short ADRs freezing the Phase 5 decisions in reviewable one-decision-per-file form. ADR-0010/0011/0012 (2026-07-18) supersede the in-app MSAL auth (0002) and mandatory Developer ID (0008): auth/membership move to the browser, the Mac pairs via a device flow for a WriterFlow-minted token, and v2 keeps v1's ad-hoc distribution with no Apple Developer account. |
+| `adr/0001`–`0015` | Short ADRs freezing the Phase 5 decisions in reviewable one-decision-per-file form. ADR-0010/0011/0012 supersede in-app MSAL auth and mandatory Developer ID; ADR-0015 uses Developer APIM plus a Key Vault-backed origin credential for the cost-controlled private beta while deferring Standard v2. |
 | `v2-data-inventory.md` | Every place v1 currently stores data, classified, built from direct source inspection — not inferred. |
 | `v2-threat-model.md` | The Stage 5.0-required threat model, one entry per named threat with mitigation and residual risk. |
 | `contracts/openapi.yaml` | REST endpoints (device pairing `/v2/device/*` + `/v2/token/refresh`, `/v2/me`, devices, style analysis, personalization, usage, billing stubs, account deletion). |

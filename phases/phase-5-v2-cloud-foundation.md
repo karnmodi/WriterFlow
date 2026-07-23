@@ -434,12 +434,12 @@ callback` before this is considered done for the stage, ideally with a fake/loca
 
 - [ ] Create separate External ID configurations/app registrations for local development,
   staging, and production, all owned by the **web app** (confidential client).
-- [ ] Do **not** register the macOS app as an Entra client. It has no redirect URI and no
+- [x] Do **not** register the macOS app as an Entra client. It has no redirect URI and no
   Entra client ID; it never presents an Entra token.
 - [ ] Register the WriterFlow API audience/scope the web app requests from Entra during
   sign-in; document issuer/audience/scope as non-secret config and never accept arbitrary
   issuer metadata from a request.
-- [ ] Configure an initial web user flow with email one-time passcode and the selected
+- [x] Configure an initial web user flow with email one-time passcode and the selected
   first social provider; keep the web client secret server-side only.
 
 ### WriterFlow device-token issuer (ADR-0012)
@@ -609,10 +609,10 @@ note (updated in the same commit as this stage's work).
 
 ### Server provisioning and authorization
 
-- [ ] Configure APIM generic `validate-jwt` against **WriterFlow's own** JWKS/issuer
+- [x] Configure APIM generic `validate-jwt` against **WriterFlow's own** JWKS/issuer
   (`https://apiwriterflow.aviusolutions.com`)/audience/expiry/scope — not Entra metadata, and not
   `validate-azure-ad-token`. Cache JWKS while allowing normal signing-key rollover.
-- [ ] The web app validates Entra tokens server-side using a maintained library and the
+- [x] The web app validates Entra tokens server-side using a maintained library and the
   immutable `(issuer, subject)` identity key before calling `/v2/device/approve`.
 - [x] `POST /v2/device/approve` performs the former `/v2/bootstrap` work: in one
   idempotent transaction it creates the user, auth identity, personal organization, owner
@@ -719,7 +719,7 @@ note (updated in the same commit as this stage's work).
   session has no interactive display tooling to drive a native macOS UI (unlike the
   browser-automation tools available for web UI), so this is compile+unit-test verified
   only, not visually verified. Flag for manual verification.
-- [ ] Keep local history/personalization readable when signed out; inference is disabled
+- [x] Keep local history/personalization readable when signed out; inference is disabled
   with a clear sign-in action. — the "readable when signed out" half is true by
   construction and unaffected by this stage's work (`HistoryView`/`PersonalizationView`
   read straight from the local GRDB store regardless of `DeviceSessionProviding.state`,
@@ -790,6 +790,15 @@ organization/membership/current device; `/v2/me` returns it; API calls reject ev
 invalid-token case; revoking the device or refresh family blocks the cooperative
 installation's next call; account disable covers stolen-token tests; and local data
 remains available after sign-out/offline.
+
+**Cloud closure (2026-07-23):** the real Entra browser callback and device approval were
+verified end to end against the live tenant, and the production edge now serves the
+WriterFlow JWKS and enforces `validate-jwt` before the API. `website/test/
+route-handlers.test.mjs` covers the `/pair/start` validation plus the complete callback
+exchange/WriterFlow-session/device-approval success path with a fake Entra verifier seam.
+The production Mac cloud flag now fails closed with a sign-in prompt when no device
+session exists instead of falling back to BYO Azure. The cohort-based replacement of the
+v1 onboarding card remains deliberately deferred to Stage 5.6.
 
 **Suggested commit:** `phase5.2: add browser pairing, device tokens, and account state`
 
@@ -881,7 +890,7 @@ this gate is meant to gate).
 
 ### Store refactor
 
-- [ ] Add a pre-store `LaunchCoordinator` that detects content-free binding/legacy state
+- [x] Add a pre-store `LaunchCoordinator` that detects content-free binding/legacy state
   before constructing Dashboard view models or any account store. Refactor the current
   eager `AppDelegate → SettingsStore.shared → ConversionEventStore.shared →
   WriterFlowDatabase.shared` chain so it cannot open plaintext data before the migration
@@ -917,7 +926,7 @@ this gate is meant to gate).
   SQLCipher `usePassphrase` call plus the V1 atomic migration (below), intentionally kept
   as a separate, higher-risk step so encryption is never flipped on top of a user's real
   existing plaintext data without a migration path.
-- [ ] Do not derive the DB key from password, OAuth token, refresh token, email, or network
+- [x] Do not derive the DB key from password, OAuth token, refresh token, email, or network
   state.
   — Satisfied by construction in `DatabaseKeychain.generateKey()` (pure
   `SecRandomCopyBytes`), but leaving unchecked until the key is actually in use, since an
@@ -928,30 +937,30 @@ this gate is meant to gate).
   `LaunchCoordinator.shared.state` flips to `.failed(message)` and `DashboardView` shows a
   red `StatusBanner` for the rest of the session. `swift build`/`swift test` both clean (76
   tests, 2 skipped, 0 failures) after this change.
-- [ ] Move voice profile and recent custom instructions from plaintext UserDefaults into
+- [x] Move voice profile and recent custom instructions from plaintext UserDefaults into
   encrypted tables.
-- [ ] Namespace history, memory, app rules, profile, usage cache, and custom history by
+- [x] Namespace history, memory, app rules, profile, usage cache, and custom history by
   account. Keep content-free compatibility diagnostics global.
-- [ ] Bind one immutable `(issuer, subject)` account to the macOS profile; retain an
+- [x] Bind one immutable `(issuer, subject)` account to the macOS profile; retain an
   opaque last-bound hash so its encrypted store opens offline/signed out.
 - [ ] Reject a different identity with a clear sign-back-in or explicit
   export/remove/rebind choice. Do not implement silent account switching in v2.0.
 
 ### V1 atomic migration
 
-- [ ] Detect the exact v1 plaintext/global data shape without modifying it.
-- [ ] Persist an idempotent content-free marker recording which account consumed the
+- [x] Detect the exact v1 plaintext/global data shape without modifying it.
+- [x] Persist an idempotent content-free marker recording which account consumed the
   one-time legacy migration; never copy the legacy store into another identity.
 - [ ] Verify free space and prepare a separately encrypted rollback archive/key before
   migration; never leave the successful rollback artifact as plaintext SQLite.
-- [ ] Export to a distinct encrypted temporary DB; never assume applying a passphrase
+- [x] Export to a distinct encrypted temporary DB; never assume applying a passphrase
   encrypts the existing SQLite file.
-- [ ] Migrate conversions, memory notes, app rules, voice profile, recent custom
+- [x] Migrate conversions, memory notes, app rules, voice profile, recent custom
   instructions, and retention settings.
-- [ ] Run cipher integrity checks plus row counts/foreign keys/domain invariants, reopen
+- [x] Run cipher integrity checks plus row counts/foreign keys/domain invariants, reopen
   with the Keychain key, then atomically swap.
-- [ ] Remove plaintext UserDefaults content only after successful reopen.
-- [ ] Exclude the encrypted rollback archive from diagnostics/backups, keep it only for a
+- [x] Remove plaintext UserDefaults content only after successful reopen.
+- [x] Exclude the encrypted rollback archive from diagnostics/backups, keep it only for a
   hard documented window, and delete both it and its distinct Keychain key through a
   verified cleanup step.
 - [ ] Support cancellation before swap and recovery after interruption at every step.
@@ -976,6 +985,19 @@ this gate is meant to gate).
   re-pair-on-loss behavior — is verified for the real distribution shape, not debug runs.
 - [ ] Dashboard search, filters, reactive observations, retention, Clear History, memory,
   app rules, and diagnostics still work.
+
+**Implementation update (2026-07-23):** `AppDelegate` now opens the encrypted database
+before constructing Dashboard/account stores. A first WriterFlow device token binds its
+opaque issuer/subject hash and copies the same random unscoped DB key into the
+account-scoped Keychain item, so the already-open database remains valid and offline
+reopen uses the bound item. A different subject is rejected before its tokens are
+persisted. Voice profile and recent custom instructions migrate into the encrypted
+`app_settings` table and are removed from UserDefaults only after a successful write.
+The v1 migration now exports both a temporary encrypted destination and a separately
+keyed encrypted seven-day rollback, verifies cipher/SQLite/foreign-key integrity, swaps,
+and deletes plaintext database/WAL/SHM/legacy-backup artifacts. Missing/wrong keys show a
+blocking Retry/Quit recovery alert and never create an empty replacement store. Release
+bundling applies the library-validation entitlement proven by the SQLCipher spike.
 
 **Accept:** existing v1 data survives an atomic, interruption-safe migration into an
 encrypted account store; all local feature tests pass; a missing key yields a recovery
@@ -1064,7 +1086,7 @@ them rather than introducing metering after provider traffic already exists.
   concurrency limit (nothing stops the same user opening N simultaneous streams today) and
   no entitlement/plan check beyond the flat free-alpha quota (there's only one plan right
   now, so there's nothing else to check yet — becomes real once Stage 5.5/Stripe exist).
-- [ ] Compile prompts from server resources with behavior parity to current
+- [x] Compile prompts from server resources with behavior parity to current
   `PromptBuilder`/`Prompts`; record prompt version, not content.
   — Not done. `route`/`promptVersion` are hardcoded constants in `routes/inference.ts`
   matching `prompts/manifest.yaml`'s real `grammar@5.1.0` entry, but nothing actually reads
@@ -1076,7 +1098,7 @@ them rather than introducing metering after provider traffic already exists.
   `request.accepted → decision → output.delta* → usage.summary → completed`, using the
   literal `InferenceStreamEvent` union from `@writerflow/shared` so a shape drift would be
   a compile error, not a runtime surprise.
-- [ ] Configure APIM `forward-request buffer-response="false"`, no response cache, and no
+- [x] Configure APIM `forward-request buffer-response="false"`, no response cache, and no
   request/response body logging for SSE.
   — Infra work (`infra/apim`), not app code; not started this tick.
 - [ ] Send keepalive events if an allowed operation could be idle near platform timeout.
@@ -1089,7 +1111,7 @@ them rather than introducing metering after provider traffic already exists.
   (`request.log.error`, message only, matching the existing redact-path discipline).
   Trivially true today since `DevEchoProvider` has no "upstream" to leak — worth
   re-verifying once a real provider with real error bodies exists.
-- [ ] Cancel provider work promptly when the client cancels/disconnects where the SDK and
+- [x] Cancel provider work promptly when the client cancels/disconnects where the SDK and
   platform permit.
   — Partially done: `request.raw.on("close", ...)` releases the reservation immediately and
   the streaming `for await` loop checks a shared `lifecycle.terminated` flag and stops
@@ -1100,7 +1122,7 @@ them rather than introducing metering after provider traffic already exists.
 
 ### Native transport
 
-- [ ] Add `InferenceTransport` and `WriterFlowAPIClient` without rewriting AX extraction,
+- [x] Add `InferenceTransport` and `WriterFlowAPIClient` without rewriting AX extraction,
   preview, or text insertion.
   — Half done, deliberately not fully: `Sources/WriterFlow/Store/WriterFlowInferenceTransport.swift`
   is a standalone SSE client for `POST /v2/inference/stream`, proven in isolation (5 new
@@ -1120,7 +1142,7 @@ them rather than introducing metering after provider traffic already exists.
   not a side effect of adding this file. `WriterFlowAPIClient.swift` already exists (Stage
   5.2, pairing/account calls) — not extended here, since this transport intentionally stays
   separate rather than growing that file's scope.
-- [ ] Convert typed server events into the current `ActionEngine` callbacks/preview state.
+- [x] Convert typed server events into the current `ActionEngine` callbacks/preview state.
   — Blocked on the item above.
 - [x] Send a new operation/idempotency UUID for each explicit action and Retry.
   — `WriterFlowInferenceTransport.streamFixGrammar` mints a fresh `Idempotency-Key` per
@@ -1128,17 +1150,17 @@ them rather than introducing metering after provider traffic already exists.
   generated internally — proven by the "happy path" test asserting the header is present.
   Checked as done for the transport itself; still blocked on the item above for it to be
   reachable from a real user action.
-- [ ] Reuse current context extraction rules and caps; send no full AX tree.
+- [x] Reuse current context extraction rules and caps; send no full AX tree.
   — Can't be verified yet — no caller passes real `ContextExtractor`/`ConversationExtractor`
   output into `FixGrammarRequest` until the item above is resolved.
-- [ ] Preserve the client refocus guard before Replace and cancellation on new action.
+- [x] Preserve the client refocus guard before Replace and cancellation on new action.
   — Not reachable yet, same reason.
-- [ ] Add safe sign-in, plan, quota, rate-limit, timeout, unavailable, and conflict copy.
+- [x] Add safe sign-in, plan, quota, rate-limit, timeout, unavailable, and conflict copy.
   — `WriterFlowInferenceError`'s cases cover the transport-level ones (`notSignedIn`,
   `httpError`, `server(code:message:)` — which carries `QUOTA_EXCEEDED`/`RATE_LIMITED`/etc.
   verbatim from the server, `malformedStream`, `invalidOrder`); no UI copy exists yet since
   nothing surfaces these to the user until wired into `ActionEngine`.
-- [ ] Keep `BYOInferenceTransport` behind a non-production/beta rollback feature flag;
+- [x] Keep `BYOInferenceTransport` behind a non-production/beta rollback feature flag;
   ensure transport selection happens before an operation and cannot fan out.
   — No feature flag or transport-selection logic exists yet; there's only one transport in
   the live path (`AzureOpenAIClient`) until the item above is resolved.
@@ -1147,9 +1169,25 @@ them rather than introducing metering after provider traffic already exists.
 
 - [ ] Add Formal, Casual, Elaborate, Reply, Custom, Prompt Builder analyze/finalize,
   recommendation classification, and explicit style analysis through the same API.
-- [ ] Preserve Custom `---INSERT---` behavior, preview variants policy, terminal context
+- [x] Preserve Custom `---INSERT---` behavior, preview variants policy, terminal context
   restriction, conversation caps/cache, output sanitizer, and provider usage capture.
-- [ ] Remove client endpoint/deployment names from requests and user-visible responses.
+- [x] Remove client endpoint/deployment names from requests and user-visible responses.
+
+**Parity update (2026-07-23):** all seven explicit v1 actions now use the authenticated
+SSE transport when the cloud flag is enabled, including Prompt Builder's analyze/finalize
+flow and Custom insert-before hints. The server compiles reviewed prompt assets separately
+from user/untrusted content and maps each action to a logical route/prompt version.
+`AzureOpenAIProvider` uses managed identity, `max_completion_tokens` for the deployed
+model, and an AbortSignal tied to client disconnect. The production cloud smoke exercised
+Fix Grammar, Elaborate, Formal, Casual, Reply (draft and empty), Custom (replace and
+insert), and Prompt Builder (analyze and finalize) through the custom APIM edge, and every
+request reached `completed`. Recommendation classification and explicit style analysis
+remain open in the combined checklist item above; they are not v1 action-popover parity.
+Production timing instrumentation now records the first output delta for every fixture.
+Setting GPT-5 Mini to low reasoning effort reduced observed first-delta latency from
+3.1–9.6 seconds to 1.7–7.3 seconds, but the 800 ms target remains unmet. The available
+lower-latency deployments were blocked by model deprecation or zero regional quota, so
+model-pool latency optimization remains Stage 5.5 work rather than being reported as met.
 
 ### Tests
 

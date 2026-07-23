@@ -32,10 +32,14 @@ entitlements/outbox, RLS, append-only triggers, least-privilege roles) have been
 up→down→up against a real local Postgres container. `infra/bicep` (10 modules) and
 `infra/apim` (JWT/pairing/SSE policies) are written and `az bicep build`/`lint`-clean.
 Both service Dockerfiles build and the API image was smoke-run against local Postgres.
-None of this has been applied to real Azure yet — the user has Azure/Entra CLI access
-but no Entra External ID tenant created yet, and no `az deployment` has run — so Stage
-5.1's Accept criterion (a live private-network deployment reachable through APIM) is
-still open. The website's hosting model is now scoped and scaffolded (user decision,
+The dev cloud path is live in Azure behind Developer APIM. The original Stage 5.1
+Standard v2 private-origin criterion is deliberately deferred by ADR-0015 (user
+decision, 2026-07-23): the cost-controlled private beta keeps Developer APIM, protects
+every public-origin `/v2` request with a Key Vault-backed APIM credential, protects
+PostgreSQL with TLS/firewall/least-privilege roles, Key Vault with RBAC, and Azure
+OpenAI with managed identity plus disabled reusable keys, and uses GlobalStandard
+pay-per-token rather than dedicated model compute. The website's hosting model is
+scoped and scaffolded (user decision,
 2026-07-21): `website/` runs on Azure Container Apps in its own public environment,
 separate from the API's internal-only one (`infra/bicep/modules/container-app-website.bicep`,
 a second `container-apps-env.bicep` instantiation with `internal: false`, a matching new
