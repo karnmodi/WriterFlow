@@ -1,4 +1,4 @@
-import type { InferenceProvider, InferenceStreamResult } from "./provider.js";
+import type { InferenceProvider, InferenceProviderRequest, InferenceStreamResult } from "./provider.js";
 
 /**
  * Placeholder used until Stage 5.4's real Azure OpenAI model plane is
@@ -14,7 +14,8 @@ import type { InferenceProvider, InferenceStreamResult } from "./provider.js";
  * to fall back from yet; index.ts is the only place that constructs it.
  */
 export class DevEchoProvider implements InferenceProvider {
-  fixGrammar(draft: string): InferenceStreamResult {
+  stream(request: InferenceProviderRequest): InferenceStreamResult {
+    const draft = request.envelope.content.draft;
     const normalized = draft.replace(/\s+/g, " ").trim();
     const chunkCount = 3;
     const chunkSize = Math.max(1, Math.ceil(normalized.length / chunkCount));

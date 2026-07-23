@@ -1,4 +1,5 @@
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
+import { timingSafeEqual } from "node:crypto";
 import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
 import { FORBIDDEN_LOG_FIELD_NAMES } from "@writerflow/shared";
@@ -45,7 +46,12 @@ export interface AppDependencies {
  * primary control for structured operation logs).
  */
 function buildRedactPaths(): string[] {
-  const paths = ["req.headers.authorization"];
+  const paths = [
+    "req.headers.authorization",
+    "req.headers.cookie",
+    "req.headers.x-writerflow-origin",
+    "res.headers.set-cookie"
+  ];
   for (const field of FORBIDDEN_LOG_FIELD_NAMES) {
     paths.push(`req.body.${field}`);
     paths.push(`req.body.task.${field}`);
@@ -67,6 +73,22 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       ...(deps.logStream ? { stream: deps.logStream } : {})
     },
     trustProxy: true
+  });
+
+  app.addHook("onRequest", async (request, reply) => {
+    const expectedSecret = deps.config.APIM_ORIGIN_SECRET;
+    if (!expectedSecret || !request.raw.url?.startsWith("/v2/")) return;
+
+    const suppliedSecret = request.headers["x-writerflow-origin"];
+    const expected = Buffer.from(expectedSecret);
+    const supplied = Buffer.from(typeof suppliedSecret === "string" ? suppliedSecret : "");
+    if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+      await reply.code(403).send({
+        code: "FORBIDDEN",
+        message: "This API route is available only through the WriterFlow gateway.",
+        requestId: request.id
+      });
+    }
   });
 
   void app.register(sensible);

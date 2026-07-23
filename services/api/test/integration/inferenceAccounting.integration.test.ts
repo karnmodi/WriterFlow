@@ -131,12 +131,24 @@ describe.skipIf(!dbAvailable)("Stage 5.4 inference accounting against real Postg
     );
     expect(reservationRow.rows[0]?.state).toBe("committed");
 
-    const ledger = await migratorPool.query<{ status: string; billable_units: number; input_tokens: number; output_tokens: number }>(
-      `SELECT status, billable_units, input_tokens, output_tokens FROM usage_ledger WHERE inference_request_id = $1`,
+    const ledger = await migratorPool.query<{
+      status: string;
+      route: string;
+      billable_units: number;
+      input_tokens: number;
+      output_tokens: number;
+    }>(
+      `SELECT status, route, billable_units, input_tokens, output_tokens FROM usage_ledger WHERE inference_request_id = $1`,
       [reservation.requestId]
     );
     expect(ledger.rows).toHaveLength(1);
-    expect(ledger.rows[0]).toMatchObject({ status: "committed", billable_units: 1, input_tokens: 20, output_tokens: 22 });
+    expect(ledger.rows[0]).toMatchObject({
+      status: "committed",
+      route: "grammar_fast",
+      billable_units: 1,
+      input_tokens: 20,
+      output_tokens: 22
+    });
   });
 
   it("reusing an Idempotency-Key returns the existing request instead of reserving twice", async () => {
@@ -153,11 +165,15 @@ describe.skipIf(!dbAvailable)("Stage 5.4 inference accounting against real Postg
       promptVersion: "grammar@5.1.0"
     };
 
-    const first = await reserveInferenceRequest(appPool, { ...baseParams, operationId: randomUUID() });
-    const second = await reserveInferenceRequest(appPool, { ...baseParams, operationId: randomUUID() });
-    expect(first.reused).toBe(false);
-    expect(second.reused).toBe(true);
-    expect(second.requestId).toBe(first.requestId);
+    const [first, second] = await Promise.all([
+      reserveInferenceRequest(appPool, { ...baseParams, operationId: randomUUID() }),
+      reserveInferenceRequest(appPool, { ...baseParams, operationId: randomUUID() })
+    ]);
+    const original = [first, second].find((result) => !result.reused);
+    const replay = [first, second].find((result) => result.reused);
+    expect(original).toBeDefined();
+    expect(replay).toBeDefined();
+    expect(replay?.requestId).toBe(original?.requestId);
 
     const count = await migratorPool.query<{ count: string }>(
       `SELECT count(*) FROM inference_requests WHERE user_id = $1 AND idempotency_key = $2`,

@@ -1,0 +1,13 @@
+FROM node:24-alpine
+ENV NODE_ENV=production
+WORKDIR /workspace
+
+COPY package.json package-lock.json ./
+COPY services/shared/package.json services/shared/package.json
+COPY services/api/package.json services/api/package.json
+COPY services/worker/package.json services/worker/package.json
+RUN npm ci --include=dev --workspace services/shared --workspace services/api
+
+COPY services/api/migrations services/api/migrations
+USER node
+CMD ["npx", "node-pg-migrate", "up", "-m", "services/api/migrations"]

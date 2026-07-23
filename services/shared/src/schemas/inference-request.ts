@@ -79,7 +79,7 @@ export type Personalization = z.infer<typeof PersonalizationSchema>;
 
 export const InferenceRequestEnvelopeSchema = z.strictObject({
   operationId: z.uuid(),
-  retryOf: z.uuid().optional(),
+  retryOf: z.uuid().nullable().optional(),
   mode: InferenceModeSchema,
   task: TaskSchema,
   target: TargetSchema,

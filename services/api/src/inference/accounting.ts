@@ -2,7 +2,7 @@ import type pg from "pg";
 import { OPERATION_STATE_TRANSITIONS, type OperationState } from "@writerflow/shared";
 import { withTenantContext } from "../db.js";
 import { ApiError } from "../errors.js";
-import { FREE_ALPHA_MONTHLY_UNITS } from "../pairing/snapshot.js";
+import { readEvaluatedEntitlement } from "../entitlements/engine.js";
 
 /**
  * Stage 5.4 "Minimum accounting prerequisite": one transactional reserve at
@@ -21,6 +21,12 @@ const FLAT_UNITS_PER_REQUEST = 1;
 export class QuotaExceededError extends ApiError {
   constructor() {
     super("QUOTA_EXCEEDED", 402, "Monthly usage limit reached.");
+  }
+}
+
+export class ConcurrencyLimitError extends ApiError {
+  constructor() {
+    super("RATE_LIMITED", 429, "Too many inference requests are already running.");
   }
 }
 
@@ -85,22 +91,21 @@ async function getOrCreateUsageBalance(
   allowanceUnits: number
 ): Promise<{ usedUnits: number; allowanceUnits: number }> {
   const { start, end } = currentPeriod();
-  const existing = await client.query<{ used_units: number; allowance_units: number }>(
-    `SELECT used_units, allowance_units FROM usage_balances WHERE organization_id = $1 AND period_start = $2`,
-    [organizationId, start]
-  );
-  if (existing.rows[0]) {
-    return { usedUnits: existing.rows[0].used_units, allowanceUnits: existing.rows[0].allowance_units };
-  }
-  const inserted = await client.query<{ used_units: number; allowance_units: number }>(
+  await client.query(
     `INSERT INTO usage_balances (organization_id, period_start, period_end, used_units, allowance_units)
      VALUES ($1, $2, $3, 0, $4)
-     ON CONFLICT (organization_id, period_start) DO UPDATE SET organization_id = EXCLUDED.organization_id
-     RETURNING used_units, allowance_units`,
+     ON CONFLICT (organization_id, period_start) DO NOTHING`,
     [organizationId, start, end, allowanceUnits]
   );
-  const row = inserted.rows[0];
-  if (!row) throw new ApiError("INTERNAL_ERROR", 500, "usage_balances upsert returned no row.");
+  const locked = await client.query<{ used_units: number; allowance_units: number }>(
+    `SELECT used_units, allowance_units
+     FROM usage_balances
+     WHERE organization_id = $1 AND period_start = $2
+     FOR UPDATE`,
+    [organizationId, start]
+  );
+  const row = locked.rows[0];
+  if (!row) throw new ApiError("INTERNAL_ERROR", 500, "usage_balances lock returned no row.");
   return { usedUnits: row.used_units, allowanceUnits: row.allowance_units };
 }
 
@@ -120,6 +125,11 @@ export async function reserveInferenceRequest(
   params: ReserveInferenceRequestParams
 ): Promise<ReservedInferenceRequest> {
   return withTenantContext(pool, params.organizationId, async (client) => {
+    // Serialize the same user's same idempotency key before the existence
+    // check, so concurrent duplicates cannot race into the unique constraint.
+    await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+      `${params.userId}:${params.idempotencyKey}`
+    ]);
     const existing = await client.query<{ id: string; state: OperationState }>(
       `SELECT id, state FROM inference_requests WHERE user_id = $1 AND idempotency_key = $2`,
       [params.userId, params.idempotencyKey]
@@ -131,10 +141,39 @@ export async function reserveInferenceRequest(
     // Fail fast if pricing isn't seeded, before spending a reservation slot.
     await requirePricingVersionId(client);
 
-    const balance = await getOrCreateUsageBalance(client, params.organizationId, FREE_ALPHA_MONTHLY_UNITS);
-    const remaining = balance.allowanceUnits - balance.usedUnits;
+    const entitlement = await readEvaluatedEntitlement(client, params.organizationId);
+    const balance = await getOrCreateUsageBalance(
+      client,
+      params.organizationId,
+      entitlement.monthlyUnitsIncluded
+    );
+
+    await client.query(
+      `UPDATE quota_reservations
+       SET state = 'released'
+       WHERE organization_id = $1 AND state = 'reserved' AND expires_at <= now()`,
+      [params.organizationId]
+    );
+    const openReservations = await client.query<{ reserved_units: string }>(
+      `SELECT COALESCE(sum(reserved_units), 0)::text AS reserved_units
+       FROM quota_reservations
+       WHERE organization_id = $1 AND state = 'reserved' AND expires_at > now()`,
+      [params.organizationId]
+    );
+    const reservedUnits = Number(openReservations.rows[0]?.reserved_units ?? 0);
+    const remaining = balance.allowanceUnits - balance.usedUnits - reservedUnits;
     if (remaining < FLAT_UNITS_PER_REQUEST) {
       throw new QuotaExceededError();
+    }
+
+    const activeRequests = await client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM inference_requests
+       WHERE organization_id = $1 AND state IN ('reserved', 'running', 'streaming')`,
+      [params.organizationId]
+    );
+    if (Number(activeRequests.rows[0]?.count ?? 0) >= entitlement.concurrentRequests) {
+      throw new ConcurrencyLimitError();
     }
 
     const requestResult = await client.query<{ id: string; state: OperationState }>(
@@ -199,9 +238,10 @@ export async function transitionState(
  */
 export async function commitInferenceRequest(pool: pg.Pool, params: CommitInferenceRequestParams): Promise<CommitResult> {
   return withTenantContext(pool, params.organizationId, async (client) => {
-    const current = await client.query<{ state: OperationState }>(`SELECT state FROM inference_requests WHERE id = $1 FOR UPDATE`, [
-      params.requestId
-    ]);
+    const current = await client.query<{ state: OperationState; route: string | null }>(
+      `SELECT state, route FROM inference_requests WHERE id = $1 FOR UPDATE`,
+      [params.requestId]
+    );
     const row = current.rows[0];
     if (!row) throw new ApiError("INTERNAL_ERROR", 500, `inference_requests row ${params.requestId} vanished mid-request.`);
     assertTransition(params.requestId, row.state, "completed");
@@ -211,11 +251,23 @@ export async function commitInferenceRequest(pool: pg.Pool, params: CommitInfere
     await client.query(`UPDATE quota_reservations SET state = 'committed' WHERE inference_request_id = $1 AND state = 'reserved'`, [
       params.requestId
     ]);
+    const route = row.route ?? "rewrite_standard";
+    const stage = route === "prompt_enhancer" ? "enhancer" : "generator";
     await client.query(
       `INSERT INTO usage_ledger
          (inference_request_id, organization_id, user_id, stage, route, pricing_version_id, input_tokens, output_tokens, provider_cost_micros, billable_units, status)
-       VALUES ($1, $2, $3, 'generator', 'grammar_fast', $4, $5, $6, 0, $7, 'committed')`,
-      [params.requestId, params.organizationId, params.userId, pricingVersionId, params.inputTokens, params.outputTokens, FLAT_UNITS_PER_REQUEST]
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9, 'committed')`,
+      [
+        params.requestId,
+        params.organizationId,
+        params.userId,
+        stage,
+        route,
+        pricingVersionId,
+        params.inputTokens,
+        params.outputTokens,
+        FLAT_UNITS_PER_REQUEST
+      ]
     );
     const { start } = currentPeriod();
     const updated = await client.query<{ used_units: number; allowance_units: number }>(

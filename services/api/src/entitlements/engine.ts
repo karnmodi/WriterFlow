@@ -17,7 +17,10 @@ export const FEATURE_KEYS = [
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
 export type Plan = "free" | "pro";
 
-export const FREE_PLAN_FEATURES = ["auto_write", "standard_route"] as const;
+// Private-beta accounts retain every explicit v1 action, including Prompt
+// Builder. Billing remains disabled; route entitlements are already shaped
+// for Phase 7 without hiding a shipped action during migration.
+export const FREE_PLAN_FEATURES = ["auto_write", "standard_route", "prompt_enhancer"] as const;
 export const PRO_PLAN_FEATURES = [
   "auto_write",
   "standard_route",

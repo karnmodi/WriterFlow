@@ -1,12 +1,12 @@
-/**
- * Stage 5.4 "Server inference endpoint": the seam between the accounting/SSE
- * plumbing in routes/inference.ts and the actual model call. The only
- * implementation today is DevEchoProvider — a real Azure OpenAI-backed one
- * is Stage 5.4's "Azure model plane" work, blocked on user cost approval
- * (phases/phase-5-v2-cloud-foundation.md). Swapping in a real provider later
- * should only mean writing a second class against this interface, not
- * touching the route or accounting code.
- */
+import type { InferenceRequestEnvelope, LogicalRoute, WritingAction } from "@writerflow/shared";
+
+/** The server-resolved provider input. Clients never select a model/deployment. */
+export interface InferenceProviderRequest {
+  action: WritingAction;
+  route: LogicalRoute;
+  envelope: InferenceRequestEnvelope;
+  signal?: AbortSignal;
+}
 
 export interface InferenceProviderUsage {
   inputTokens: number;
@@ -24,5 +24,5 @@ export interface InferenceStreamResult {
 }
 
 export interface InferenceProvider {
-  fixGrammar(draft: string): InferenceStreamResult;
+  stream(request: InferenceProviderRequest): InferenceStreamResult;
 }

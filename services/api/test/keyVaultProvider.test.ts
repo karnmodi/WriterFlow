@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { jwkFromAzureKeyVault } from "../src/jwt/keyVaultProvider.js";
+import { jwkFromAzureKeyVault, parsePreviousKeyNames } from "../src/jwt/keyVaultProvider.js";
 
 describe("jwkFromAzureKeyVault", () => {
   it("maps an Azure EC P-256 public key to a jose-compatible JWK", () => {
@@ -19,5 +19,12 @@ describe("jwkFromAzureKeyVault", () => {
 
   it("rejects non-EC keys", () => {
     expect(() => jwkFromAzureKeyVault({ kty: "RSA" })).toThrow(/Unsupported Key Vault key type/);
+  });
+});
+
+describe("parsePreviousKeyNames", () => {
+  it("keeps unique retired keys and excludes the active key", () => {
+    expect(parsePreviousKeyNames("jwt-2026-06, jwt-current, jwt-2026-06, jwt-2026-05", "jwt-current"))
+      .toEqual(["jwt-2026-06", "jwt-2026-05"]);
   });
 });
