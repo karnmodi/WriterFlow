@@ -64,8 +64,15 @@ export const release = {
 export const releaseIsAvailable = release.status === "available";
 export const releaseIsPrivateBeta = release.status === "private-beta";
 
+/** True when the DMG + checksum are published and the site should link them. */
+export const releaseHasDownload =
+  /^[a-f0-9]{64}$/i.test(release.sha256) &&
+  (releaseIsAvailable || releaseIsPrivateBeta);
+
 export const releaseStatusCopy = releaseIsAvailable
   ? `WriterFlow ${release.version} is available for Apple-silicon Macs.`
   : releaseIsPrivateBeta
-    ? "WriterFlow Cloud is in a limited private beta. Approved members receive the current Mac build and pairing access."
+    ? releaseHasDownload
+      ? `WriterFlow ${release.version} private beta is open to download. Sign in after install to pair your Mac and use cloud actions.`
+      : "WriterFlow Cloud is in a limited private beta. The Mac build becomes downloadable when the DMG and checksum are published."
     : `WriterFlow ${release.version} is release-ready. Downloads open when the final DMG and checksum are published.`;

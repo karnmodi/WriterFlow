@@ -4,6 +4,7 @@ import { ReleaseActions } from "@/components/ReleaseActions";
 import { ArrowUpRightIcon, ShieldIcon } from "@/components/Icons";
 import {
   release,
+  releaseHasDownload,
   releaseIsAvailable,
   releaseIsPrivateBeta,
   releaseStatusCopy,
@@ -42,14 +43,16 @@ export function DownloadPanel() {
               </div>
               <span
                 className={`release-status ${
-                  releaseIsAvailable ? "release-status-live" : "release-status-candidate"
+                  releaseHasDownload ? "release-status-live" : "release-status-candidate"
                 }`}
               >
                 <span aria-hidden="true" className="status-pulse" />
-                {releaseIsPrivateBeta
-                  ? "Limited access"
-                  : releaseIsAvailable
-                    ? "Available now"
+                {releaseHasDownload
+                  ? releaseIsPrivateBeta
+                    ? "Download open"
+                    : "Available now"
+                  : releaseIsPrivateBeta
+                    ? "Limited access"
                     : "Ready to publish"}
               </span>
             </div>

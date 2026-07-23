@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { Wordmark } from "@/components/BrandMark";
 import { ArrowUpRightIcon } from "@/components/Icons";
-import { release, releaseIsAvailable } from "@/lib/release";
+import { release, releaseHasDownload } from "@/lib/release";
 
 export function SiteFooter() {
   return (
@@ -40,7 +40,7 @@ export function SiteFooter() {
               GitHub
               <ArrowUpRightIcon className="size-4" />
             </a>
-            {releaseIsAvailable ? (
+            {releaseHasDownload ? (
               <a className="footer-link inline-flex items-center gap-1" href={release.releaseUrl}>
                 Release
                 <ArrowUpRightIcon className="size-4" />
@@ -54,7 +54,7 @@ export function SiteFooter() {
         </div>
 
         <div className="flex flex-col gap-2 pt-6 text-xs text-white/65 sm:flex-row sm:items-center sm:justify-between">
-          <p>© 2026 WriterFlow. Version {release.version} · Release ready.</p>
+          <p>© 2026 WriterFlow. Version {release.version} · Private beta.</p>
           <p>Free includes 500 units · Pro is in development.</p>
         </div>
       </div>

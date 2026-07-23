@@ -21,7 +21,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 EXPECTED_BUNDLE_ID="com.karan.writerflow"
-EXPECTED_VERSION="1.0.0"
+# Prefer an explicit override; otherwise package whatever Info.plist advertises
+# (v1.0.0 historically; private-beta / v2 uses 2.0.0).
+EXPECTED_VERSION="${EXPECTED_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)}"
 EXPECTED_ARCH="arm64"
 NOTICE_NAME="THIRD-PARTY-NOTICES.txt"
 
@@ -216,12 +218,18 @@ pass "DMG installer layout (app, Applications, background, .DS_Store, volume ico
 scan_tree "dmg" "$MOUNT_DIR"
 
 # ---------------------------------------------------------------------------
-step "9/9  SHA-256 checksum"
+step "9/10  SHA-256 checksum"
 ( cd build && shasum -a 256 "WriterFlow-${EXPECTED_VERSION}.dmg" > "$SHA_FILE" )
 ( cd build && shasum -a 256 -c "$SHA_FILE" >/dev/null ) || fail "SHA-256 verification failed"
 pass "wrote and verified build/$SHA_FILE"
 
-printf '\n\033[1;32mv1 release verification passed.\033[0m\n'
+# ---------------------------------------------------------------------------
+step "10/10  V2 release scanner (cloud endpoint required; BYO/secrets forbidden)"
+node scripts/scan-v2-release.mjs "$APP" || fail "scan-v2-release.mjs failed for $APP"
+pass "scan-v2-release.mjs passed"
+
+printf '\n\033[1;32mRelease verification passed.\033[0m\n'
+printf '  Version:  %s\n' "$EXPECTED_VERSION"
 printf '  DMG:      %s\n' "$DMG"
 printf '  Checksum: build/%s\n' "$SHA_FILE"
-printf '  (Gatekeeper/spctl rejection is expected for this unidentified v1 — see RELEASE.md.)\n'
+printf '  (Gatekeeper/spctl rejection is expected for this unidentified ad-hoc build — see RELEASE.md.)\n'

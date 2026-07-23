@@ -1,7 +1,12 @@
 import Link from "next/link";
 
 import { ArrowDownIcon, ChevronRightIcon } from "@/components/Icons";
-import { release, releaseIsAvailable, releaseIsPrivateBeta } from "@/lib/release";
+import {
+  release,
+  releaseHasDownload,
+  releaseIsAvailable,
+  releaseIsPrivateBeta,
+} from "@/lib/release";
 
 type ReleaseActionsProps = {
   className?: string;
@@ -12,6 +17,31 @@ export function ReleaseActions({ className = "", dark = false }: ReleaseActionsP
   const secondaryClass = dark
     ? "border-white/20 text-paper hover:border-white/45 hover:bg-white/8"
     : "border-ink/15 text-ink hover:border-ink/35 hover:bg-white/65";
+
+  if (releaseHasDownload) {
+    return (
+      <div className={`flex flex-col gap-3 sm:flex-row ${className}`}>
+        <a
+          className="button-primary"
+          data-release-asset="dmg"
+          download={release.dmgFilename}
+          href={release.dmgUrl}
+        >
+          Download for Mac
+          <ArrowDownIcon className="size-5" />
+        </a>
+        <a
+          className={`button-secondary ${secondaryClass}`}
+          data-release-asset="checksum"
+          download={release.checksumFilename}
+          href={release.checksumUrl}
+        >
+          Get SHA-256
+          <ArrowDownIcon className="size-5" />
+        </a>
+      </div>
+    );
+  }
 
   if (releaseIsPrivateBeta) {
     return (
@@ -47,26 +77,5 @@ export function ReleaseActions({ className = "", dark = false }: ReleaseActionsP
     );
   }
 
-  return (
-    <div className={`flex flex-col gap-3 sm:flex-row ${className}`}>
-      <a
-        className="button-primary"
-        data-release-asset="dmg"
-        download={release.dmgFilename}
-        href={release.dmgUrl}
-      >
-        Download for Mac
-        <ArrowDownIcon className="size-5" />
-      </a>
-      <a
-        className={`button-secondary ${secondaryClass}`}
-        data-release-asset="checksum"
-        download={release.checksumFilename}
-        href={release.checksumUrl}
-      >
-        Get SHA-256
-        <ArrowDownIcon className="size-5" />
-      </a>
-    </div>
-  );
+  return null;
 }

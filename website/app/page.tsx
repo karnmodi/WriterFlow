@@ -6,6 +6,7 @@ import { ReleaseActions } from "@/components/ReleaseActions";
 import { RewriteStudio } from "@/components/RewriteStudio";
 import {
   release,
+  releaseHasDownload,
   releaseIsAvailable,
   releaseIsPrivateBeta,
   releaseStatusCopy,
@@ -25,7 +26,9 @@ export default function Home() {
     applicationCategory: "ProductivityApplication",
     operatingSystem: "macOS 14 or later on Apple silicon",
     softwareVersion: release.version,
-    ...(releaseIsAvailable ? { offers: { "@type": "Offer", price: "0", priceCurrency: "USD" } } : {}),
+    ...(releaseHasDownload
+      ? { offers: { "@type": "Offer", price: "0", priceCurrency: "USD" } }
+      : {}),
   };
 
   return (
@@ -110,7 +113,7 @@ export default function Home() {
         </div>
       </section>
 
-      {!releaseIsAvailable ? (
+      {!releaseIsAvailable && !releaseHasDownload ? (
         <aside className="release-disclosure" aria-label="Release status">
           <div className="site-shell">
             <p>
@@ -119,6 +122,17 @@ export default function Home() {
               {releaseStatusCopy}
             </p>
             <Link href="/#download">View release details</Link>
+          </div>
+        </aside>
+      ) : releaseIsPrivateBeta ? (
+        <aside className="release-disclosure" aria-label="Release status">
+          <div className="site-shell">
+            <p>
+              <strong>Cloud private beta</strong>
+              {" — "}
+              {releaseStatusCopy}
+            </p>
+            <Link href="/#download">Download WriterFlow</Link>
           </div>
         </aside>
       ) : null}

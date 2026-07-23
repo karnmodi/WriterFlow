@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { ArrowUpRightIcon, CheckIcon, ShieldIcon } from "@/components/Icons";
 import { ReleaseActions } from "@/components/ReleaseActions";
-import { release, releaseIsAvailable, releaseStatusCopy } from "@/lib/release";
+import { release, releaseHasDownload, releaseStatusCopy } from "@/lib/release";
 
 export const metadata: Metadata = {
   title: "Install WriterFlow Cloud private beta",
@@ -84,7 +84,7 @@ export default function InstallPage() {
                       <p className="checksum-copy">
                         {release.sha256 ? (
                           <>
-                            {releaseIsAvailable ? "Published" : "Current release-candidate"} SHA-256:{" "}
+                            {releaseHasDownload ? "Published" : "Current release-candidate"} SHA-256:{" "}
                             <code>{release.sha256}</code>
                           </>
                         ) : (

@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { Wordmark } from "@/components/BrandMark";
 import { ArrowDownIcon } from "@/components/Icons";
-import { release, releaseIsAvailable, releaseIsPrivateBeta } from "@/lib/release";
+import { release, releaseHasDownload, releaseIsPrivateBeta } from "@/lib/release";
 
 export function SiteHeader() {
   return (
@@ -34,14 +34,14 @@ export function SiteHeader() {
           </Link>
         </nav>
 
-        {releaseIsAvailable ? (
+        {releaseHasDownload ? (
           <a
             className="header-download"
             data-release-asset="dmg"
             download={release.dmgFilename}
             href={release.dmgUrl}
           >
-            <span className="hidden sm:inline">Download 1.0</span>
+            <span className="hidden sm:inline">Download {release.version}</span>
             <span className="sm:hidden">Download</span>
             <ArrowDownIcon className="size-[18px]" />
           </a>

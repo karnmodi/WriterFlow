@@ -78,9 +78,12 @@ for (const [document, text] of requiredCopy) {
   }
 }
 
-if (available) {
-  if (!/^[a-f0-9]{64}$/.test(releaseManifest.sha256)) {
-    failures.push("Available build requires a final 64-character SHA-256 in lib/release.json.");
+const hasPublishedChecksum = /^[a-f0-9]{64}$/i.test(releaseManifest.sha256);
+const expectsDownloadLinks = available || (privateBeta && hasPublishedChecksum);
+
+if (expectsDownloadLinks) {
+  if (!hasPublishedChecksum) {
+    failures.push("Downloadable builds require a final 64-character SHA-256 in lib/release.json.");
   }
   const assets = [
     ["dmg", `${releaseBase}/WriterFlow-${releaseManifest.version}.dmg`],
@@ -88,10 +91,10 @@ if (available) {
   ];
   for (const [asset, url] of assets) {
     if (!home.includes(`data-release-asset=\"${asset}\"`)) {
-      failures.push(`Available build is missing the ${asset} download link.`);
+      failures.push(`Downloadable build is missing the ${asset} download link.`);
     }
     if (!home.includes(url) || !install.includes(url)) {
-      failures.push(`Available build is missing the expected ${asset} asset URL.`);
+      failures.push(`Downloadable build is missing the expected ${asset} asset URL.`);
     }
   }
 } else {
