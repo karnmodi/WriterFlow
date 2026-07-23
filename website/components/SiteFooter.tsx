@@ -33,6 +33,9 @@ export function SiteFooter() {
             <Link className="footer-link" href="/install/">
               Install guide
             </Link>
+            <Link className="footer-link" href="/membership">
+              Membership
+            </Link>
             <a className="footer-link inline-flex items-center gap-1" href={release.repositoryUrl}>
               GitHub
               <ArrowUpRightIcon className="size-4" />
@@ -51,8 +54,8 @@ export function SiteFooter() {
         </div>
 
         <div className="flex flex-col gap-2 pt-6 text-xs text-white/65 sm:flex-row sm:items-center sm:justify-between">
-          <p>© 2026 WriterFlow. Version {release.version}.</p>
-          <p>Free download. Azure usage may cost.</p>
+          <p>© 2026 WriterFlow. Version {release.version} · Release ready.</p>
+          <p>Free includes 500 units · Pro is in development.</p>
         </div>
       </div>
     </footer>

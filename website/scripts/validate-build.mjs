@@ -14,6 +14,7 @@ const root = process.cwd();
 const serverApp = path.join(root, ".next", "server", "app");
 const standalone = path.join(root, ".next", "standalone");
 const available = process.env.NEXT_PUBLIC_RELEASE_STATUS === "available";
+const privateBeta = process.env.NEXT_PUBLIC_RELEASE_STATUS === "private-beta";
 const releaseManifest = JSON.parse(
   await readFile(new URL("../lib/release.json", import.meta.url), "utf8"),
 );
@@ -24,7 +25,7 @@ const releaseBase = (
 
 const failures = [];
 
-const expectedStaticPages = ["index.html", "install.html", "privacy.html", "_not-found.html"];
+const expectedStaticPages = ["index.html", "install.html", "membership.html", "privacy.html", "_not-found.html"];
 for (const page of expectedStaticPages) {
   try {
     await access(path.join(serverApp, page));
@@ -51,20 +52,24 @@ try {
 
 const home = await readFile(path.join(serverApp, "index.html"), "utf8").catch(() => "");
 const install = await readFile(path.join(serverApp, "install.html"), "utf8").catch(() => "");
+const membership = await readFile(path.join(serverApp, "membership.html"), "utf8").catch(() => "");
 const privacy = await readFile(path.join(serverApp, "privacy.html"), "utf8").catch(() => "");
 
 const requiredCopy = [
   [home, "Write better"],
-  [home, "Azure OpenAI"],
-  [home, "No WriterFlow account"],
+  [home, "WriterFlow account required"],
+  [home, "Inference content is ephemeral"],
   [home, "Apple silicon only"],
   [install, "Open Anyway"],
   [install, "SHA-256"],
-  [install, releaseManifest.sha256],
-  [install, "Downloads"],
-  [privacy, "No custom WriterFlow app-facing API"],
+  [install, releaseManifest.sha256 || "The final SHA-256 will be published"],
+  [install, "Sign in and approve this Mac"],
+  [membership, "500 units"],
+  [membership, "Pro remains in development"],
+  [membership, "Not priced"],
+  [privacy, "account-scoped SQLCipher database"],
   [privacy, "macOS Keychain"],
-  [privacy, "Analyze My Writing Style"],
+  [privacy, "Billing remains disabled"],
 ];
 
 for (const [document, text] of requiredCopy) {
@@ -74,6 +79,9 @@ for (const [document, text] of requiredCopy) {
 }
 
 if (available) {
+  if (!/^[a-f0-9]{64}$/.test(releaseManifest.sha256)) {
+    failures.push("Available build requires a final 64-character SHA-256 in lib/release.json.");
+  }
   const assets = [
     ["dmg", `${releaseBase}/WriterFlow-${releaseManifest.version}.dmg`],
     ["checksum", `${releaseBase}/WriterFlow-${releaseManifest.version}.dmg.sha256`],
@@ -87,8 +95,9 @@ if (available) {
     }
   }
 } else {
-  if (!home.includes("Final release testing")) {
-    failures.push("Candidate build is missing its release-status disclosure.");
+  const expectedStatusCopy = privateBeta ? "Cloud private beta" : "Release ready";
+  if (!home.includes(expectedStatusCopy)) {
+    failures.push(`${privateBeta ? "Private-beta" : "Candidate"} build is missing its release-status disclosure.`);
   }
   if (home.includes("data-release-asset=\"")) {
     failures.push("Candidate build exposes a release download before the gates pass.");
@@ -111,5 +120,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `Build validated (${available ? "public release" : "release candidate"}): ${expectedStaticPages.length} static pages, standalone server present, /pair stays dynamic.`,
+  `Build validated (${privateBeta ? "private beta" : available ? "public release" : "release candidate"}): ${expectedStaticPages.length} static pages, standalone server present, /pair stays dynamic.`,
 );

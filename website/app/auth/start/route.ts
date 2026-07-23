@@ -1,8 +1,7 @@
 import * as client from "openid-client";
 import { NextResponse, type NextRequest } from "next/server";
 import { authRedirectUri, getEntraConfig } from "@/lib/entra";
-
-const AUTH_PKCE_COOKIE = "wf_auth_pkce";
+import { AUTH_PKCE_COOKIE } from "@/lib/web-auth";
 
 /**
  * GET /auth/start — general account sign-in (ADR-0013). Redirects to Entra;
@@ -34,5 +33,3 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
   return response;
 }
-
-export { AUTH_PKCE_COOKIE };

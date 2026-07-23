@@ -5,6 +5,7 @@ import { ArrowUpRightIcon, ShieldIcon } from "@/components/Icons";
 import {
   release,
   releaseIsAvailable,
+  releaseIsPrivateBeta,
   releaseStatusCopy,
 } from "@/lib/release";
 
@@ -20,8 +21,8 @@ export function DownloadPanel() {
               Ready when your words are.
             </h2>
             <p className="mt-7 max-w-lg text-base leading-7 text-white/60 sm:text-lg">
-              The app is free to download. Bring your own Azure OpenAI resource for AI
-              features; Azure usage is billed to your Azure account, never by WriterFlow.
+              WriterFlow 2.0 connects the Mac app to your account and authenticated cloud
+              service. Sign in, pair your Mac, and review every result before replacement.
             </p>
           </div>
 
@@ -29,7 +30,11 @@ export function DownloadPanel() {
             <div className="flex flex-col gap-6 border-b border-white/12 pb-7 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs font-semibold tracking-[0.14em] text-white/68 uppercase">
-                  {releaseIsAvailable ? "Public release" : "Release candidate"}
+                  {releaseIsPrivateBeta
+                    ? "Private beta"
+                    : releaseIsAvailable
+                      ? "Public release"
+                      : "Release candidate"}
                 </p>
                 <p className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-paper">
                   Version {release.version}
@@ -41,7 +46,11 @@ export function DownloadPanel() {
                 }`}
               >
                 <span aria-hidden="true" className="status-pulse" />
-                {releaseIsAvailable ? "Available now" : "Final testing"}
+                {releaseIsPrivateBeta
+                  ? "Limited access"
+                  : releaseIsAvailable
+                    ? "Available now"
+                    : "Ready to publish"}
               </span>
             </div>
 
@@ -71,7 +80,7 @@ export function DownloadPanel() {
             <div className="mt-7 flex gap-3 rounded-2xl border border-white/10 bg-white/[0.045] p-4">
               <ShieldIcon className="mt-0.5 size-5 shrink-0 text-cobalt-light" />
               <p className="text-xs leading-5 text-white/70">
-                WriterFlow 1.0 is ad-hoc signed and not notarized. macOS requires the
+                WriterFlow is ad-hoc signed and not notarized. macOS requires the
                 documented <strong className="font-medium text-white/76">Open Anyway</strong>{" "}
                 step on first launch. The checksum verifies the downloaded bytes, not the
                 publisher&apos;s identity.

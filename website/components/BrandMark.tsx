@@ -1,9 +1,10 @@
 type BrandMarkProps = {
   className?: string;
+  inverse?: boolean;
   size?: number;
 };
 
-export function BrandMark({ className = "", size = 36 }: BrandMarkProps) {
+export function BrandMark({ className = "", inverse = false, size = 36 }: BrandMarkProps) {
   return (
     <svg
       aria-hidden="true"
@@ -15,7 +16,7 @@ export function BrandMark({ className = "", size = 36 }: BrandMarkProps) {
       <rect fill="currentColor" height="64" rx="18" width="64" />
       <g
         fill="none"
-        stroke="#f4f1e9"
+        stroke={inverse ? "#11131a" : "#f4f1e9"}
         strokeLinecap="round"
         strokeWidth="4.4"
       >
@@ -32,6 +33,7 @@ export function Wordmark({ inverse = false }: { inverse?: boolean }) {
     <span className="inline-flex items-center gap-2.5">
       <BrandMark
         className={inverse ? "text-paper" : "text-ink"}
+        inverse={inverse}
         size={34}
       />
       <span

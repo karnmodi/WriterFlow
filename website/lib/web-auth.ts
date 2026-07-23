@@ -7,6 +7,7 @@ export const ENTRA_ID_TOKEN_HINT_COOKIE = "wf_entra_id_token_hint";
 /** Compact login identifier (email) for Entra logout_hint — always preferred for CIAM. */
 export const ENTRA_LOGOUT_HINT_COOKIE = "wf_entra_logout_hint";
 export const PAIR_PKCE_COOKIE = "wf_pair_pkce";
+export const AUTH_PKCE_COOKIE = "wf_auth_pkce";
 
 /** Browsers reject Set-Cookie values much past ~4KB; ID tokens often exceed that. */
 const MAX_ID_TOKEN_COOKIE_CHARS = 3500;
@@ -54,6 +55,7 @@ export function clearWebAuthCookies(response: NextResponse): void {
   response.cookies.delete(ENTRA_ID_TOKEN_HINT_COOKIE);
   response.cookies.delete(ENTRA_LOGOUT_HINT_COOKIE);
   response.cookies.delete(PAIR_PKCE_COOKIE);
+  response.cookies.delete(AUTH_PKCE_COOKIE);
 }
 
 export function readWebAccountToken(cookieValue: string | undefined): string | null {

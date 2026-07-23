@@ -42,7 +42,9 @@ export const release = {
   status:
     process.env.NEXT_PUBLIC_RELEASE_STATUS === "available"
       ? ("available" as const)
-      : ("candidate" as const),
+      : process.env.NEXT_PUBLIC_RELEASE_STATUS === "private-beta"
+        ? ("private-beta" as const)
+        : ("candidate" as const),
   minimumMacOS: releaseManifest.minimumMacOS,
   architecture: releaseManifest.architecture,
   size: releaseManifest.size,
@@ -60,7 +62,10 @@ export const release = {
 } as const;
 
 export const releaseIsAvailable = release.status === "available";
+export const releaseIsPrivateBeta = release.status === "private-beta";
 
 export const releaseStatusCopy = releaseIsAvailable
-  ? "WriterFlow 1.0 is available for Apple-silicon Macs."
-  : "WriterFlow 1.0 is in final release testing. Downloads open after the remaining live macOS, soak, and clean-install checks pass.";
+  ? `WriterFlow ${release.version} is available for Apple-silicon Macs.`
+  : releaseIsPrivateBeta
+    ? "WriterFlow Cloud is in a limited private beta. Approved members receive the current Mac build and pairing access."
+    : `WriterFlow ${release.version} is release-ready. Downloads open when the final DMG and checksum are published.`;

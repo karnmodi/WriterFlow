@@ -45,3 +45,6 @@ website/node_modules/
 website/.next/
 website/out/
 website/*.tsbuildinfo
+
+# Local package stores
+.pnpm-store/

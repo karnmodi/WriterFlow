@@ -4,11 +4,11 @@ import { authRedirectUri, getEntraConfig } from "@/lib/entra";
 import { oauthCallbackUrl, siteUrl } from "@/lib/site-url";
 import { mintWebAccountToken } from "@/lib/writerflow-api";
 import {
+  AUTH_PKCE_COOKIE,
   setEntraLogoutHints,
   setWebAccountCookie
 } from "@/lib/web-auth";
 import { logoutHintFromClaims } from "@/lib/logout-hint";
-import { AUTH_PKCE_COOKIE } from "../start/route";
 
 function redirectAccount(request: NextRequest, params: Record<string, string>): NextResponse {
   const url = siteUrl("/account", request);

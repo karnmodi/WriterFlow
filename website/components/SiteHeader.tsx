@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { Wordmark } from "@/components/BrandMark";
 import { ArrowDownIcon } from "@/components/Icons";
-import { release, releaseIsAvailable } from "@/lib/release";
+import { release, releaseIsAvailable, releaseIsPrivateBeta } from "@/lib/release";
 
 export function SiteHeader() {
   return (
@@ -26,6 +26,9 @@ export function SiteHeader() {
           <Link className="nav-link" href="/install/">
             Install
           </Link>
+          <Link className="nav-link" href="/membership">
+            Membership
+          </Link>
           <Link className="nav-link" href="/account">
             Account
           </Link>
@@ -42,6 +45,11 @@ export function SiteHeader() {
             <span className="sm:hidden">Download</span>
             <ArrowDownIcon className="size-[18px]" />
           </a>
+        ) : releaseIsPrivateBeta ? (
+          <Link className="header-download" href="/account">
+            Private beta
+            <span aria-hidden="true" className="status-pulse" />
+          </Link>
         ) : (
           <Link className="header-download" href="/#download">
             Release status
@@ -62,6 +70,9 @@ export function SiteHeader() {
         </Link>
         <Link className="nav-link" href="/install/">
           Install
+        </Link>
+        <Link className="nav-link" href="/membership">
+          Membership
         </Link>
         <Link className="nav-link" href="/account">
           Account

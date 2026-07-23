@@ -6,6 +6,10 @@
 # subset instead of the full node_modules tree.
 
 FROM node:24-alpine AS build
+ARG NEXT_PUBLIC_RELEASE_STATUS=candidate
+ARG NEXT_PUBLIC_SITE_ORIGIN=https://writerflow.aviusolutions.com
+ENV NEXT_PUBLIC_RELEASE_STATUS=${NEXT_PUBLIC_RELEASE_STATUS}
+ENV NEXT_PUBLIC_SITE_ORIGIN=${NEXT_PUBLIC_SITE_ORIGIN}
 WORKDIR /workspace
 COPY website/package.json website/package-lock.json ./
 RUN npm ci

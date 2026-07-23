@@ -4,139 +4,143 @@ import Link from "next/link";
 import { ArrowUpRightIcon, CheckIcon, ShieldIcon } from "@/components/Icons";
 
 export const metadata: Metadata = {
-  title: "Privacy in WriterFlow 1.0",
+  title: "Privacy in WriterFlow Cloud private beta",
   description:
-    "A plain-language explanation of WriterFlow's local data, Azure AI requests, permissions, and credentials.",
+    "Understand what WriterFlow reads, what stays on your Mac, what reaches the cloud, and the controls available to you.",
 };
 
-const absentInfrastructure = [
-  "No WriterFlow payment charged in v1.0 (v2 alpha adds optional account sign-in)",
-  "No remote WriterFlow personalization database synced by default",
-  "No shared AI credential bundled with the app",
+const quickAnswers = [
+  ["While you type", "Nothing is uploaded. WriterFlow only notices that typing is active."],
+  ["When you choose an action", "The draft and the minimum visible context needed for that request are processed."],
+  ["After the rewrite", "Inference content is ephemeral by default; account and usage metadata remain."],
+];
+
+const journey = [
+  {
+    label: "On your Mac",
+    title: "Your writing profile remains local",
+    body: "History, personalization, voice profile, snippets, saved facts, app rules, and settings stay in an account-scoped SQLCipher database.",
+    tone: "paper",
+  },
+  {
+    label: "While you type",
+    title: "WriterFlow does not record your keys",
+    body: "Input Monitoring provides a local “is typing” signal only. It does not inspect, buffer, or log key contents, and it never starts inference.",
+    tone: "lavender",
+  },
+  {
+    label: "When you ask",
+    title: "You decide when processing begins",
+    body: "Choosing an action can send the field text, relevant visible conversation context, your instruction, and a bounded app-tone signal. You review the result before anything is replaced.",
+    tone: "cobalt",
+  },
+  {
+    label: "In WriterFlow Cloud",
+    title: "Account state persists; writing content does not",
+    body: "WriterFlow stores account, organization, device, entitlement, and metadata-only usage records. Raw drafts, prompts, context, and generated output are ephemeral by default.",
+    tone: "ink",
+  },
 ];
 
 export default function PrivacyPage() {
   return (
     <main id="main-content">
-      <section className="privacy-page-hero text-paper">
-        <div className="privacy-page-grid" />
-        <div className="site-shell relative py-16 sm:py-24">
-          <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-end lg:gap-20">
-            <div>
-              <span className="inline-flex size-12 items-center justify-center rounded-2xl border border-white/15 bg-white/8 text-cobalt-light">
-                <ShieldIcon className="size-6" />
-              </span>
-              <p className="section-kicker mt-7 text-cobalt-light">Privacy in v1.0</p>
-              <h1 className="mt-6 font-display text-[clamp(4rem,8.5vw,8rem)] leading-[0.86] tracking-[-0.065em]">
-                A boundary
-                <span className="block italic text-cobalt-light">you can see.</span>
-              </h1>
-            </div>
-            <p className="max-w-xl pb-2 text-lg leading-8 text-white/70">
-              WriterFlow keeps personal app data on your Mac and sends writing content only
-              through explicit interactions with the assistant. v1 connects directly to the
-              Azure OpenAI resource you configure — there is no WriterFlow cloud in between.
+      <section className="user-page-hero user-page-hero-ink">
+        <div className="user-page-orbit" aria-hidden="true" />
+        <div className="site-shell user-page-hero-grid">
+          <div>
+            <span className="user-page-icon"><ShieldIcon className="size-6" /></span>
+            <p className="section-kicker">Your privacy</p>
+            <h1>Know exactly<br /><em>what leaves your Mac.</em></h1>
+          </div>
+          <div className="user-page-summary">
+            <p>
+              WriterFlow stays quiet until you ask it to help. Your local writing profile
+              remains encrypted on your Mac, and every rewrite stays reviewable before replacement.
             </p>
+            <a className="user-page-jump" href="#privacy-journey">Follow your text through WriterFlow</a>
           </div>
         </div>
       </section>
 
-      <section className="bg-paper py-16 sm:py-24">
+      <section className="user-page-section user-page-section-paper">
         <div className="site-shell">
-          <div className="privacy-detail-grid">
-            <article className="privacy-detail privacy-detail-wide">
-              <p className="detail-number">01 / Local data</p>
-              <h2>Your writing profile stays with your Mac.</h2>
-              <p>
-                History, personalization, voice profile, snippets, saved facts, per-app rules,
-                usage records, and settings are stored locally. Diagnostics are exported only
-                when you choose to create a local report; WriterFlow does not upload them.
-              </p>
-            </article>
+          <header className="user-section-heading">
+            <div>
+              <p className="section-kicker text-blue">The short answer</p>
+              <h2>Three moments.<br /><em>Three clear boundaries.</em></h2>
+            </div>
+            <p>You should not need technical documentation to understand when your writing moves.</p>
+          </header>
+          <div className="answer-grid">
+            {quickAnswers.map(([title, body], index) => (
+              <article key={title}>
+                <span>0{index + 1}</span>
+                <h3>{title}</h3>
+                <p>{body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
 
-            <article className="privacy-detail">
-              <p className="detail-number">02 / Passive typing</p>
-              <h2>No inference while you simply type.</h2>
-              <p>
-                Input Monitoring is used only for a local “is typing” signal. WriterFlow does
-                not inspect, buffer, or record key contents, and passive typing does not trigger
-                a network request.
-              </p>
-            </article>
+      <section className="user-page-section user-page-section-soft" id="privacy-journey">
+        <div className="site-shell user-split-layout">
+          <aside className="user-sticky-intro">
+            <p className="section-kicker text-blue">Follow your text</p>
+            <h2>From typing to replacement.</h2>
+            <p>Each surface colour marks a different kind of moment, while the words explain the actual boundary.</p>
+          </aside>
+          <div className="boundary-list">
+            {journey.map((item, index) => (
+              <article className={`boundary-card surface-${item.tone}`} key={item.title}>
+                <span>0{index + 1} / {item.label}</span>
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
 
-            <article className="privacy-detail privacy-detail-blue">
-              <p className="detail-number">03 / Explicit interaction</p>
-              <h2>The cloud boundary begins at the action menu.</h2>
-              <p>
-                Opening the action menu can send the current field text to Azure to recommend
-                an action. Running an action can send selected or full field text, visible
-                conversation context, your instruction, and enabled personalization. Choosing
-                Analyze My Writing Style can send up to 20 accepted outputs for analysis.
-              </p>
+      <section className="user-page-section user-page-section-paper">
+        <div className="site-shell">
+          <header className="user-section-heading">
+            <div>
+              <p className="section-kicker">Controls you keep</p>
+              <h2>You remain in charge.</h2>
+            </div>
+          </header>
+          <div className="control-grid">
+            <article>
+              <CheckIcon className="size-5" />
+              <h3>Secure fields stay out of bounds</h3>
+              <p>WriterFlow is inert in password fields. Password-manager apps are excluded by default.</p>
             </article>
-
-            <article className="privacy-detail">
-              <p className="detail-number">04 / Credentials</p>
-              <h2>Your Azure key is never a WriterFlow release asset.</h2>
-              <p>
-                Your API key is stored in macOS Keychain and included only in HTTPS requests to
-                allowlisted Azure hosts. It is not written to settings files, logs, source code,
-                the DMG, or a WriterFlow service. No publisher AI key ships with the app.
-              </p>
+            <article>
+              <CheckIcon className="size-5" />
+              <h3>Your Mac can be revoked</h3>
+              <p>Browser sign-in creates a revocable WriterFlow device token stored in macOS Keychain—not your password.</p>
             </article>
-
-            <article className="privacy-detail privacy-detail-wide privacy-detail-dark">
-              <div>
-                <p className="detail-number text-cobalt-light">05 / Not part of v1</p>
-                <h2>A smaller system is easier to understand.</h2>
-              </div>
-              <ul>
-                {absentInfrastructure.map((item) => (
-                  <li key={item}>
-                    <CheckIcon className="size-4 shrink-0 text-success" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
+            <article>
+              <CheckIcon className="size-5" />
+              <h3>You can pause or exclude apps</h3>
+              <p>Pause WriterFlow at any time or add applications where you do not want the floating assistant to appear.</p>
+            </article>
+            <article>
+              <CheckIcon className="size-5" />
+              <h3>Billing remains disabled</h3>
+              <p>Private-beta usage totals support allowance enforcement. No payment is charged and Stripe billing is inactive.</p>
             </article>
           </div>
-
-          <div className="mt-14 grid gap-8 border-t border-ink/12 pt-12 lg:grid-cols-2 lg:gap-16">
+          <div className="user-next-card surface-lavender">
             <div>
-              <p className="section-kicker">Secure fields</p>
-              <h2 className="mt-4 font-display text-4xl tracking-[-0.04em] text-ink">
-                Passwords are out of bounds.
-              </h2>
-              <p className="mt-5 text-sm leading-6 text-ink/65">
-                WriterFlow is inert in secure password fields. Password-manager apps are
-                excluded by default, and you can pause WriterFlow or exclude additional apps at
-                any time.
-              </p>
+              <span>Next step</span>
+              <h2>Ready to set up WriterFlow?</h2>
+              <p>The install guide covers download verification, macOS permissions, account pairing, and your first rewrite.</p>
             </div>
-            <div>
-              <p className="section-kicker">Costs and control</p>
-              <h2 className="mt-4 font-display text-4xl tracking-[-0.04em] text-ink">
-                Free app. Your Azure bill.
-              </h2>
-              <p className="mt-5 text-sm leading-6 text-ink/65">
-                WriterFlow does not bill you. Azure OpenAI usage is charged to the Azure account
-                behind the resource you configure, according to your provider agreement and
-                deployment pricing.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-14 flex flex-col gap-4 rounded-[1.75rem] bg-paper-deep p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8">
-            <p className="max-w-xl text-sm leading-6 text-ink/65">
-              Ready to install? The guide includes the checksum command and the first-launch
-              macOS approval flow.
-            </p>
-            <Link
-              className="inline-flex min-h-11 shrink-0 items-center gap-1.5 font-semibold text-ink underline decoration-blue/35 underline-offset-4 hover:decoration-blue focus-ring"
-              href="/install/"
-            >
-              Open the install guide
-              <ArrowUpRightIcon className="size-4" />
+            <Link className="user-page-action" href="/install/">
+              Open the install guide <ArrowUpRightIcon className="size-4" />
             </Link>
           </div>
         </div>

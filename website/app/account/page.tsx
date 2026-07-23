@@ -13,7 +13,7 @@ import { readWebAccountToken, WEB_ACCOUNT_COOKIE } from "@/lib/web-auth";
 
 export const metadata: Metadata = {
   title: "Account",
-  description: "Your WriterFlow account — membership and device pairing.",
+  description: "Your WriterFlow private-beta account, allowance, device pairing, and recovery links.",
   robots: { index: false, follow: false }
 };
 
@@ -64,7 +64,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
       <AuthPanel
         eyebrow="Account"
         title="Sign in to WriterFlow"
-        description="Manage membership and approve Mac devices. Your Mac app stays signed in on its own — signing in here doesn’t change the app until you pair a device."
+        description="Sign in to your private-beta account, review your allowance, and approve a Mac. Browser sign-in does not authorize the app until you complete device pairing."
       >
         <AuthPrimaryLink href="/auth/start">Continue to sign in</AuthPrimaryLink>
         <AuthHint>
@@ -92,6 +92,10 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
     >
       <dl className="grid gap-4 rounded-2xl border border-black/8 bg-white/70 p-5">
         <div className="flex justify-between gap-4">
+          <dt className="text-sm text-black/55">Access</dt>
+          <dd className="text-sm font-medium">Private beta</dd>
+        </div>
+        <div className="flex justify-between gap-4">
           <dt className="text-sm text-black/55">Plan</dt>
           <dd className="text-sm font-medium capitalize">{snapshot.entitlement.plan}</dd>
         </div>
@@ -109,13 +113,33 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
         </div>
       </dl>
 
-      <p className="text-sm leading-7 text-black/55">
-        To approve a Mac, open the pairing link from the WriterFlow app or visit{" "}
-        <Link className="font-medium text-ink underline decoration-black/25 underline-offset-2" href="/pair">
-          /pair
+      <div className="grid gap-3 rounded-2xl border border-black/8 bg-white/55 p-5">
+        <h2 className="text-base font-semibold text-ink">Pair a Mac</h2>
+        <p className="text-sm leading-6 text-black/55">
+          In WriterFlow, open Dashboard → Account and choose Sign In. The app opens a pairing
+          link with your one-time code. If needed, enter the code manually on the pairing page.
+        </p>
+        <AuthPrimaryLink href="/pair">Open device pairing</AuthPrimaryLink>
+      </div>
+
+      <div className="grid gap-2 text-sm leading-6 text-black/55">
+        <Link className="font-medium text-ink underline decoration-black/25 underline-offset-2" href="/install">
+          Install and first-rewrite guide
         </Link>
-        . Membership billing will live here in a later release.
-      </p>
+        <Link className="font-medium text-ink underline decoration-black/25 underline-offset-2" href="/privacy">
+          Privacy and cloud-processing boundary
+        </Link>
+        <a className="font-medium text-ink underline decoration-black/25 underline-offset-2" href="mailto:support@writerflow.aviusolutions.com">
+          Account or recovery support
+        </a>
+      </div>
+
+      <Link
+        className="inline-flex min-h-11 items-center justify-center rounded-xl border border-black/10 bg-black/4 px-4 text-sm font-medium text-ink transition-colors hover:bg-black/7 focus-ring"
+        href="/membership"
+      >
+        View membership options
+      </Link>
 
       <AuthSecondaryLink href="/auth/sign-out">Sign out</AuthSecondaryLink>
     </AuthPanel>
