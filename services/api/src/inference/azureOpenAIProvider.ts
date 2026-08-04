@@ -50,7 +50,10 @@ export class AzureOpenAIProvider implements InferenceProvider {
       return this.cachedToken.token;
     }
     const token = await this.credential.getToken("https://cognitiveservices.azure.com/.default");
-    if (!token) throw new Error("Azure OpenAI request failed (token)");
+    // getToken's declared return includes null on some TokenCredential shapes.
+    // Fail closed if a credential ever returns an empty/undefined token.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive against credential SDK drift
+    if (token == null || !token.token) throw new Error("Azure OpenAI request failed (token)");
     this.cachedToken = token;
     return token.token;
   }
@@ -62,7 +65,7 @@ export class AzureOpenAIProvider implements InferenceProvider {
       `${this.endpoint}/openai/deployments/${this.deployment}/chat/completions?api-version=${encodeURIComponent(this.apiVersion)}`;
     const maxCompletionTokens = this.maxCompletionTokens;
     const reasoningEffort = this.reasoningEffort;
-    const owner = this;
+    const getBearer = (): Promise<string> => this.accessToken();
 
     const body: Record<string, unknown> = {
       messages: [
@@ -85,7 +88,7 @@ export class AzureOpenAIProvider implements InferenceProvider {
 
     async function* deltas(): AsyncGenerator<string> {
       try {
-        const bearer = await owner.accessToken();
+        const bearer = await getBearer();
         const requestInit: RequestInit = {
           method: "POST",
           headers: {

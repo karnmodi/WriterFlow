@@ -136,6 +136,7 @@ export function registerInferenceRoutes(app: FastifyInstance, pool: pg.Pool, key
         // that so the Mac spinner cannot hang forever on silent reasoning.
         const FIRST_DELTA_TIMEOUT_MS = 15_000;
     let firstDeltaTimer: ReturnType<typeof setTimeout> | undefined;
+    const providerStartedAt = Date.now();
     const keepalive = setInterval(() => {
       if (!lifecycle.terminated) reply.raw.write(": keepalive\n\n");
     }, 15_000);
@@ -155,7 +156,6 @@ export function registerInferenceRoutes(app: FastifyInstance, pool: pg.Pool, key
     });
 
     try {
-      const providerStartedAt = Date.now();
       await transitionState(pool, ctx.organizationId, requestId, "running");
 
       send({
@@ -189,7 +189,7 @@ export function registerInferenceRoutes(app: FastifyInstance, pool: pg.Pool, key
         if (lifecycle.terminated) break;
         if (!streamingStarted) {
           streamingStarted = true;
-          if (firstDeltaTimer) clearTimeout(firstDeltaTimer);
+          clearTimeout(firstDeltaTimer);
           await transitionState(pool, ctx.organizationId, requestId, "streaming");
           request.log.info({
             event: "inference.first_delta",
@@ -224,7 +224,7 @@ export function registerInferenceRoutes(app: FastifyInstance, pool: pg.Pool, key
         lifecycle.terminated = true;
         const aborted = providerAbort.signal.aborted;
         const apiError = err instanceof ApiError ? err : null;
-        const message = (err as Error).message ?? "";
+        const message = err instanceof Error ? err.message : String(err);
         const looksRateLimited =
           apiError?.code === "RATE_LIMITED"
           || /\(429[,)]/.test(message)
