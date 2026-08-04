@@ -13,7 +13,9 @@ describe("production release gates", () => {
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain("client-id: ${{ vars.AZURE_CLIENT_ID }}");
     expect(workflow).toContain("IMAGE_TAG: ${{ github.sha }}");
-    expect(workflow).toContain("environment: ${{ inputs.environment }}");
+    expect(workflow).toContain(
+      "environment: ${{ inputs.environment == 'production' && 'Production' || inputs.environment }}"
+    );
     expect(workflow).toContain("PROFILE: private-beta-public");
     expect(workflow).not.toContain("PROFILE: production-private");
     expect(workflow).not.toContain("AZURE_CREDENTIALS");
