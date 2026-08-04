@@ -32,7 +32,12 @@ jobs:
         with:
           node-version: "24.x"
           cache: "npm"
-      - uses: azure/setup-bicep@v1
+      - name: Install Bicep CLI
+        run: |
+          curl -fsSL -o bicep "https://github.com/Azure/bicep/releases/latest/download/bicep-linux-x64"
+          chmod +x ./bicep
+          sudo mv ./bicep /usr/local/bin/bicep
+          bicep --version
       - run: npm ci
       - run: npm run check
       - name: Verify website
