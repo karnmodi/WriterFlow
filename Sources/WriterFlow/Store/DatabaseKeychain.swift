@@ -2,13 +2,14 @@ import Foundation
 import Security
 
 /// Stores the local SQLCipher database key (Stage 5.3 "Store refactor":
-/// "Generate a random 256-bit local database key from system randomness and
-/// store it in a dedicated account-scoped `WhenUnlockedThisDeviceOnly`
-/// Keychain item... Do not derive the DB key from password, OAuth token,
-/// refresh token, email, or network state."). Deliberately its own Keychain
-/// item, separate from `DeviceTokenKeychain`'s bearer tokens and
-/// `KeychainStore`'s BYO Azure key — losing/rotating one must never affect
-/// the others.
+/// generate a random 256-bit key from system randomness and store it in a
+/// dedicated account-scoped Keychain item. Do not derive the DB key from
+/// password, OAuth token, refresh token, email, or network state.).
+/// Accessibility is `AfterFirstUnlockThisDeviceOnly` so launch-at-login can
+/// unlock the DB after the first unlock of a boot without racing an
+/// interactive Keychain prompt. Deliberately its own Keychain item, separate
+/// from `DeviceTokenKeychain`'s bearer tokens and `KeychainStore`'s BYO
+/// Azure key — losing/rotating one must never affect the others.
 ///
 /// "Account-scoped" here means the Keychain account label is namespaced by
 /// the immutable `(issuer, subject)` identity hash the app is bound to
@@ -19,6 +20,7 @@ import Security
 /// encrypted database.
 enum DatabaseKeychain {
     private static let service = "com.karan.writerflow.database-key"
+    private static let preferredAccessible = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
 
     /// The Keychain account label for a given scope. `nil` means no bound
     /// identity yet — a single local/offline database predating any sign-in.
@@ -37,29 +39,82 @@ enum DatabaseKeychain {
         ]
     }
 
-    static func read(scope: String?) -> Data? {
-        var query = baseQuery(scope: scope)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
+    /// Per-scope mirror of the Keychain items. Opening the database consults
+    /// up to four scopes (scope probe, unscoped bind, existing key, unscoped
+    /// repair); each uncached read is a potential password prompt, so a single
+    /// launch used to be able to stack several of them.
+    private static let cache = Cache()
 
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else { return nil }
-        return data
+    private final class Cache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var keys: [String: Data?] = [:]
+
+        /// `body` runs only on a miss, while holding the lock, so concurrent
+        /// callers cannot each trigger their own Keychain prompt. A load that
+        /// reports `cacheable: false` is not stored, so a refused prompt does
+        /// not harden into "this key does not exist" for the whole launch.
+        func value(forAccount account: String, orLoad body: () -> (data: Data?, cacheable: Bool)) -> Data? {
+            lock.lock()
+            defer { lock.unlock() }
+            if let cached = keys[account] { return cached }
+            let loaded = body()
+            if loaded.cacheable { keys[account] = loaded.data }
+            return loaded.data
+        }
+
+        func set(_ newValue: Data?, forAccount account: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            keys[account] = newValue
+        }
+
+        func invalidate() {
+            lock.lock()
+            defer { lock.unlock() }
+            keys.removeAll()
+        }
+    }
+
+    static func read(scope: String?) -> Data? {
+        let account = account(forScope: scope)
+        return cache.value(forAccount: account) {
+            let query = baseQuery(scope: scope)
+            let result = KeychainItem.read(query, label: "database key")
+            if result.wasDenied {
+                Log.store.error("Database key read was denied — not caching, so Retry can prompt again")
+            }
+            if result.data != nil {
+                KeychainItem.ensureAccessible(
+                    preferredAccessible,
+                    baseQuery: query,
+                    label: "database key"
+                )
+            }
+            return (result.data, !result.wasDenied)
+        }
     }
 
     @discardableResult
     static func write(_ key: Data, scope: String?) -> Bool {
-        delete(scope: scope)
-
-        var add = baseQuery(scope: scope)
-        add[kSecValueData as String] = key
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+        let stored = KeychainItem.write(
+            key,
+            baseQuery: baseQuery(scope: scope),
+            accessible: preferredAccessible,
+            label: "database key"
+        )
+        if stored { cache.set(key, forAccount: account(forScope: scope)) }
+        return stored
     }
 
     static func delete(scope: String?) {
-        SecItemDelete(baseQuery(scope: scope) as CFDictionary)
+        KeychainItem.delete(baseQuery(scope: scope))
+        cache.set(nil, forAccount: account(forScope: scope))
+    }
+
+    /// Test seam — drops the in-process mirror so the next `read` goes back to
+    /// the Keychain.
+    static func invalidateCache() {
+        cache.invalidate()
     }
 
     /// 256-bit key from `SecRandomCopyBytes` — never derived from a

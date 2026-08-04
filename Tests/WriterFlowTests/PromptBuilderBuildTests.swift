@@ -52,86 +52,133 @@ final class PromptBuilderBuildTests: XCTestCase {
         XCTAssertFalse(Prompts.shouldExtractConversation(for: .fixGrammar, site: "notion"))
     }
 
-    func testShouldApplyContextualTransformWithConversationOrLLMSite() {
+    func testContextualTransformIsReplyOnly() {
         XCTAssertTrue(
             Prompts.shouldApplyContextualTransform(
-                action: .elaborate,
+                action: .reply,
                 conversationContext: sampleConversation,
                 site: "gmail"
             )
         )
         XCTAssertTrue(
             Prompts.shouldApplyContextualTransform(
-                action: .formal,
+                action: .reply,
                 conversationContext: nil,
                 site: "cursor"
             )
         )
         XCTAssertFalse(
             Prompts.shouldApplyContextualTransform(
+                action: .formal,
+                conversationContext: sampleConversation,
+                site: "cursor"
+            )
+        )
+        XCTAssertFalse(
+            Prompts.shouldApplyContextualTransform(
                 action: .elaborate,
-                conversationContext: nil,
+                conversationContext: sampleConversation,
                 site: "gmail"
+            )
+        )
+        XCTAssertFalse(
+            Prompts.shouldApplyContextualTransform(
+                action: .custom,
+                conversationContext: sampleConversation,
+                site: "cursor"
             )
         )
     }
 
-    // MARK: - Cursor contextual transforms
-
-    func testElaborateInCursorIncludesContextualPolicyAndDraftLabel() {
-        let built = PromptBuilder.build(
-            action: .elaborate,
-            snapshot: cursorSnapshot(text: "add tests for prompt builder"),
-            conversationContext: sampleConversation
+    func testBackgroundContextAppliesToNonReplyWhenConversationPresent() {
+        XCTAssertTrue(
+            Prompts.shouldApplyBackgroundContext(
+                action: .formal,
+                conversationContext: sampleConversation
+            )
         )
-
-        XCTAssertTrue(built.system.contains("Contextual transform"))
-        XCTAssertTrue(built.system.contains("Adaptive structure"))
-        XCTAssertTrue(built.system.contains("Cursor IDE agent chat"))
-        XCTAssertTrue(built.system.contains("do NOT add new requirements or facts"))
-        XCTAssertTrue(built.user.contains("CONVERSATION:"))
-        XCTAssertTrue(built.user.contains("DRAFT/NEXT MESSAGE:"))
-        XCTAssertTrue(built.user.contains("add tests for prompt builder"))
+        XCTAssertTrue(
+            Prompts.shouldApplyBackgroundContext(
+                action: .custom,
+                conversationContext: sampleConversation
+            )
+        )
+        XCTAssertFalse(
+            Prompts.shouldApplyBackgroundContext(
+                action: .reply,
+                conversationContext: sampleConversation
+            )
+        )
+        XCTAssertFalse(
+            Prompts.shouldApplyBackgroundContext(
+                action: .formal,
+                conversationContext: nil
+            )
+        )
     }
 
-    func testFormalInCursorPreservesConstraintsGuidance() {
+    // MARK: - Background context for rewrite actions
+
+    func testFormalWithConversationUsesBackgroundOnlyNotContextualTransform() {
         let built = PromptBuilder.build(
             action: .formal,
             snapshot: cursorSnapshot(text: "please fix ActionEngine.swift"),
             conversationContext: sampleConversation
         )
 
+        XCTAssertTrue(built.system.contains("Background context"))
+        XCTAssertTrue(built.system.contains("not a reply to CONVERSATION"))
         XCTAssertTrue(built.system.contains("Change register only"))
-        XCTAssertTrue(built.system.contains("Tone override"))
-        XCTAssertTrue(built.user.contains("DRAFT/NEXT MESSAGE:"))
+        XCTAssertFalse(built.system.contains("Contextual transform"))
+        XCTAssertFalse(built.system.contains("Adaptive structure"))
+        XCTAssertFalse(built.system.contains("Treat DRAFT/NEXT MESSAGE"))
+        XCTAssertTrue(built.user.contains("CONVERSATION:"))
+        XCTAssertTrue(built.user.contains("DRAFT:"))
+        XCTAssertFalse(built.user.contains("DRAFT/NEXT MESSAGE:"))
     }
 
-    func testCasualInCursorPreservesConstraintsGuidance() {
+    func testCasualWithConversationUsesBackgroundOnly() {
         let built = PromptBuilder.build(
             action: .casual,
             snapshot: cursorSnapshot(text: "please fix ActionEngine.swift"),
             conversationContext: sampleConversation
         )
 
-        XCTAssertTrue(built.system.contains("Change register only"))
-        XCTAssertTrue(built.system.contains("Tone override"))
-        XCTAssertTrue(built.user.contains("DRAFT/NEXT MESSAGE:"))
+        XCTAssertTrue(built.system.contains("Background context"))
+        XCTAssertFalse(built.system.contains("Contextual transform"))
+        XCTAssertTrue(built.user.contains("DRAFT:"))
+        XCTAssertFalse(built.user.contains("DRAFT/NEXT MESSAGE:"))
     }
 
-    func testFixGrammarInCursorKeepsStrictNoRephraseRule() {
+    func testFixGrammarWithConversationKeepsStrictNoRephraseAndBackgroundOnly() {
         let built = PromptBuilder.build(
             action: .fixGrammar,
             snapshot: cursorSnapshot(text: "fix teh prompt builder"),
             conversationContext: sampleConversation
         )
 
-        XCTAssertTrue(built.system.contains("Grammar-only override"))
-        XCTAssertTrue(built.system.contains("Do NOT expand, restructure, or change tone"))
+        XCTAssertTrue(built.system.contains("Background context"))
+        XCTAssertTrue(built.system.contains("Grammar-only"))
         XCTAssertTrue(built.system.contains("Never rephrase"))
-        XCTAssertTrue(built.user.contains("DRAFT/NEXT MESSAGE:"))
+        XCTAssertFalse(built.system.contains("Contextual transform"))
+        XCTAssertTrue(built.user.contains("DRAFT:"))
     }
 
-    func testReplyRetainsSpecializedLabels() {
+    func testElaborateWithConversationUsesBackgroundNotNextMessageFraming() {
+        let built = PromptBuilder.build(
+            action: .elaborate,
+            snapshot: cursorSnapshot(text: "add tests for prompt builder"),
+            conversationContext: sampleConversation
+        )
+
+        XCTAssertTrue(built.system.contains("Background context"))
+        XCTAssertFalse(built.system.contains("Contextual transform"))
+        XCTAssertFalse(built.system.contains("Adaptive structure"))
+        XCTAssertTrue(built.user.contains("DRAFT:"))
+        XCTAssertFalse(built.user.contains("DRAFT/NEXT MESSAGE:"))
+    }
+
+    func testReplyRetainsContextualTransformAndSpecializedLabels() {
         let built = PromptBuilder.build(
             action: .reply,
             snapshot: cursorSnapshot(text: "say tests are done"),
@@ -141,9 +188,11 @@ final class PromptBuilderBuildTests: XCTestCase {
         XCTAssertTrue(built.user.contains("MY DRAFT/INTENT:"))
         XCTAssertFalse(built.user.contains("DRAFT/NEXT MESSAGE:"))
         XCTAssertTrue(built.system.contains("Contextual transform"))
+        XCTAssertTrue(built.system.contains("Adaptive structure"))
+        XCTAssertFalse(built.system.contains("Background context (do not reply"))
     }
 
-    func testCustomRetainsInstructionAndDraftLabel() {
+    func testCustomUsesBackgroundContextAndDraftLabel() {
         let built = PromptBuilder.build(
             action: .custom,
             snapshot: cursorSnapshot(text: "rewrite with bullets"),
@@ -152,11 +201,13 @@ final class PromptBuilderBuildTests: XCTestCase {
         )
 
         XCTAssertTrue(built.user.contains("INSTRUCTION: use three bullets max"))
-        XCTAssertTrue(built.user.contains("DRAFT/NEXT MESSAGE:"))
-        XCTAssertTrue(built.system.contains("Contextual transform"))
+        XCTAssertTrue(built.user.contains("DRAFT:"))
+        XCTAssertFalse(built.user.contains("DRAFT/NEXT MESSAGE:"))
+        XCTAssertTrue(built.system.contains("Background context"))
+        XCTAssertFalse(built.system.contains("Contextual transform"))
     }
 
-    func testPromptBuilderRetainsBriefLabelAndDelimiterContract() {
+    func testPromptBuilderRetainsBriefLabelWithoutContextualTransform() {
         let built = PromptBuilder.build(
             action: .promptBuilder,
             snapshot: cursorSnapshot(text: "help me ask for a refactor plan"),
@@ -168,7 +219,8 @@ final class PromptBuilderBuildTests: XCTestCase {
         XCTAssertTrue(built.system.contains("---CLARIFY---"))
         XCTAssertTrue(built.system.contains("---PROMPT---"))
         XCTAssertTrue(built.system.contains("Mode: CONTINUATION"))
-        XCTAssertTrue(built.system.contains("Contextual transform"))
+        XCTAssertTrue(built.system.contains("Background context"))
+        XCTAssertFalse(built.system.contains("Contextual transform"))
     }
 
     func testPromptBuilderFinalizeIncludesAnswersAndFinalizeInstruction() {
@@ -197,6 +249,7 @@ final class PromptBuilderBuildTests: XCTestCase {
         )
 
         XCTAssertFalse(built.system.contains("Contextual transform"))
+        XCTAssertFalse(built.system.contains("Background context"))
         XCTAssertFalse(built.user.contains("DRAFT/NEXT MESSAGE:"))
         XCTAssertTrue(built.user.contains("short note"))
     }
@@ -209,6 +262,7 @@ final class PromptBuilderBuildTests: XCTestCase {
         )
 
         XCTAssertFalse(built.system.contains("Contextual transform"))
-        XCTAssertFalse(built.user.contains("DRAFT/NEXT MESSAGE:"))
+        XCTAssertFalse(built.system.contains("Background context"))
+        XCTAssertFalse(built.user.contains("DRAFT:"))
     }
 }

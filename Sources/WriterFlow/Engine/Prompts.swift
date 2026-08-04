@@ -131,15 +131,81 @@ enum Prompts {
         }
     }
 
-    /// Whether contextual-transform rules apply when building the prompt.
+    /// Whether reply-style contextual-transform rules apply when building the prompt.
+    /// Only **Reply** may treat the field as a send-ready next message in the thread.
+    /// Other actions use [`shouldApplyBackgroundContext`] so conversation informs
+    /// understanding without expanding a short rewrite into a long reply.
     static func shouldApplyContextualTransform(
         action: WritingAction,
         conversationContext: String?,
         site: String?
     ) -> Bool {
+        guard action == .reply else { return false }
         let hasConversation = !(conversationContext?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         if hasConversation { return true }
         return AppAdapterRegistry.isLLMChatSite(site)
+    }
+
+    /// Non-Reply actions with an attached thread: use conversation as background
+    /// only (resolve references / protect terms), never draft a full reply.
+    static func shouldApplyBackgroundContext(
+        action: WritingAction,
+        conversationContext: String?
+    ) -> Bool {
+        guard action != .reply else { return false }
+        return !(conversationContext?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
+    /// Background-only policy for rewrite actions when CONVERSATION is present.
+    static func backgroundContextInstruction(action: WritingAction) -> String {
+        var lines = """
+        Background context (do not reply to the thread):
+
+        Requirements:
+        - CONVERSATION is surrounding thread for understanding only — resolve ambiguous references \
+        (they/that/Friday), protect technical terms, identifiers, file paths, and intended meaning.
+        - Output is a rewrite of DRAFT, not a reply to CONVERSATION.
+        - Do NOT greet, acknowledge prior messages, summarize the thread, or add new asks.
+        - Do NOT expand a short draft into a long send-ready reply; keep length close to DRAFT \
+        unless the action instruction explicitly asks to expand (Elaborate) or the user's \
+        INSTRUCTION/BRIEF requires more length.
+        - Do NOT pull thread history into the output beyond what DRAFT already needs to stay clear.
+        - Preserve the requested outcome and all factual meaning from DRAFT.
+        - Output ONLY the rewritten DRAFT text.
+        """
+
+        switch action {
+        case .fixGrammar:
+            lines += """
+
+            Grammar-only:
+            - Use CONVERSATION only to protect technical terms and references.
+            - Do NOT expand, restructure, or change tone because of context.
+            """
+        case .formal, .casual:
+            lines += """
+
+            Tone:
+            - The selected action's register wins; still do not add thread content that was not in DRAFT.
+            """
+        case .elaborate:
+            lines += """
+
+            Elaboration:
+            - You may clarify and organize DRAFT, but do NOT turn it into a reply to CONVERSATION \
+            or invent requirements from the thread.
+            """
+        case .custom, .promptBuilder:
+            lines += """
+
+            Instruction/brief priority:
+            - Follow INSTRUCTION or BRIEF first; use CONVERSATION only when needed to interpret \
+            ambiguous asks. Do not override an explicit rewrite/rephrase ask with a full thread reply.
+            """
+        case .reply:
+            break
+        }
+        return lines
     }
 
     /// Diversity hint for one of several parallel variant generations. Each variant gets a
@@ -186,6 +252,7 @@ enum Prompts {
     }
 
     /// Shared policy for transforming a draft into the next message using thread context.
+    /// Reply-only — see [`shouldApplyContextualTransform`].
     static func contextualTransformInstruction(site: String?, action: WritingAction) -> String {
         var lines = """
         Contextual transform (ongoing thread or LLM chat):
@@ -200,30 +267,8 @@ enum Prompts {
         - Do NOT add system, developer, or persona framing unless the user explicitly asks for it.
         """
 
-        switch action {
-        case .fixGrammar:
-            lines += """
-
-            Grammar-only override:
-            - Use context only to protect technical terms and references.
-            - Do NOT expand, restructure, or change tone because of context.
-            """
-        case .formal, .casual:
-            lines += """
-
-            Tone override:
-            - The selected action's tone wins over thread register.
-            - Still preserve every constraint, ask, and technical detail.
-            """
-        case .elaborate:
-            lines += """
-
-            Elaboration override:
-            - You may complete and organize the draft, but do NOT add new requirements or facts.
-            """
-        case .reply, .custom, .promptBuilder:
-            break
-        }
+        // Reply is the only caller; keep adaptive structure for reply drafting.
+        _ = action
 
         lines += """
 

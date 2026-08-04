@@ -29,6 +29,7 @@ final class OverlayController {
     private var previewOriginalText: String = ""
     private var pendingSnapshot: FieldSnapshot?
     private var pendingAction: WritingAction?
+    private var pendingInstruction: String?
     private var pendingEvent: ConversionEvent?
     private var pendingUndo: PendingUndo?
     private var isApplyingPreview = false
@@ -300,7 +301,11 @@ final class OverlayController {
         })
     }
 
-    func beginPreview(action: WritingAction) {
+    /// `instruction` is the Custom instruction or Prompt Builder brief the run
+    /// was started with, retained so Retry can re-issue the same request rather
+    /// than a bare action against the field's contents.
+    func beginPreview(action: WritingAction, instruction: String? = nil) {
+        pendingInstruction = instruction
         previewActionTitle = action.title
         previewVariants = .empty()
         previewUsesMultiVariant = action.usesMultiVariantPreview
@@ -640,6 +645,7 @@ final class OverlayController {
         previewCanReplace = false
         pendingSnapshot = nil
         pendingAction = nil
+        pendingInstruction = nil
         keyMonitor.uninstall()
 
         NSAnimationContext.runAnimationGroup({ ctx in
@@ -652,6 +658,16 @@ final class OverlayController {
 
     /// User-initiated close without accepting the result (Discard button / Esc).
     private func discardPreview() {
+        finalizeEvent(accepted: false)
+        dismissPreview()
+    }
+
+    /// Tears the card down when the run behind it was aborted out-of-band (the
+    /// user paused WriterFlow mid-stream). `ActionEngine.cancel()` unwinds its
+    /// task silently by design, so without this the card keeps spinning against
+    /// a request that no longer exists.
+    func cancelPreview() {
+        guard isPreviewVisible else { return }
         finalizeEvent(accepted: false)
         dismissPreview()
     }
@@ -699,7 +715,7 @@ final class OverlayController {
         let trimmed = brief.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let field = currentField else { return }
         Log.overlay.info("Prompt Builder submitted from brief box")
-        beginPreview(action: .promptBuilder)
+        beginPreview(action: .promptBuilder, instruction: trimmed)
         onPromptBuilderActionSelected?(trimmed, field)
     }
 
@@ -709,7 +725,7 @@ final class OverlayController {
         guard !trimmed.isEmpty, let field = currentField else { return }
         SettingsStore.shared.recordCustomInstruction(trimmed)
         Log.overlay.info("Custom action submitted")
-        beginPreview(action: .custom)
+        beginPreview(action: .custom, instruction: trimmed)
         onCustomActionSelected?(trimmed, field)
     }
 
@@ -875,13 +891,25 @@ final class OverlayController {
         ErrorToast.show("Copied to clipboard", duration: 2.0, belowIcon: dockIconAnchor(), style: .success)
     }
 
-    /// Discards the current attempt and re-runs the same action against the
-    /// field's live contents.
+    /// Discards the current attempt and re-runs it against the field's live
+    /// contents. Custom and Prompt Builder runs are re-issued through the
+    /// callback that started them: routing them through `onActionSelected`
+    /// dropped the instruction, so retrying a Prompt Builder brief on an empty
+    /// field failed with "Describe the prompt you need first."
     private func retryPreview() {
         guard let action = pendingAction, let field = currentField else { return }
         finalizeEvent(accepted: false)
-        beginPreview(action: action)
-        onActionSelected?(action, field)
+        let instruction = pendingInstruction
+        beginPreview(action: action, instruction: instruction)
+
+        switch (action, instruction) {
+        case (.promptBuilder, .some(let brief)):
+            onPromptBuilderActionSelected?(brief, field)
+        case (.custom, .some(let custom)):
+            onCustomActionSelected?(custom, field)
+        default:
+            onActionSelected?(action, field)
+        }
     }
 
     private func restoreOriginal() {

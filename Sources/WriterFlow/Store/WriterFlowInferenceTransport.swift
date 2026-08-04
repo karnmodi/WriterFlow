@@ -35,17 +35,20 @@ actor WriterFlowInferenceTransport: InferenceTransport {
     private let session: URLSession
     private let clientVersion: String
     private let deviceSession: any DeviceSessionProviding
+    private let firstTokenTimeout: Duration
 
     init(
         deviceSession: any DeviceSessionProviding,
         config: WriterFlowAPIConfig = .resolved(),
         session: URLSession = .shared,
-        clientVersion: String = "2.0.0"
+        clientVersion: String = "2.0.0",
+        firstTokenTimeout: Duration = WriterFlowInferenceTransport.defaultFirstTokenTimeout
     ) {
         self.deviceSession = deviceSession
         self.config = config
         self.session = session
         self.clientVersion = clientVersion
+        self.firstTokenTimeout = firstTokenTimeout
     }
 
     nonisolated func stream(_ request: InferenceRequest) -> AsyncThrowingStream<InferenceStreamEvent, Error> {
@@ -55,7 +58,15 @@ actor WriterFlowInferenceTransport: InferenceTransport {
                     try await self.run(request, continuation: continuation)
                 } catch {
                     continuation.finish(throwing: error)
+                    return
                 }
+                // `run` only finishes the continuation on a terminal `completed`
+                // event, and `finish()` is a no-op once already finished. Calling
+                // it on every non-throwing exit makes it structurally impossible
+                // for a returned-but-unfinished producer to leave the consumer's
+                // `for try await` suspended forever — the preview card renders
+                // that as a spinner nothing can clear.
+                continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
         }
@@ -68,6 +79,20 @@ actor WriterFlowInferenceTransport: InferenceTransport {
     private final class OrderTracker {
         var gotDecision = false
         var gotUsageSummary = false
+    }
+
+    /// Deadline for the *first* piece of visible content. Deliberately not a
+    /// budget for the whole response — Prompt Builder and Elaborate routinely
+    /// generate for longer than this. Injectable so tests can exercise the
+    /// watchdog without waiting out the production value.
+    static let defaultFirstTokenTimeout = Duration.seconds(15)
+
+    /// Which child of the streaming task group reported back. The watchdog
+    /// retiring is not a reason to stop reading, so the two cases have to be
+    /// distinguishable.
+    private enum StreamChild: Sendable {
+        case consumerFinished
+        case watchdogRetired
     }
 
     private func run(
@@ -104,8 +129,10 @@ actor WriterFlowInferenceTransport: InferenceTransport {
         urlRequest.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
         urlRequest.setValue(clientVersion, forHTTPHeaderField: "X-WriterFlow-Version")
         urlRequest.setValue(deviceId, forHTTPHeaderField: "X-WriterFlow-Device")
-        // Overall request budget. First-token watchdog below is stricter so
-        // SSE keepalives cannot keep a spinner alive forever.
+        // URLSession inactivity budget — the timer resets on every received
+        // chunk, so it guards a stalled connection, not total response length.
+        // The watchdog below adds a stricter deadline on the *first* token so
+        // SSE keepalives alone cannot keep a spinner alive.
         urlRequest.timeoutInterval = 45
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: Self.body(for: request))
 
@@ -146,38 +173,49 @@ actor WriterFlowInferenceTransport: InferenceTransport {
             throw WriterFlowInferenceError.httpError(http.statusCode)
         }
 
-        let order = OrderTracker()
         let firstTokenGate = FirstTokenGate()
-        try await withThrowingTaskGroup(of: Void.self) { group in
+        try await withThrowingTaskGroup(of: StreamChild.self) { group in
+            let firstTokenTimeout = self.firstTokenTimeout
             group.addTask {
-                try await Task.sleep(nanoseconds: 15_000_000_000)
+                try await Task.sleep(for: firstTokenTimeout)
                 if await firstTokenGate.stillWaiting {
                     throw WriterFlowInferenceError.firstTokenTimeout
                 }
+                return .watchdogRetired
             }
             group.addTask {
                 try await self.consumeSSE(
                     bytes: bytes,
-                    order: order,
                     firstTokenGate: firstTokenGate,
                     continuation: continuation
                 )
+                return .consumerFinished
             }
 
-            // First finished child wins: either first-token timeout or stream end.
-            try await group.next()
+            // Drain until the SSE reader itself finishes. Taking whichever child
+            // completed first meant that once content had arrived the retiring
+            // watchdog won the race at exactly `firstTokenTimeout` and the
+            // following `cancelAll()` tore down a perfectly healthy stream —
+            // which is why every generation longer than that hung or failed.
+            while let child = try await group.next() {
+                if case .consumerFinished = child { break }
+            }
             group.cancelAll()
         }
     }
 
     private func consumeSSE(
         bytes: URLSession.AsyncBytes,
-        order: OrderTracker,
         firstTokenGate: FirstTokenGate,
         continuation: AsyncThrowingStream<InferenceStreamEvent, Error>.Continuation
     ) async throws {
+        // Owned by this one reader task rather than passed in from the actor,
+        // so nothing outside the task can reach its mutable state.
+        let order = OrderTracker()
         for try await line in bytes.lines {
-            if Task.isCancelled { return }
+            // Throws rather than returns: a silent return here would unwind all
+            // the way out of `run` without finishing the continuation.
+            try Task.checkCancellation()
             guard line.hasPrefix("data:") else { continue }
             let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
             guard let data = payload.data(using: .utf8),

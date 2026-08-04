@@ -1,7 +1,7 @@
 {
-  "version": "2.0.0",
+  "version": "2.0.1",
   "minimumMacOS": "macOS 14 or later",
   "architecture": "Apple silicon only",
   "size": "4.6 MB",
-  "sha256": "58a8f8b8a0e284b86eaf82e8e3b5ca2ad6389f6223476c99b61eded49804f212"
+  "sha256": "5e1ba5baa759768f5f062a7f4764c14e13e7e0635254da7d4b98c7a26d003e22"
 }

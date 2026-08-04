@@ -73,8 +73,14 @@ enum PromptBuilder {
             conversationContext: conversationContext,
             site: site
         )
+        let background = Prompts.shouldApplyBackgroundContext(
+            action: action,
+            conversationContext: conversationContext
+        )
         if contextual {
             system += "\n\(Prompts.contextualTransformInstruction(site: site, action: action))"
+        } else if background {
+            system += "\n\(Prompts.backgroundContextInstruction(action: action))"
         }
 
         if action == .reply {
@@ -101,7 +107,7 @@ enum PromptBuilder {
             }
 
             if hasConversation {
-                system += "\nCONVERSATION is prior chat above the compose field — the ---PROMPT--- block must read as the next message in that thread."
+                system += "\nCONVERSATION is prior chat above the compose field — use it to understand the thread; the ---PROMPT--- block should still follow BRIEF length and intent, not dump the whole thread."
             }
         }
 
@@ -124,10 +130,10 @@ enum PromptBuilder {
                 }
             }
         case .custom:
-            user += "\nDRAFT/NEXT MESSAGE:\n\(workingText)"
+            user += "\nDRAFT:\n\(workingText)"
         default:
-            if contextual {
-                user += "\nDRAFT/NEXT MESSAGE:\n\(workingText)"
+            if background {
+                user += "\nDRAFT:\n\(workingText)"
             } else {
                 user += "\n\(workingText)"
             }

@@ -15,11 +15,11 @@ echo "▸ installing to ${INSTALL_APP}"
 rm -rf "${INSTALL_APP}"
 mkdir -p "${HOME}/Applications"
 ditto "${ROOT}/build/WriterFlow.app" "${INSTALL_APP}"
-if [[ "$CONFIG" == "release" ]]; then
-    codesign --verify --deep --strict "${INSTALL_APP}"
-else
-    codesign --force --deep --sign - --timestamp=none "${INSTALL_APP}" >/dev/null 2>&1 || true
-fi
+# `ditto` preserves the signature bundle.sh already applied, so only verify it.
+# Re-signing here used to mint a second, different identity for the installed
+# copy — under ad-hoc signing that alone guaranteed a Keychain prompt, because
+# the installed app was never the app that created the Keychain items.
+codesign --verify --strict "${INSTALL_APP}"
 
 echo "▸ installed ${INSTALL_APP}"
 echo ""
@@ -38,9 +38,12 @@ if [[ "$CONFIG" != "release" && -f "${ROOT}/.env" ]]; then
 fi
 
 echo "Next steps (one-time):"
-echo "  1. Quit any running WriterFlow (Dock → Quit, or: make stop)"
+echo "  1. Quit any running WriterFlow (menu → Quit WriterFlow, or: make stop)"
 echo "  2. Open: ${INSTALL_APP}"
-echo "  3. In System Settings → Accessibility:"
+echo "     — launches in the menu bar only (no Dashboard). Open Dashboard from the menu when needed."
+echo "  3. If macOS asks for Keychain access, choose Always Allow (not Allow)."
+echo "     After that, login launches should not prompt again under this signing identity."
+echo "  4. In System Settings → Accessibility:"
 echo "     - Remove any old WriterFlow entries (- button)"
 echo "     - Click + and add WriterFlow from ~/Applications"
 echo "     - Toggle ON, then quit and reopen WriterFlow"

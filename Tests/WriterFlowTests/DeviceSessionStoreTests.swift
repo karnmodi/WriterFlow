@@ -7,11 +7,11 @@ final class DeviceSessionStoreTests: XCTestCase {
     override func setUp() {
         super.setUp()
         MockURLProtocol.reset()
-        DeviceTokenKeychain.delete()
+        KeychainTestIsolation.begin()
     }
 
     override func tearDown() {
-        DeviceTokenKeychain.delete()
+        KeychainTestIsolation.end()
         MockURLProtocol.reset()
         super.tearDown()
     }

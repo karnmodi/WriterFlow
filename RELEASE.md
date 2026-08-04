@@ -170,6 +170,32 @@ Do not run `make release` / `scripts/release.sh` for v1. Those commands are the
 deferred Developer ID and notarization workflow and intentionally require Apple
 credentials.
 
+## Local signing identity (developer installs)
+
+Public v1 DMGs remain ad-hoc-signed (ADR-0010). For day-to-day local installs,
+ad-hoc signing is a Keychain liability: each rebuild produces a new `cdhash`,
+macOS treats the app as a stranger, and "Always Allow" never sticks.
+
+Local/debug builds therefore prefer a self-signed code-signing certificate named
+**WriterFlow Local Signing**. Create it once:
+
+```bash
+scripts/create-signing-cert.sh
+make install
+```
+
+`scripts/bundle.sh` picks the identity up automatically for debug builds. The
+designated requirement becomes `certificate leaf = H"…"`, which is stable across
+rebuilds, so a single "Always Allow" on first Keychain access survives restarts
+and reinstalls. Release packaging is unaffected and stays ad-hoc unless
+`WRITERFLOW_SIGNING_IDENTITY` is set explicitly. This is still not Developer ID
+and does not change Gatekeeper behaviour.
+
+Also keep a single install path: `~/Applications/WriterFlow.app`. A second copy
+under `/Applications` with a different signature will prompt over the same
+Keychain items. `scripts/install.sh` no longer re-signs after `ditto`, so the
+installed copy keeps the identity `bundle.sh` applied.
+
 ## v1.0 user installation and updates
 
 Because the app inside the v1 DMG is ad-hoc signed and not notarized, normal first

@@ -91,67 +91,61 @@ enum KeychainStore {
 
     #if DEBUG
     /// Seed Keychain + Application Support from `.env` on launch (local development only).
+    /// Touches Keychain only when the item is missing or the stored value differs —
+    /// rewriting an unchanged item every launch re-triggers ACL prompts.
     static func bootstrap(from env: [String: String], keyEnvName: String) {
         guard let key = env[keyEnvName], !key.isEmpty else { return }
 
         writeSecretsFile(env: env, keyEnvName: keyEnvName)
-        cachedKey = key
 
-        // Replace any stale Keychain item (signature mismatch after rebuild).
-        _ = resetAndSaveAPIKey(key)
-        Log.store.info("Bootstrapped Azure API key (\(keyEnvName, privacy: .public))")
+        if let existing = readFromKeychain(interactive: false), existing == key {
+            cachedKey = key
+            return
+        }
+
+        cachedKey = key
+        if resetAndSaveAPIKey(key) {
+            Log.store.info("Bootstrapped Azure API key (\(keyEnvName, privacy: .public))")
+        }
     }
     #endif
 
     // MARK: - Keychain
 
     private static func readFromKeychain(interactive: Bool) -> String? {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
+        var query = baseQuery()
         if !interactive {
             let context = LAContext()
             context.interactionNotAllowed = true
             query[kSecUseAuthenticationContext as String] = context
         }
-
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        guard let data = KeychainItem.read(query, label: "Azure API key").data else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
-    @discardableResult
-    private static func resetAndSaveAPIKey(_ key: String) -> Bool {
-        deleteAPIKey()
-        return saveAPIKey(key)
-    }
-
-    @discardableResult
-    private static func saveAPIKey(_ key: String) -> Bool {
-        let data = Data(key.utf8)
-        let query: [String: Any] = [
+    private static func baseQuery() -> [String: Any] {
+        [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        var add = query
-        add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+    }
+
+    /// Updates in place when the item exists. Deleting and re-adding replaced
+    /// the item's ACL, throwing away the "Always Allow" the user had granted
+    /// this build and making the next launch prompt all over again.
+    @discardableResult
+    private static func resetAndSaveAPIKey(_ key: String) -> Bool {
+        KeychainItem.write(
+            Data(key.utf8),
+            baseQuery: baseQuery(),
+            accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            label: "Azure API key"
+        )
     }
 
     private static func deleteAPIKey() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-        SecItemDelete(query as CFDictionary)
+        KeychainItem.delete(baseQuery())
     }
 
     // MARK: - Application Support fallback

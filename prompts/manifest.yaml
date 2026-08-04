@@ -11,7 +11,7 @@
 # never the prompt text itself (Docs/contracts/inference-stream.md "Allowed
 # log fields").
 
-version: "5.1.0"
+version: "5.1.1"
 
 # V2-ARCHITECTURE.md §12.1 trust classes. Prompt compilation (Stage 5.4) must
 # place each asset/input in a distinct provider message/content part matching
@@ -40,30 +40,35 @@ systemPreambles:
 intents:
   elaborate:
     path: intents/elaborate.md
-    promptVersion: "elaborate@5.1.0"
-    contextualTransform: true
+    promptVersion: "elaborate@5.1.1"
+    contextualTransform: false
+    backgroundContext: true
   formal:
     path: intents/formal.md
-    promptVersion: "formal@5.1.0"
-    contextualTransform: true
+    promptVersion: "formal@5.1.1"
+    contextualTransform: false
+    backgroundContext: true
   casual:
     path: intents/casual.md
-    promptVersion: "casual@5.1.0"
-    contextualTransform: true
+    promptVersion: "casual@5.1.1"
+    contextualTransform: false
+    backgroundContext: true
   fixGrammar:
     path: intents/grammar.md
-    promptVersion: "grammar@5.1.0"
-    contextualTransform: true
+    promptVersion: "grammar@5.1.1"
+    contextualTransform: false
+    backgroundContext: true
     strictSuffix: "Strict rule: change only clear errors in spelling, grammar, punctuation, or capitalization. Never rephrase."
   reply:
     path: intents/reply.md
-    promptVersion: "reply@5.1.0"
-    contextualTransform: false
+    promptVersion: "reply@5.1.1"
+    contextualTransform: true
     replyFormat: common/reply-format/
   custom:
     path: intents/custom.md
-    promptVersion: "custom@5.1.0"
+    promptVersion: "custom@5.1.1"
     contextualTransform: false
+    backgroundContext: true
     note: >-
       Output-mode decision (insert_before vs replace, the v1 '---INSERT---'
       marker) moves server-side per Docs/contracts/fixtures/requests/
@@ -71,13 +76,15 @@ intents:
       before any delta, not parsed from streamed text client-side.
   promptBuilder:
     path: intents/prompt-builder.md
-    promptVersion: "prompt-builder@5.1.0"
+    promptVersion: "prompt-builder@5.1.1"
     contextualTransform: false
+    backgroundContext: true
     modeVariants: common/prompt-builder-mode/
     outputFormatVariants: common/prompt-builder-output-format/
 
 shared:
   contextualTransform: common/contextual-transform.md
+  backgroundContext: common/background-context.md
   continuationSite: common/continuation-site/
   variantInstruction:
     note: >-

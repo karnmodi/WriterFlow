@@ -61,19 +61,46 @@ else
     exit 1
 fi
 
-# Ad-hoc signature. Developer ID is deferred to v2 (scripts/release.sh).
+# Signing identity.
 #
-# For a release build this is a production packaging step: enable the hardened
-# runtime (the v1 default per RELEASE.md) and fail the build if signing errors —
-# the script must never silently ship an unsigned or non-hardened artifact.
-# For debug builds keep the lenient, quiet path so the local dev loop is not
-# interrupted by transient signing hiccups.
+# Debug/local installs prefer a self-signed certificate ("WriterFlow Local
+# Signing", created by scripts/create-signing-cert.sh). An ad-hoc signature's
+# designated requirement is a bare cdhash that changes with every build, so
+# macOS treats each rebuild as a different app and no Keychain "Always Allow"
+# ever survives — users get re-prompted for their password forever. A
+# certificate yields a stable `certificate leaf` requirement instead. Still
+# not Developer ID and still no Apple Developer account (ADR-0010): Gatekeeper
+# approval remains manual.
+#
+# Release stays ad-hoc by default so the public DMG story in RELEASE.md /
+# ADR-0010 is unchanged. Override with WRITERFLOW_SIGNING_IDENTITY only when
+# intentionally packaging under a different identity.
+DEFAULT_IDENTITY="WriterFlow Local Signing"
+IDENTITY="${WRITERFLOW_SIGNING_IDENTITY:-}"
+if [[ -z "$IDENTITY" ]]; then
+    if [[ "$CONFIG" == "release" ]]; then
+        IDENTITY="-"
+    elif security find-identity -v -p codesigning | grep -q "$DEFAULT_IDENTITY"; then
+        IDENTITY="$DEFAULT_IDENTITY"
+    else
+        echo "⚠ no local code-signing identity found — falling back to ad-hoc." >&2
+        echo "  Keychain prompts will recur on every rebuild. Fix with: scripts/create-signing-cert.sh" >&2
+        IDENTITY="-"
+    fi
+fi
+
+# Release is a production packaging step: hardened runtime (the v1 default per
+# RELEASE.md) and hard-fail on error, so the script never silently ships an
+# unsigned or non-hardened artifact. Debug stays non-fatal so a signing hiccup
+# does not block the local loop, but it warns rather than swallowing the error.
 if [[ "$CONFIG" == "release" ]]; then
-    echo "▸ ad-hoc codesigning with hardened runtime (release)"
-    codesign --force --sign - --options runtime --timestamp=none \
+    echo "▸ codesigning with hardened runtime (release), identity: ${IDENTITY}"
+    codesign --force --sign "$IDENTITY" --options runtime --timestamp=none \
         --entitlements "$ROOT/WriterFlow.entitlements" "$APP"
 else
-    codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1 || true
+    echo "▸ codesigning (debug), identity: ${IDENTITY}"
+    codesign --force --sign "$IDENTITY" --timestamp=none "$APP" \
+        || echo "⚠ codesign failed — the app will keep prompting for Keychain access" >&2
 fi
 
 echo "▸ built $APP"

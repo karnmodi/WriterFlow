@@ -236,6 +236,115 @@ final class WriterFlowInferenceTransportTests: XCTestCase {
         )
     }
 
+    /// Regression: the first-token watchdog used to race the SSE reader in a
+    /// task group and take whichever child finished first. Once content had
+    /// arrived the watchdog retired *successfully*, won that race, and the
+    /// following `cancelAll()` tore down a healthy stream — so every generation
+    /// that ran longer than the timeout either failed or, when the reader
+    /// unwound without finishing the continuation, left the preview card
+    /// spinning forever. Prompt Builder hit this on essentially every run.
+    func testStreamLongerThanFirstTokenTimeoutStillCompletes() async throws {
+        // Chunk 0 carries the first delta, so content arrives at ~150ms, well
+        // inside the 400ms budget. The response then keeps streaming until
+        // ~600ms — comfortably past the deadline, which is the case that used
+        // to hang.
+        let chunks: [Data] = [
+            Data((
+                #"data: {"type":"decision","intent":"prompt_builder","confidence":null,"outputMode":"replace","route":"rewrite_standard","reasonCode":null}"# + "\n\n" +
+                #"data: {"type":"output.delta","delta":"---PROMPT---\n"}"# + "\n\n"
+            ).utf8),
+            Data((#"data: {"type":"output.delta","delta":"You are a helpful "}"# + "\n\n").utf8),
+            Data((#"data: {"type":"output.delta","delta":"assistant."}"# + "\n\n").utf8),
+            Data((#"data: {"type":"completed","requestId":"30000000-0000-4000-8000-000000000007","promptVersion":"prompt_builder@5.1.0"}"# + "\n\n").utf8)
+        ]
+
+        MockURLProtocol.stub(
+            method: "POST",
+            pathSuffix: "/inference/stream",
+            statusCode: 200,
+            chunks: chunks,
+            chunkDelay: 0.15
+        )
+        let session = FakeDeviceSession(state: .signedIn(deviceId: "device-1"))
+        let transport = WriterFlowInferenceTransport(
+            deviceSession: session,
+            config: testConfig,
+            session: MockURLProtocol.session,
+            firstTokenTimeout: .milliseconds(400)
+        )
+
+        let events = try await collect(transport.stream(makeRequest()))
+
+        XCTAssertEqual(events.last, .completed(
+            requestId: "30000000-0000-4000-8000-000000000007",
+            promptVersion: "prompt_builder@5.1.0"
+        ))
+        XCTAssertEqual(
+            events.filter { if case .delta = $0 { return true } else { return false } }.count,
+            3,
+            "no delta may be dropped by the watchdog once content has started arriving"
+        )
+    }
+
+    /// The watchdog must still fire when the model genuinely never produces
+    /// visible content — that is the case it exists for.
+    func testNoFirstTokenBeforeDeadlineTimesOut() async throws {
+        let chunks = [
+            #"{"type":"decision","intent":"prompt_builder","confidence":null,"outputMode":"replace","route":"rewrite_standard","reasonCode":null}"#,
+            #"{"type":"output.delta","delta":"far too late"}"#
+        ].map { Data("data: \($0)\n\n".utf8) }
+
+        MockURLProtocol.stub(
+            method: "POST",
+            pathSuffix: "/inference/stream",
+            statusCode: 200,
+            chunks: chunks,
+            chunkDelay: 0.5
+        )
+        let session = FakeDeviceSession(state: .signedIn(deviceId: "device-1"))
+        let transport = WriterFlowInferenceTransport(
+            deviceSession: session,
+            config: testConfig,
+            session: MockURLProtocol.session,
+            firstTokenTimeout: .milliseconds(100)
+        )
+
+        do {
+            _ = try await collect(transport.stream(makeRequest()))
+            XCTFail("expected firstTokenTimeout to be thrown")
+        } catch WriterFlowInferenceError.firstTokenTimeout {
+            // expected
+        }
+    }
+
+    /// A stream that ends without a terminal event must surface as an error the
+    /// preview card can render, never as a consumer left suspended forever.
+    func testStreamAlwaysTerminatesForTheConsumer() async throws {
+        MockURLProtocol.stub(
+            method: "POST",
+            pathSuffix: "/inference/stream",
+            statusCode: 200,
+            json: sseBody([
+                #"{"type":"decision","intent":"grammar","confidence":null,"outputMode":"replace","route":"grammar_fast","reasonCode":null}"#,
+                #"{"type":"output.delta","delta":"partial"}"#
+            ])
+        )
+        let session = FakeDeviceSession(state: .signedIn(deviceId: "device-1"))
+        let transport = WriterFlowInferenceTransport(
+            deviceSession: session,
+            config: testConfig,
+            session: MockURLProtocol.session,
+            firstTokenTimeout: .milliseconds(200)
+        )
+
+        let finished = expectation(description: "stream terminates")
+        Task {
+            _ = try? await self.collect(transport.stream(self.makeRequest()))
+            finished.fulfill()
+        }
+        await fulfillment(of: [finished], timeout: 5)
+    }
+
     func testNotSignedInThrowsWithoutMakingARequest() async throws {
         let session = FakeDeviceSession(state: .signedOut)
         let transport = WriterFlowInferenceTransport(deviceSession: session, config: testConfig, session: MockURLProtocol.session)

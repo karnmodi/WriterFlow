@@ -60,15 +60,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
             permissions.startPolling()
         }
 
-        // Dashboard is the default landing surface on every launch — history, personalization,
-        // settings, and usage all work without any permission grant (they're local-data screens).
+        // Stay menu-bar-only on cold start and login-at-login. Dashboard opens from
+        // the status menu, ⌘,, applicationShouldHandleReopen, or Setup's Account CTA —
+        // never automatically, so a background launch does not steal focus.
         dashboardWindow.visibilityDelegate = self
         onboarding.visibilityDelegate = self
         onboarding.onOpenDashboard = { [weak self] in
             self?.dashboardWindow.show()
             NotificationCenter.default.post(name: .openWriterFlowAccount, object: nil)
         }
-        dashboardWindow.show()
 
         #if DEBUG
         // Contributor builds may seed Keychain from local development credentials.
@@ -79,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         // Permissions gate the floating icon / AI actions — surface setup only when
         // macOS reports them missing and the user has not dismissed Setup.
         if shouldAutoPresentSetup {
-            Log.app.info("Permissions incomplete — showing onboarding above the Dashboard")
+            Log.app.info("Permissions incomplete — showing Setup (Dashboard stays closed)")
             onboarding.show()
         }
 
@@ -279,6 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
             globalHotkey.uninstall()
             actionEngine.cancel()
             overlay.dismissActionPopover()
+            overlay.cancelPreview()
             focusMonitor.stop()
             Log.app.info("Paused")
         } else {

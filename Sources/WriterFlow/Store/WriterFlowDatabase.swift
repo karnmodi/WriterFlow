@@ -63,7 +63,16 @@ enum WriterFlowDatabase {
                     showDatabaseRecovery(message)
                 }
                 if !retry {
-                    exit(EXIT_FAILURE)
+                    // Prefer a clean AppKit quit over exit(EXIT_FAILURE) so launch
+                    // looks like a normal termination rather than a silent kill.
+                    // terminate is asynchronous — park until the process exits so
+                    // this static never returns a DatabaseQueue after Quit.
+                    MainActor.assumeIsolated {
+                        NSApp.terminate(nil)
+                    }
+                    while true {
+                        Thread.sleep(forTimeInterval: 60)
+                    }
                 }
             }
         }

@@ -24,6 +24,15 @@ const intentFiles = {
   promptBuilder: "prompt-builder"
 } as const;
 
+/**
+ * Reply gets contextual-transform (draft a thread reply).
+ * All other actions with conversation get background-context only
+ * (understand the thread; rewrite DRAFT without expanding into a reply).
+ */
+function conversationPolicyPath(action: InferenceProviderRequest["action"]): string {
+  return action === "reply" ? "common/contextual-transform.md" : "common/background-context.md";
+}
+
 /** Compile reviewed policy separately from explicit and untrusted request content. */
 export function compilePrompt(
   request: InferenceProviderRequest,
@@ -39,7 +48,7 @@ export function compilePrompt(
   const sections = [preamble, loadIntentPrompt(intentFiles[action], promptsDir)];
 
   if (envelope.content.conversation) {
-    sections.push(loadPrompt("common/contextual-transform.md", promptsDir));
+    sections.push(loadPrompt(conversationPolicyPath(action), promptsDir));
   }
 
   const userParts: string[] = [];
