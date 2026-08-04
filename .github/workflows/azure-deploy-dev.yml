@@ -42,10 +42,13 @@ jobs:
       - run: npm run check
       - name: Verify website
         working-directory: website
-        run: npm ci && npm test && npm run check
-        env:
-          NEXT_PUBLIC_RELEASE_STATUS: private-beta
-          NEXT_PUBLIC_SITE_ORIGIN: https://writerflow.aviusolutions.com
+        run: |
+          npm ci
+          # Route-handler tests assert localhost redirects; keep SITE_ORIGIN unset here.
+          npm test
+          NEXT_PUBLIC_RELEASE_STATUS=private-beta \
+            NEXT_PUBLIC_SITE_ORIGIN=https://writerflow.aviusolutions.com \
+            npm run check
       - run: bicep build infra/bicep/main.bicep --stdout > /dev/null
       - run: bicep lint infra/bicep/main.bicep
 
