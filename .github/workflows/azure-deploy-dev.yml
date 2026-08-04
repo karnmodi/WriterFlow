@@ -63,7 +63,12 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - uses: azure/setup-bicep@v1
+      - name: Install Bicep CLI
+        run: |
+          curl -fsSL -o bicep "https://github.com/Azure/bicep/releases/latest/download/bicep-linux-x64"
+          chmod +x ./bicep
+          sudo mv ./bicep /usr/local/bin/bicep
+          bicep --version
       - name: Validate private-beta environment configuration
         env:
           DATABASE_URL_SECRET_URI: ${{ vars.DATABASE_URL_SECRET_URI }}
