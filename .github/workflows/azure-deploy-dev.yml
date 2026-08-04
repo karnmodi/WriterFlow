@@ -56,7 +56,9 @@ jobs:
     name: Deploy immutable release to ${{ inputs.environment }}
     needs: validate
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    # GitHub env is "Production" (capital P); Azure OIDC FIC subjects are
+    # case-sensitive and must match exactly (AADSTS7002138).
+    environment: ${{ inputs.environment == 'production' && 'Production' || inputs.environment }}
     env:
       RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
       NAME_PREFIX: ${{ vars.AZURE_NAME_PREFIX }}
