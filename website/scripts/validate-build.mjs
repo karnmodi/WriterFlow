@@ -59,7 +59,7 @@ const requiredCopy = [
   [home, "Write better"],
   [home, "WriterFlow account required"],
   [home, "Inference content is ephemeral"],
-  [home, "Apple silicon only"],
+  [home, "Universal (Apple silicon and Intel)"],
   [install, "Open Anyway"],
   [install, "SHA-256"],
   [install, releaseManifest.sha256 || "The final SHA-256 will be published"],

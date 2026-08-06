@@ -250,8 +250,8 @@ operable service and honest privacy/billing disclosures.
 
 ### Stage 8.4 — Distribution release gate
 
-- Ship the v1 ad-hoc distribution model for v2 (ADR-0010): ARM64 ad-hoc-signed app in a
-  DMG + SHA-256 + documented manual Gatekeeper approval + manual updates. No Apple
+- Ship the v1 ad-hoc distribution model for v2 (ADR-0010): one universal arm64+x86_64
+  ad-hoc-signed app in a DMG + SHA-256 + documented manual Gatekeeper approval + manual updates. No Apple
   Developer account, notarization, stapling, or Sparkle auto-update.
 - Prominently disclose install/update Gatekeeper friction in onboarding and on the
   install page, since v2 is a paid product.

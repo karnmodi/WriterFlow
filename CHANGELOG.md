@@ -3,6 +3,23 @@
 All notable changes to WriterFlow, grouped by development phase (see `phases/` and
 `ROADMAP.md`).
 
+## 2.0.2 — Unreleased
+
+- **Universal macOS release:** Release packaging now compiles native arm64 and x86_64
+  slices at the macOS 14.0 deployment target, merges one universal executable, and
+  ships SQLCipher's existing universal framework in a single DMG. Debug builds remain
+  native-only for speed.
+- **Compatibility gate:** `make compatibility-build` cross-compiles both architectures;
+  release verification rejects drift between Package/Xcode/plist deployment targets,
+  missing architecture slices, or bundled Mach-O code requiring newer than macOS 14.
+- **Release metadata:** bumped the app to 2.0.2 (build 4) and updated public install
+  copy for Apple-silicon and Intel Macs. Runtime macOS 14/15/26 hardware-matrix
+  verification remains a manual Phase 8 release gate.
+- **Browser sign-in:** production website token exchanges now call APIM's default
+  gateway directly, avoiding Cloudflare's interactive challenge for Container Apps
+  server traffic. Pairing errors retain the device code and show a support-safe API
+  reference instead of the generic “Could not start a WriterFlow session” dead end.
+
 ## Unreleased — v2.0 planning
 
 - Added the v2 product requirements, architecture, staged roadmap, and detailed Phase 5

@@ -17,7 +17,9 @@ export class WriterFlowAPIRequestError extends Error {
     const publicMessage = status === 401
       ? "WriterFlow could not verify this sign-in. Please try again."
       : status === 403
-        ? "This account cannot access WriterFlow."
+        ? payload.code === "AUTH_INVALID"
+          ? "This account cannot access WriterFlow."
+          : "WriterFlow's account service could not be reached. Please try again."
         : status === 429
           ? "Too many attempts. Wait a moment and try again."
           : status >= 500

@@ -6,6 +6,25 @@ enum PromptBuilderPreviewPhase: Equatable {
     case prompt
 }
 
+/// Copy for the live preview state. Once text starts arriving, the count
+/// changes as each word appears so the status reflects real stream progress
+/// instead of showing a static "Generating" label.
+enum PreviewStreamingStatus {
+    static func subtitle(text: String, promptBuilderPhase: PromptBuilderPreviewPhase?) -> String {
+        let wordCount = text.split(whereSeparator: \Character.isWhitespace).count
+        if wordCount == 1 {
+            return "1 word written, continuing…"
+        }
+        if wordCount > 1 {
+            return "\(wordCount) words written, continuing…"
+        }
+        if promptBuilderPhase == .analyzing {
+            return "Reading your brief and composing…"
+        }
+        return "Composing the first words…"
+    }
+}
+
 struct PreviewCardView: View {
     let actionTitle: String
     let variants: PreviewVariants
@@ -63,17 +82,11 @@ struct PreviewCardView: View {
         if let errorMessage, !errorMessage.isEmpty {
             return "Couldn't finish — retry when ready"
         }
-        if isStreaming, promptBuilderPhase == .analyzing {
-            return "Understanding your brief…"
-        }
-        if isStreaming, promptBuilderPhase == .prompt {
-            return "Generating…"
-        }
-        if isStreaming, activeText.isEmpty {
-            return "Waiting for model…"
-        }
         if isStreaming {
-            return "Generating…"
+            return PreviewStreamingStatus.subtitle(
+                text: activeText,
+                promptBuilderPhase: promptBuilderPhase
+            )
         }
         if isClarifyMode { return "Clarify a few details" }
         if usesMultiVariant { return "Pick a variant, then Replace" }
@@ -110,6 +123,8 @@ struct PreviewCardView: View {
                 Text(headerSubtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+                    .animation(.easeOut(duration: 0.12), value: headerSubtitle)
             }
             Spacer(minLength: 0)
             if isStreaming, !usesMultiVariant {
@@ -155,7 +170,9 @@ struct PreviewCardView: View {
         if let errorMessage, !errorMessage.isEmpty {
             return ""
         }
-        return "Waiting for model…"
+        return promptBuilderPhase == .analyzing
+            ? "Reading your brief and composing…"
+            : "Composing the first words…"
     }
 
     private func errorBanner(_ message: String) -> some View {
@@ -378,12 +395,9 @@ private struct StreamingPreviewScroll: View {
 
     private func progressCaption(seconds: Int) -> String {
         if seconds < 2 {
-            return "Starting request…"
+            return "Model active · shaping the response"
         }
-        if seconds < 8 {
-            return "Waiting \(seconds)s — model is preparing a reply"
-        }
-        return "Waiting \(seconds)s — high load can delay the first token"
+        return "Model active · \(seconds)s"
     }
 
     private var diffedText: Text {

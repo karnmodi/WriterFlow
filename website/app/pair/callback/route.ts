@@ -2,15 +2,13 @@ import * as client from "openid-client";
 import { NextResponse, type NextRequest } from "next/server";
 import { getEntraConfig, pairRedirectUri } from "@/lib/entra";
 import { oauthCallbackUrl, siteUrl } from "@/lib/site-url";
-import { approveDevice, mintWebAccountToken } from "@/lib/writerflow-api";
+import { approveDevice, mintPairingBridge, mintWebAccountToken } from "@/lib/writerflow-api";
 import {
   PAIR_PKCE_COOKIE,
   setEntraLogoutHints,
   setWebAccountCookie
 } from "@/lib/web-auth";
 import { logoutHintFromClaims } from "@/lib/logout-hint";
-
-const API_BASE_URL = process.env["WRITERFLOW_API_BASE_URL"] ?? "https://apiwriterflow.aviusolutions.com/v2";
 
 function redirectToPairPage(request: NextRequest, params: Record<string, string>): NextResponse {
   const url = siteUrl("/pair", request);
@@ -52,15 +50,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       tokenBody.accessToken = tokens.access_token;
     }
 
-    const webSessionResponse = await fetch(`${API_BASE_URL}/web-session/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(tokenBody)
-    });
-    if (!webSessionResponse.ok) {
-      return redirectToPairPage(request, { status: "error", message: "Could not start a WriterFlow session." });
-    }
-    const { accessToken: webSessionToken } = (await webSessionResponse.json()) as { accessToken: string };
+    const webSessionToken = await mintPairingBridge(tokenBody);
 
     const approveResponse = await approveDevice(pkce.userCode, webSessionToken);
     if (approveResponse.status === 404) {
@@ -89,6 +79,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } catch (error) {
     console.error("pair/callback failed:", error);
     const message = error instanceof Error ? error.message : "Sign-in failed.";
-    return redirectToPairPage(request, { status: "error", message });
+    return redirectToPairPage(request, {
+      status: "error",
+      message,
+      user_code: pkce.userCode
+    });
   }
 }

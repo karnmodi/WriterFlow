@@ -464,7 +464,11 @@ module websiteApp 'modules/container-app-website.bicep' = {
       }
       {
         name: 'WRITERFLOW_API_BASE_URL'
-        value: 'https://apiwriterflow.aviusolutions.com/v2'
+        // Server-to-server auth exchanges must bypass the Cloudflare-proxied
+        // public hostname: Cloudflare presents a browser challenge to the
+        // Container Apps egress IP. This still traverses APIM, which injects
+        // the Key Vault-backed origin credential before reaching the API.
+        value: '${apim.outputs.gatewayUrl}/v2'
       }
       {
         name: 'NEXT_PUBLIC_RELEASE_STATUS'

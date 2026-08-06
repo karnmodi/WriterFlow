@@ -24,7 +24,7 @@ export default function Home() {
     "@type": "SoftwareApplication",
     name: "WriterFlow",
     applicationCategory: "ProductivityApplication",
-    operatingSystem: "macOS 14 or later on Apple silicon",
+    operatingSystem: "macOS 14 or later on Apple silicon or Intel",
     softwareVersion: release.version,
     ...(releaseHasDownload
       ? { offers: { "@type": "Offer", price: "0", priceCurrency: "USD" } }

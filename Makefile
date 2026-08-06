@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 CONFIG ?= debug
 
-.PHONY: help build test lint bundle run clean stop relaunch install install-run dmg verify-release release xcodeproj scan-v2-release
+.PHONY: help build test lint bundle compatibility-build run clean stop relaunch install install-run dmg verify-release release xcodeproj scan-v2-release
 
 help:
 	@echo "WriterFlow build targets:"
@@ -11,6 +11,7 @@ help:
 	@echo "  make test        — swift test"
 	@echo "  make lint        — swiftlint (requires 'brew install swiftlint')"
 	@echo "  make bundle      — build + wrap as build/WriterFlow.app"
+	@echo "  make compatibility-build — compile macOS 14 Release slices for arm64 + x86_64"
 	@echo "  make install     — install to ~/Applications/WriterFlow.app (stable permissions)"
 	@echo "  make install-run — install + quit old + launch from ~/Applications"
 	@echo "  make run         — install to ~/Applications + launch (stable TCC path)"
@@ -19,7 +20,7 @@ help:
 	@echo "  make clean       — remove .build and build/"
 	@echo "  make release     — V2 ONLY: Developer ID sign + notarize + staple (not a v1 requirement)"
 	@echo "  make dmg         — package build/WriterFlow.app into a drag-to-Applications DMG (branded installer window)"
-	@echo "  make verify-release — single-command v1: clean + release bundle + verify identity/secrets + DMG + checksum"
+	@echo "  make verify-release — clean + universal release bundle + verify identity/secrets + DMG + checksum"
 
 xcodeproj:
 	@if command -v xcodegen >/dev/null; then \
@@ -46,6 +47,9 @@ lint:
 
 bundle:
 	scripts/bundle.sh $(CONFIG)
+
+compatibility-build:
+	scripts/check-macos-compatibility.sh --build
 
 stop:
 	@pkill -x WriterFlow 2>/dev/null && echo "Stopped WriterFlow." || echo "No WriterFlow process running."

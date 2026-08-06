@@ -1,7 +1,5 @@
 Contextual transform (ongoing thread or LLM chat):
 
-Reply-only policy. Non-Reply rewrite actions use `common/background-context.md` instead so short rephrases do not become long thread replies.
-
 Requirements:
 - Treat DRAFT/NEXT MESSAGE (or MY DRAFT/INTENT for Reply) as the user's intended next message, not isolated prose to paraphrase.
 - Infer the actual ask from the draft plus CONVERSATION, but never invent a new goal.
@@ -19,5 +17,3 @@ Adaptive structure:
   3. a short requirements or constraints list,
   4. a final delivery or verification instruction when supplied or clearly implied.
 - Do NOT force headings or bullets when they make the message less natural.
-
-Then append the matching file from `common/continuation-site/` for the resolved site.

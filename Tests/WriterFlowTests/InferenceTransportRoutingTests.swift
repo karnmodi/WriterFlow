@@ -113,4 +113,17 @@ final class InferenceRequestBuilderTests: XCTestCase {
         XCTAssertTrue(request.hasSelection)
         XCTAssertTrue(request.hasVisibleThread)
     }
+
+    func testFormalTrimsLongConversationBeforeCloudRequest() {
+        let longConversation = String(repeating: "z", count: 2_500) + "CLOUD_TAIL"
+        let request = InferenceRequestBuilder.build(
+            action: .formal,
+            snapshot: snapshot(fullText: "please clarify"),
+            site: "cursor",
+            conversation: longConversation
+        )
+        XCTAssertEqual(request.conversation, String(longConversation.suffix(1_200)))
+        XCTAssertTrue(request.conversation?.hasSuffix("CLOUD_TAIL") == true)
+        XCTAssertTrue(request.hasVisibleThread)
+    }
 }

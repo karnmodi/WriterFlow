@@ -85,7 +85,10 @@ actor WriterFlowInferenceTransport: InferenceTransport {
     /// budget for the whole response — Prompt Builder and Elaborate routinely
     /// generate for longer than this. Injectable so tests can exercise the
     /// watchdog without waiting out the production value.
-    static let defaultFirstTokenTimeout = Duration.seconds(15)
+    /// The server aborts at three seconds. This slightly wider client deadline
+    /// lets its terminal SSE error arrive while still bounding edge/network
+    /// stalls that never reach the server.
+    static let defaultFirstTokenTimeout = Duration.seconds(4)
 
     /// Which child of the streaming task group reported back. The watchdog
     /// retiring is not a reason to stop reading, so the two cases have to be

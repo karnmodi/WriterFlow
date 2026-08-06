@@ -6,6 +6,7 @@ Requirements:
 - Do NOT greet, acknowledge prior messages, summarize the thread, or add new asks.
 - Do NOT expand a short draft into a long send-ready reply; keep length close to DRAFT unless the action instruction explicitly asks to expand (Elaborate) or the user's INSTRUCTION/BRIEF requires more length.
 - Do NOT pull thread history into the output beyond what DRAFT already needs to stay clear.
+- Prefer the shortest correct rewrite; start with the rewritten DRAFT immediately — no preamble.
 - Preserve the requested outcome and all factual meaning from DRAFT.
 - Output ONLY the rewritten DRAFT text.
 

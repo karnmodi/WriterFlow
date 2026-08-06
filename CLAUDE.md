@@ -18,6 +18,22 @@ and the ARM64 ad-hoc-signed DMG. Its production AI transport is bring-your-own A
 OpenAI endpoint/key/deployment configuration; the user's key is stored in that user's
 Keychain and no publisher-owned/shared credential ships in the app.
 
+**V2.0.2 is the macOS compatibility release.** The minimum remains macOS 14.0, covering
+Sonoma 14, Sequoia 15, and Tahoe 26. Release packaging is now one universal app/DMG
+with native arm64 and x86_64 slices; debug builds remain native-only. The automated
+compatibility gate keeps `Package.swift`, `project.yml`, and `Info.plist` aligned,
+cross-compiles both Release slices, and verifies the executable plus bundled SQLCipher
+framework do not require newer than macOS 14. The real macOS 14/15/26 × Apple
+silicon/Intel runtime matrix remains a manual Phase 8 release criterion.
+
+**Production browser pairing regression diagnosed (2026-08-06), fix pending cloud
+apply.** Cloudflare serves an interactive challenge (403) to the website Container
+App's server-to-server calls to `apiwriterflow.aviusolutions.com`, after Entra has
+already verified the user. The website must use APIM's default `azure-api.net` gateway
+for `WRITERFLOW_API_BASE_URL`; Mac clients retain the public hostname. The Bicep change,
+typed callback error handling, retry-code preservation, tests, and runbook update are
+complete locally. Azure has not been mutated as part of this task.
+
 **V2.0 Stage 5.0 is complete. Stage 5.1 (backend/database/infrastructure skeleton) is
 code-complete and locally verified; its Accept criterion still needs a real cloud
 deployment.** All Stage 5.0 checklist items are checked in
@@ -174,6 +190,7 @@ Common commands:
 make build        # swift build
 make test         # swift test
 make lint         # swiftlint (brew install swiftlint first)
+make compatibility-build # cross-compile macOS 14 arm64 + x86_64 Release slices
 make bundle       # build + wrap as build/WriterFlow.app
 make run          # bundle + open
 ```
@@ -202,7 +219,7 @@ Never invent requirements — if something isn't specified in these docs, ask or
 - **Auth (v2):** browser-mediated. The web app is the confidential Entra External ID client and hosts membership/payment; the Mac app is not an OAuth client and pairs via a device-authorization flow to receive a WriterFlow-minted, per-device, revocable token (ADR-0011/0012). The Mac never holds an Entra token or client secret.
 - **Storage:** V1 uses local SQLite via GRDB plus UserDefaults. V2 keeps GRDB but encrypts it with SQLCipher, moves user content out of UserDefaults, and adds private managed PostgreSQL for identity/membership/entitlement/usage state. Raw cloud inference content is ephemeral by default.
 - **Backend (v2):** Microsoft Entra External ID · Azure API Management · TypeScript/Fastify on Azure Container Apps · Azure Database for PostgreSQL Flexible Server · Key Vault/App Configuration · Stripe. Do not substitute a different stack without updating the v2 ADR/specs.
-- **Distribution:** V1 = public DMG containing an ad-hoc-signed app + SHA-256 + manual Gatekeeper approval/manual updates, with no Apple membership. **V2 keeps this same ad-hoc model — no Apple Developer account, no notarization, no Sparkle (ADR-0010)**, because browser-mediated auth removes the redirect-URI/Keychain-access-group dependencies that had required a Developer ID. NOT Mac App Store (private AX usage would be rejected).
+- **Distribution:** V1 = public DMG containing an ad-hoc-signed app + SHA-256 + manual Gatekeeper approval/manual updates, with no Apple membership. **V2 keeps this same ad-hoc model in one universal arm64+x86_64 DMG — no Apple Developer account, no notarization, no Sparkle (ADR-0010)**, because browser-mediated auth removes the redirect-URI/Keychain-access-group dependencies that had required a Developer ID. NOT Mac App Store (private AX usage would be rejected).
 
 ## Project structure (create in Phase 0, keep to it)
 

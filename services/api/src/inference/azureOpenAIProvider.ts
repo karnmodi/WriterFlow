@@ -1,4 +1,5 @@
 import { DefaultAzureCredential, type AccessToken } from "@azure/identity";
+import type { WritingAction } from "@writerflow/shared";
 import { ApiError } from "../errors.js";
 import type { InferenceProvider, InferenceProviderRequest, InferenceStreamResult } from "./provider.js";
 import { compilePrompt } from "./promptCompiler.js";
@@ -13,7 +14,31 @@ export interface AzureOpenAIProviderConfig {
    * caused on this deployment. Omit only when the deployment is non-reasoning.
    */
   reasoningEffort?: "minimal" | "low" | "medium" | "high";
+  /**
+   * Ceiling for max_completion_tokens. Per-action caps below this keep
+   * rewrite completions short so first visible text stays in the 1–2s band.
+   */
   maxCompletionTokens?: number;
+}
+
+/** Action-aware completion caps — shorter rewrites finish faster. */
+export function maxCompletionTokensForAction(
+  action: WritingAction,
+  configuredCeiling: number
+): number {
+  const caps: Record<WritingAction, number> = {
+    // `max_completion_tokens` includes hidden reasoning tokens. Keep enough
+    // headroom that a short reasoning pass cannot consume the entire budget
+    // and leave an empty visible stream.
+    fixGrammar: 512,
+    formal: 512,
+    casual: 512,
+    elaborate: 768,
+    custom: 768,
+    reply: 1_024,
+    promptBuilder: 1_024
+  };
+  return Math.min(configuredCeiling, caps[action]);
 }
 
 /**
@@ -63,7 +88,7 @@ export class AzureOpenAIProvider implements InferenceProvider {
     const draft = request.envelope.content.draft;
     const url =
       `${this.endpoint}/openai/deployments/${this.deployment}/chat/completions?api-version=${encodeURIComponent(this.apiVersion)}`;
-    const maxCompletionTokens = this.maxCompletionTokens;
+    const maxCompletionTokens = maxCompletionTokensForAction(request.action, this.maxCompletionTokens);
     const reasoningEffort = this.reasoningEffort;
     const getBearer = (): Promise<string> => this.accessToken();
 
@@ -101,12 +126,23 @@ export class AzureOpenAIProvider implements InferenceProvider {
           ? AbortSignal.any([request.signal, AbortSignal.timeout(45_000)])
           : AbortSignal.timeout(45_000);
 
-        const response = await fetch(url, requestInit);
+        let response: Response;
+        try {
+          response = await fetch(url, requestInit);
+        } catch (error) {
+          if (request.signal?.aborted) throw error;
+          throw new ApiError(
+            "MODEL_UNAVAILABLE",
+            503,
+            "WriterFlow cannot reach the writing model right now. Please try again shortly."
+          );
+        }
         if (!response.ok || !response.body) {
           const payload = await response.json().catch(() => null) as {
             error?: { code?: string; message?: string; innererror?: { code?: string } };
           } | null;
           const code = payload?.error?.code ?? payload?.error?.innererror?.code ?? "unknown";
+          const providerMessage = payload?.error?.message ?? "";
           // Azure saturates with 429 / RateLimitReached — surface as RATE_LIMITED
           // so the Mac preview can show a clear retry message instead of hanging.
           if (response.status === 429 || /rate.?limit|quota|capacity/i.test(code)) {
@@ -121,6 +157,17 @@ export class AzureOpenAIProvider implements InferenceProvider {
               "MODEL_UNAVAILABLE",
               503,
               "The writing model is temporarily unavailable. Please try again."
+            );
+          }
+          if (
+            response.status === 404
+            || (response.status === 400
+              && /model|deployment|unsupported|reasoning|parameter/i.test(`${code} ${providerMessage}`))
+          ) {
+            throw new ApiError(
+              "MODEL_UNAVAILABLE",
+              503,
+              "The writing model configuration is temporarily unavailable. Please try again shortly."
             );
           }
           throw new Error(`Azure OpenAI request failed (${response.status}, ${code})`);
@@ -165,7 +212,11 @@ export class AzureOpenAIProvider implements InferenceProvider {
           }
         }
         if (!gotDelta) {
-          throw new Error("Azure OpenAI request failed (empty_stream)");
+          throw new ApiError(
+            "MODEL_UNAVAILABLE",
+            503,
+            "The writing model did not produce text. Please try again."
+          );
         }
         usageResolve({ inputTokens, outputTokens });
       } catch (error) {

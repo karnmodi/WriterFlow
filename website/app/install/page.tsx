@@ -46,7 +46,7 @@ export default function InstallPage() {
         <div className="site-shell">
           <div className="readiness-strip" aria-label="WriterFlow installation requirements">
             <div><span>macOS</span><strong>14 or later</strong></div>
-            <div><span>Mac</span><strong>Apple silicon</strong></div>
+            <div><span>Mac</span><strong>Apple silicon or Intel</strong></div>
             <div><span>Account</span><strong>Private beta</strong></div>
             <div><span>Updates</span><strong>Manual</strong></div>
           </div>
@@ -88,7 +88,7 @@ export default function InstallPage() {
                             <code>{release.sha256}</code>
                           </>
                         ) : (
-                          "The final SHA-256 will be published alongside the WriterFlow 2.0.0 DMG."
+                          `The final SHA-256 will be published alongside the WriterFlow ${release.version} DMG.`
                         )}
                       </p>
                     </div>

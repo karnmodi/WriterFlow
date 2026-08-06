@@ -146,6 +146,30 @@ enum Prompts {
         return AppAdapterRegistry.isLLMChatSite(site)
     }
 
+    /// Character budget for CONVERSATION sent to the model. Reply/Prompt Builder
+    /// keep a fuller thread; rewrite actions only need recent context for
+    /// reference resolution so first-token latency stays in the 1–2s band.
+    static func conversationBudget(for action: WritingAction) -> Int {
+        switch action {
+        case .reply, .promptBuilder:
+            return 4_000
+        case .custom:
+            return 2_000
+        case .elaborate, .formal, .casual, .fixGrammar:
+            return 1_200
+        }
+    }
+
+    /// Keeps the most recent `conversationBudget` characters (thread tail).
+    static func trimmedConversation(_ text: String?, for action: WritingAction) -> String? {
+        guard let text else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let budget = conversationBudget(for: action)
+        guard trimmed.count > budget else { return trimmed }
+        return String(trimmed.suffix(budget))
+    }
+
     /// Non-Reply actions with an attached thread: use conversation as background
     /// only (resolve references / protect terms), never draft a full reply.
     static func shouldApplyBackgroundContext(
@@ -170,6 +194,7 @@ enum Prompts {
         unless the action instruction explicitly asks to expand (Elaborate) or the user's \
         INSTRUCTION/BRIEF requires more length.
         - Do NOT pull thread history into the output beyond what DRAFT already needs to stay clear.
+        - Prefer the shortest correct rewrite; start with the rewritten DRAFT immediately — no preamble.
         - Preserve the requested outcome and all factual meaning from DRAFT.
         - Output ONLY the rewritten DRAFT text.
         """

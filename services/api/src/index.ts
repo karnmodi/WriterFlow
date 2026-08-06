@@ -18,6 +18,15 @@ const entraVerifier =
 const inferenceProvider = createInferenceProvider(process.env);
 const app = buildApp({ config, pool, signingKeys, entraVerifier, inferenceProvider });
 
+// Pay dependency cold-start cost before the revision accepts user traffic.
+// In production the first verification-key fetch from Key Vault can take
+// several seconds; leaving it lazy made the first rewrite after a rollout
+// miss the 2–3 second first-output target even when the model was warm.
+await Promise.all([
+  signingKeys.getPublicJwks(),
+  pool.query("SELECT 1")
+]);
+
 closeWithGrace({ delay: 5000 }, async ({ err }) => {
   if (err) {
     app.log.error({ err: { message: err.message } }, "closing due to error");

@@ -71,6 +71,7 @@ enum InferenceRequestBuilder {
         retryOf: UUID? = nil
     ) -> InferenceRequest {
         let hasSelection = !snapshot.selectedText.isEmpty
+        let trimmedConversation = Prompts.trimmedConversation(conversation, for: action)
         return InferenceRequest(
             action: action,
             operationId: operationId,
@@ -81,9 +82,9 @@ enum InferenceRequestBuilder {
             targetScope: hasSelection ? "selection" : "field",
             draft: snapshot.fullText,
             selectedText: hasSelection ? snapshot.selectedText : nil,
-            conversation: conversation,
+            conversation: trimmedConversation,
             hasSelection: hasSelection,
-            hasVisibleThread: !(conversation?.isEmpty ?? true),
+            hasVisibleThread: !(trimmedConversation?.isEmpty ?? true),
             customInstruction: customInstruction,
             promptBuilder: promptBuilder,
             outputModeHint: outputMode(action: action, customInstruction: customInstruction)

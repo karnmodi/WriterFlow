@@ -128,6 +128,7 @@ final class PromptBuilderBuildTests: XCTestCase {
 
         XCTAssertTrue(built.system.contains("Background context"))
         XCTAssertTrue(built.system.contains("not a reply to CONVERSATION"))
+        XCTAssertTrue(built.system.contains("shortest correct rewrite"))
         XCTAssertTrue(built.system.contains("Change register only"))
         XCTAssertFalse(built.system.contains("Contextual transform"))
         XCTAssertFalse(built.system.contains("Adaptive structure"))
@@ -135,6 +136,30 @@ final class PromptBuilderBuildTests: XCTestCase {
         XCTAssertTrue(built.user.contains("CONVERSATION:"))
         XCTAssertTrue(built.user.contains("DRAFT:"))
         XCTAssertFalse(built.user.contains("DRAFT/NEXT MESSAGE:"))
+    }
+
+    func testFormalTrimsLongConversationToRecentTail() {
+        let longConversation = String(repeating: "x", count: 2_000) + "UNIQUE_TAIL"
+        let built = PromptBuilder.build(
+            action: .formal,
+            snapshot: cursorSnapshot(text: "please fix ActionEngine.swift"),
+            conversationContext: longConversation
+        )
+
+        XCTAssertTrue(built.user.contains("UNIQUE_TAIL"))
+        XCTAssertFalse(built.user.contains(String(repeating: "x", count: 2_000)))
+        let conversationPart = built.user
+            .components(separatedBy: "CONVERSATION:\n").last?
+            .components(separatedBy: "\nDRAFT:").first ?? ""
+        XCTAssertLessThanOrEqual(conversationPart.count, 1_200)
+        XCTAssertEqual(conversationPart.count, 1_200)
+    }
+
+    func testConversationBudgetIsLargerForReply() {
+        XCTAssertEqual(Prompts.conversationBudget(for: .formal), 1_200)
+        XCTAssertEqual(Prompts.conversationBudget(for: .reply), 4_000)
+        XCTAssertEqual(Prompts.conversationBudget(for: .promptBuilder), 4_000)
+        XCTAssertEqual(Prompts.conversationBudget(for: .custom), 2_000)
     }
 
     func testCasualWithConversationUsesBackgroundOnly() {

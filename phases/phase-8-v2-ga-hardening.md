@@ -27,7 +27,9 @@ Source: [V2-ROADMAP.md](../V2-ROADMAP.md) Phase 8 and [PRD-V2.md](../PRD-V2.md) 
 **Accept:** migration cohort completes; rollback tested without app release.
 
 ## Stage 8.4 — Distribution release gate
+- [x] Universal arm64+x86_64 ad-hoc Release build and artifact/deployment-target verifier
 - [ ] Ad-hoc DMG + SHA-256 + manual Gatekeeper docs (ADR-0010)
+- [ ] Runtime matrix: latest macOS 14, 15, and 26 on Apple silicon and supported Intel hardware; include a clean macOS 14 minimum-version install
 - [ ] Pairing survives app updates
 - [ ] Public pricing, privacy, retention, subprocessor disclosure
 - [ ] Support and account-deletion paths live

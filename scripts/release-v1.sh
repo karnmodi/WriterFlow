@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Deterministic single-command v1 build + release verifier for WriterFlow.
+# Deterministic single-command ad-hoc build + release verifier for WriterFlow.
 #
-# This is the v1 packaging workflow described in RELEASE.md ("Build and package
-# v1.0"). It is NOT the deferred Developer ID / notarization path (scripts/release.sh).
+# This retains the historical filename used by the v1 packaging workflow in RELEASE.md.
+# It is NOT the deferred Developer ID / notarization path (scripts/release.sh).
 # It performs a clean release build, wraps the ad-hoc-signed hardened-runtime app,
 # proves the bundle identity/version/architecture/signature, scans the app AND the
 # mounted DMG for forbidden credential files and secrets, then produces and verifies
@@ -12,9 +12,9 @@
 # scanners report only file paths, match counts, and the name of the offending rule.
 #
 # Notes:
-#   * spctl/Gatekeeper rejection is EXPECTED for this unidentified, non-notarized v1
+#   * spctl/Gatekeeper rejection is EXPECTED for this unidentified, non-notarized app
 #     and is intentionally not treated as a failure here (see RELEASE.md).
-#   * v1 advertises ARM64 only; this verifier enforces a single arm64 slice.
+#   * current releases are universal; the verifier checks every bundled Mach-O slice.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,9 +22,8 @@ cd "$ROOT"
 
 EXPECTED_BUNDLE_ID="com.karan.writerflow"
 # Prefer an explicit override; otherwise package whatever Info.plist advertises
-# (v1.0.0 historically; private-beta / v2 uses 2.0.0).
+# (v1.0.0 historically; private-beta / v2 uses the current Info.plist value).
 EXPECTED_VERSION="${EXPECTED_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)}"
-EXPECTED_ARCH="arm64"
 NOTICE_NAME="THIRD-PARTY-NOTICES.txt"
 
 APP="build/WriterFlow.app"
@@ -40,23 +39,23 @@ fail() { printf '  \033[31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 step() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
 
 # ---------------------------------------------------------------------------
-step "1/9  Clean"
+step "1/10  Clean"
 rm -rf .build build
 pass "removed .build and build/"
 
 # ---------------------------------------------------------------------------
-step "2/9  Unit tests"
+step "2/10  Unit tests"
 swift test
 pass "unit tests passed"
 
 # ---------------------------------------------------------------------------
-step "3/9  Release build + bundle (ad-hoc, hardened runtime)"
+step "3/10  Universal Release build + bundle (ad-hoc, hardened runtime)"
 CONFIG=release scripts/bundle.sh release
 [[ -d "$APP" ]] || fail "$APP was not produced"
 pass "built $APP"
 
 # ---------------------------------------------------------------------------
-step "4/9  Bundle identity, version, architecture"
+step "4/10  Bundle identity, version, architecture, deployment target"
 
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")"
 [[ "$BUNDLE_ID" == "$EXPECTED_BUNDLE_ID" ]] || fail "bundle id is '$BUNDLE_ID', expected '$EXPECTED_BUNDLE_ID'"
@@ -66,12 +65,18 @@ VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIS
 [[ "$VERSION" == "$EXPECTED_VERSION" ]] || fail "CFBundleShortVersionString is '$VERSION', expected '$EXPECTED_VERSION'"
 pass "version = $VERSION"
 
+scripts/check-macos-compatibility.sh --app "$APP" \
+    || fail "macOS compatibility verification failed"
 ARCHS="$(lipo -archs "$APP/Contents/MacOS/WriterFlow")"
-[[ "$ARCHS" == "$EXPECTED_ARCH" ]] || fail "architectures are '$ARCHS', expected exactly '$EXPECTED_ARCH' (v1 advertises ARM64 only)"
-pass "architecture = $ARCHS"
+pass "architectures = $ARCHS; deployment target = macOS 14.0"
+
+WEBSITE_VERSION="$(node -e 'process.stdout.write(require("./website/lib/release.json").version)')"
+[[ "$WEBSITE_VERSION" == "$EXPECTED_VERSION" ]] \
+    || fail "website release version is '$WEBSITE_VERSION', expected '$EXPECTED_VERSION'"
+pass "website release metadata version = $WEBSITE_VERSION"
 
 # ---------------------------------------------------------------------------
-step "5/9  Signature + hardened runtime"
+step "5/10  Signature + hardened runtime"
 
 codesign --verify --deep --strict --verbose=2 "$APP" 2>/dev/null || fail "codesign --verify failed"
 pass "codesign --verify --deep --strict"
@@ -84,7 +89,7 @@ grep -Eq 'flags=0x[0-9a-fA-F]*\(?[^)]*runtime' <<<"$SIGN_INFO" || fail "hardened
 pass "hardened runtime enabled"
 
 # ---------------------------------------------------------------------------
-step "6/9  Bundle resources (license notice + app icon)"
+step "6/10  Bundle resources (license notice + app icon)"
 [[ -f "$APP/Contents/Resources/$NOTICE_NAME" ]] || fail "$NOTICE_NAME missing from $APP/Contents/Resources"
 grep -q 'GRDB' "$APP/Contents/Resources/$NOTICE_NAME" || fail "$NOTICE_NAME does not mention GRDB"
 pass "$NOTICE_NAME bundled and mentions GRDB"
@@ -183,11 +188,11 @@ scan_tree() {
     fi
 }
 
-step "7/9  Secret + credential scan (app bundle)"
+step "7/10  Secret + credential scan (app bundle)"
 scan_tree "app" "$APP"
 
 # ---------------------------------------------------------------------------
-step "8/9  Build DMG, verify structure, scan mounted contents"
+step "8/10  Build DMG, verify structure, scan mounted contents"
 scripts/make-dmg.sh
 [[ -f "$DMG" ]] || fail "$DMG was not produced"
 hdiutil verify "$DMG" >/dev/null 2>&1 || fail "hdiutil verify failed for $DMG"
@@ -215,6 +220,12 @@ pass "mounted $DMG"
 [[ -f "$MOUNT_DIR/.DS_Store" ]] || fail "DMG missing .DS_Store (Finder window layout was not baked in)"
 [[ -f "$MOUNT_DIR/.VolumeIcon.icns" ]] || fail "DMG missing .VolumeIcon.icns"
 pass "DMG installer layout (app, Applications, background, .DS_Store, volume icon)"
+scripts/check-macos-compatibility.sh --app "$MOUNT_DIR/WriterFlow.app" \
+    || fail "mounted DMG contains an incompatible app"
+pass "mounted DMG contains the verified universal app"
+"$MOUNT_DIR/WriterFlow.app/Contents/MacOS/WriterFlow" --smoke-launch \
+    || fail "mounted WriterFlow app failed its native launch smoke check"
+pass "mounted WriterFlow app loads native dependencies, AppKit, and required resources"
 scan_tree "dmg" "$MOUNT_DIR"
 
 # ---------------------------------------------------------------------------

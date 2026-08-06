@@ -157,6 +157,12 @@ WRITERFLOW_API_BASE_URL=http://localhost:8080
 NEXT_PUBLIC_SITE_ORIGIN=http://localhost:3000             # used for post-logout redirect
 ```
 
+In the deployed Container App, `WRITERFLOW_API_BASE_URL` must use APIM's default
+`https://<service>.azure-api.net/v2` gateway. Do not point server-side token exchange
+at the Cloudflare-proxied public API hostname: automated Container Apps traffic can be
+served an interactive Cloudflare challenge and fail after Entra sign-in. The Mac app
+continues to use the public `apiwriterflow.aviusolutions.com` hostname.
+
 Register **both** redirect URIs and a **logout redirect URI**
 (`http://localhost:3000/account?signedOut=1`) on the Entra app registration.
 

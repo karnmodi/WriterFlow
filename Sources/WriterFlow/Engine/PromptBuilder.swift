@@ -46,6 +46,7 @@ enum PromptBuilder {
             windowTitle: snapshot.windowTitle
         )
         let toneBias = personalization.toneOverride ?? AppAdapterRegistry.adapter(for: snapshot.appBundleID).toneBias
+        let conversationContext = Prompts.trimmedConversation(conversationContext, for: action)
 
         var system: String
         switch action {

@@ -70,7 +70,7 @@ export const releaseHasDownload =
   (releaseIsAvailable || releaseIsPrivateBeta);
 
 export const releaseStatusCopy = releaseIsAvailable
-  ? `WriterFlow ${release.version} is available for Apple-silicon Macs.`
+  ? `WriterFlow ${release.version} is available for Apple-silicon and Intel Macs.`
   : releaseIsPrivateBeta
     ? releaseHasDownload
       ? `WriterFlow ${release.version} private beta is open to download. Sign in after install to pair your Mac and use cloud actions.`

@@ -2,7 +2,9 @@
 
 Native macOS menu-bar writing assistant. While you type in any app (Gmail, WhatsApp, Slack, Notes, …), a small floating icon appears. Click it — or press **⌃⌥ Space** — to rewrite, reply, or follow a custom instruction in place. Think Whisperflow, but for typing instead of voice.
 
-Requires **macOS 14+ on Apple Silicon (ARM64)**. Intel Macs are not supported by the v1 artifact. Not distributed via the Mac App Store (Accessibility APIs used here fail App Store review).
+Requires **macOS 14+**. The current release is a universal app for Apple silicon
+(ARM64) and Intel (x86_64). Not distributed via the Mac App Store (Accessibility APIs
+used here fail App Store review).
 
 **v1.0.0 is published** as a public, free **bring-your-own-key** download: AI actions use the user’s Azure OpenAI endpoint and API key. It has no WriterFlow account, membership, or shared publisher key. [`RELEASE.md`](RELEASE.md) preserves the v1 production/security runbook; [`PRD-V2.md`](PRD-V2.md) defines the planned account-backed v2 release.
 
@@ -67,7 +69,7 @@ must never be copied into a release artifact.
 ### 1. System requirements
 
 - macOS **14 Sonoma** or newer
-- Apple Silicon Mac for the currently verified build (Intel/universal output is a production decision still to be completed)
+- Apple silicon or Intel Mac supported by macOS 14 or later
 - Network access to a developer-owned Azure OpenAI endpoint
 
 ### 2. Install toolchain
@@ -221,6 +223,7 @@ To start clean on a machine: quit WriterFlow, delete the Application Support fol
 ```bash
 make test
 make lint          # requires swiftlint
+make compatibility-build # compile macOS 14 Release slices for arm64 + x86_64
 make install-run   # preferred daily loop
 ```
 

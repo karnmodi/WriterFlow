@@ -10,6 +10,11 @@ CUSTOM="${APIWRITERFLOW_URL:-https://apiwriterflow.aviusolutions.com}"
 if [[ -z "$GATEWAY" ]]; then
   GATEWAY="$(az apim show -g "$RG" -n "$APIM_NAME" --query "gatewayUrl" -o tsv 2>/dev/null || true)"
 fi
+if [[ -z "$GATEWAY" ]]; then
+  # Developer APIM can omit gatewayUrl while the custom Container Apps edge
+  # remains the live gateway. Do not turn an empty value into the local `/`.
+  GATEWAY="$CUSTOM"
+fi
 GATEWAY="${GATEWAY%/}/"
 
 echo "▸ APIM gateway: $GATEWAY"
@@ -52,6 +57,17 @@ aoai_local_auth="$(az cognitiveservices account show -g "$RG" -n "${NAME_PREFIX:
   exit 1
 }
 echo "  Azure OpenAI accepts managed identity, not reusable keys"
+
+# A stale model hostname fails as Node `fetch failed`, then opens the route
+# circuit after three user retries. Catch configuration drift at promotion.
+aoai_endpoint="$(az cognitiveservices account show -g "$RG" -n "${NAME_PREFIX:-wfprod}-openai" --query properties.endpoint -o tsv)"
+api_aoai_endpoint="$(az containerapp show -g "$RG" -n "$API_APP_NAME" \
+  --query "properties.template.containers[0].env[?name=='AZURE_OPENAI_ENDPOINT'].value | [0]" -o tsv)"
+if [[ "${aoai_endpoint%/}" != "${api_aoai_endpoint%/}" ]]; then
+  echo "ERROR: API Azure OpenAI endpoint does not match the live resource" >&2
+  exit 1
+fi
+echo "  API Azure OpenAI endpoint matches live resource"
 
 kv_rbac="$(az keyvault show -g "$RG" -n "${NAME_PREFIX:-wfprod}-kv" --query properties.enableRbacAuthorization -o tsv)"
 [[ "$kv_rbac" == "true" ]] || {

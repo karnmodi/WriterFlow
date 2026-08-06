@@ -839,9 +839,9 @@ this gate is meant to gate).
   `codesign` call gains `--entitlements WriterFlow.entitlements` — which it currently
   lacks entirely (the entitlements file already exists in this repo but was never
   actually being applied at sign time, a pre-existing gap this spike surfaced, not
-  something this spike changed). Architecture: arm64 only, matching this project's
-  existing single-architecture ad-hoc DMG distribution — no universal-binary gap to
-  chase.
+  something this spike changed). The original spike tested arm64 only. Version 2.0.2's
+  compatibility release closes that follow-up gap: the production app now builds both
+  arm64 and x86_64 slices and uses SQLCipher's universal macOS framework.
 - [x] Own and pin the required GRDB Swift-package fork/manifest, assign upstream and
   SQLCipher security-update responsibility, and prove SQLCipher is the only linked
   SQLite implementation for every advertised Release architecture. — vendored (not
@@ -858,8 +858,8 @@ this gate is meant to gate).
   they might for a normal remote SPM package. `otool -L` on the Release binary confirms
   the only SQLite-family linkage is `@rpath/SQLCipher.framework/...` — no
   `/usr/lib/libsqlite3.dylib` (the system SQLite) anywhere in the link graph, so
-  there's no dual-implementation ambiguity for the single arm64 architecture this
-  project ships.
+  there's no dual-implementation ambiguity. The 2.0.2 compatibility verifier repeats
+  this packaging check for both advertised Release architectures.
 - [x] Confirm no conflicting system SQLite/SQLCipher symbols and include all required
   licenses/notices. — confirmed via `otool -L` above. Licenses: GRDB's MIT `LICENSE`
   file is present in the vendored checkout at `vendor/GRDB.swift/LICENSE`;

@@ -66,3 +66,11 @@ The following are deliberately not Phase 4 task boxes and do not block v1:
 - Apple Developer Program membership and a Developer ID Application certificate.
 - Developer ID signing, notarization (`notarytool`), and ticket stapling. `scripts/release.sh` and `WriterFlow.entitlements` are retained as future workflow scaffolding.
 - Sparkle 2, a hosted appcast, EdDSA update signing, and automatic updates. V1 updates are manual.
+
+## Post-v1 compatibility release
+
+Version 2.0.2 replaces the current-release ARM64-only packaging constraint with one
+universal arm64+x86_64 executable while preserving the v1 ad-hoc signing, manual
+Gatekeeper, and manual-update policy. `make compatibility-build` compiles both macOS
+14.0 slices; `make verify-release` verifies the universal app and mounted DMG. The
+historical Stage 4.4 statements above continue to describe the published v1.0.0 artifact.

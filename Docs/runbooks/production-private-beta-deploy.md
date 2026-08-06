@@ -93,10 +93,20 @@ The Developer APIM path uses the existing Container Apps TLS edge.
 4. Bind `apiwriterflow.aviusolutions.com` to the existing APIM edge and keep
    Cloudflare DNS-only during certificate and SSE verification.
 
+The website's `WRITERFLOW_API_BASE_URL` is deliberately the APIM service's default
+`azure-api.net` gateway URL, not the Cloudflare-proxied public hostname. These calls
+carry Entra tokens from Next.js server routes and must never receive Cloudflare's
+interactive browser challenge. Mac clients continue to use
+`apiwriterflow.aviusolutions.com`; both paths still traverse APIM and receive the same
+Key Vault-backed origin credential before reaching the API.
+
 ## Acceptance probes
 
 - `scripts/cloud/apim-smoke.sh` passes through the custom hostname.
 - Browser sign-up/sign-in, `/account`, and device approval pass.
+- From the deployed website container, an empty `POST` to the configured
+  `/v2/web-session/token` reaches WriterFlow and returns `VALIDATION_FAILED` (400),
+  never a Cloudflare challenge (403).
 - A paired Mac completes every explicit action through APIM.
 - Direct calls to every Container Apps `/v2` origin route return 403 without
   APIM's origin credential. PostgreSQL rejects non-firewalled/TLS-less access,

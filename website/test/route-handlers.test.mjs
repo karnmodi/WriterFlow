@@ -131,6 +131,30 @@ describe("WriterFlow API errors", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it("does not misreport an intermediary 403 as an account denial", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response("<!doctype html><title>Challenge</title>", {
+      status: 403,
+      headers: { "Content-Type": "text/html" }
+    });
+
+    try {
+      const { mintPairingBridge } = await import("../lib/writerflow-api.ts");
+      await assert.rejects(
+        mintPairingBridge({ idToken: "entra-id-token" }),
+        (error) => {
+          assert.equal(
+            error.message,
+            "WriterFlow's account service could not be reached. Please try again."
+          );
+          return true;
+        }
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("GET /pair/callback", () => {
@@ -174,6 +198,46 @@ describe("GET /pair/callback", () => {
         "ABCD-EFGH"
       );
       assert.ok(response.cookies.get("wf_web_account"));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("keeps the pairing code and API reference when session minting fails", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/web-session/token")) {
+        return Response.json(
+          { code: "INTERNAL_ERROR", requestId: "req-pairing-456" },
+          { status: 503 }
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+
+    try {
+      const { GET } = await import("../app/pair/callback/route.ts");
+      const request = {
+        url: "http://localhost:3000/pair/callback?code=entra-code",
+        headers: new Headers({ host: "localhost:3000", "x-forwarded-proto": "http" }),
+        cookies: {
+          get: (name) => name === "wf_pair_pkce"
+            ? { value: JSON.stringify({ userCode: "ABCD-EFGH", codeVerifier: "test-verifier" }) }
+            : undefined
+        }
+      };
+
+      const response = await GET(request);
+      const location = new URL(response.headers.get("location"));
+
+      assert.equal(response.status, 307);
+      assert.equal(location.pathname, "/pair");
+      assert.equal(location.searchParams.get("status"), "error");
+      assert.equal(location.searchParams.get("user_code"), "ABCD-EFGH");
+      assert.equal(
+        location.searchParams.get("message"),
+        "WriterFlow's account service is temporarily unavailable. Reference: req-pairing-456."
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }

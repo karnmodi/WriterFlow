@@ -14,13 +14,13 @@ import { commitInferenceRequest, releaseInferenceRequest, reserveInferenceReques
 import type { InferenceProvider } from "../inference/provider.js";
 
 const actionConfig: Record<WritingAction, { route: LogicalRoute; promptVersion: string; intent: DecisionIntent }> = {
-  elaborate: { route: "rewrite_standard", promptVersion: "elaborate@5.1.0", intent: "elaborate" },
-  formal: { route: "rewrite_standard", promptVersion: "formal@5.1.0", intent: "tone" },
-  casual: { route: "rewrite_standard", promptVersion: "casual@5.1.0", intent: "tone" },
-  fixGrammar: { route: "grammar_fast", promptVersion: "grammar@5.1.0", intent: "grammar" },
-  reply: { route: "rewrite_standard", promptVersion: "reply@5.1.0", intent: "reply" },
-  custom: { route: "rewrite_standard", promptVersion: "custom@5.1.0", intent: "custom" },
-  promptBuilder: { route: "prompt_enhancer", promptVersion: "prompt-builder@5.1.0", intent: "prompt_enhance" }
+  elaborate: { route: "rewrite_standard", promptVersion: "elaborate@5.1.3", intent: "elaborate" },
+  formal: { route: "rewrite_standard", promptVersion: "formal@5.1.3", intent: "tone" },
+  casual: { route: "rewrite_standard", promptVersion: "casual@5.1.3", intent: "tone" },
+  fixGrammar: { route: "grammar_fast", promptVersion: "grammar@5.1.3", intent: "grammar" },
+  reply: { route: "rewrite_standard", promptVersion: "reply@5.1.3", intent: "reply" },
+  custom: { route: "rewrite_standard", promptVersion: "custom@5.1.3", intent: "custom" },
+  promptBuilder: { route: "prompt_enhancer", promptVersion: "prompt-builder@5.1.3", intent: "prompt_enhance" }
 };
 
 /**
@@ -132,9 +132,10 @@ export function registerInferenceRoutes(app: FastifyInstance, pool: pg.Pool, key
     // might have already fired by the time a given `await` resumes.
     const lifecycle = { terminated: false };
     const providerAbort = new AbortController();
-        // Cold starts + MI token can take a couple seconds; fail closed after
-        // that so the Mac spinner cannot hang forever on silent reasoning.
-        const FIRST_DELTA_TIMEOUT_MS = 15_000;
+    // The interaction promise is visible writing within 2–3 seconds. Abort at
+    // the upper bound so silent reasoning or a stalled provider never leaves
+    // the preview spinning indefinitely.
+    const FIRST_DELTA_TIMEOUT_MS = 3_000;
     let firstDeltaTimer: ReturnType<typeof setTimeout> | undefined;
     const providerStartedAt = Date.now();
     const keepalive = setInterval(() => {

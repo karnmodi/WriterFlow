@@ -5,6 +5,24 @@
 > evidence boxes reflect the repository's pre-publication record rather than the active
 > v2 plan. See [`PRD-V2.md`](PRD-V2.md) and [`V2-ROADMAP.md`](V2-ROADMAP.md) for v2.
 
+## Current compatibility release (2.0.2)
+
+The current release contract is macOS 14.0 or later on both Apple silicon (`arm64`)
+and Intel (`x86_64`). Debug builds remain native-only for a fast development loop;
+Release builds compile both deployment-target-14.0 slices, merge one universal
+executable, bundle the universal SQLCipher framework, then sign nested code and the app.
+
+Use `make compatibility-build` for the compile/API-availability gate and
+`make verify-release` for the complete universal app + DMG verification. The latter
+requires exactly `arm64 x86_64` in the app executable and every bundled Mach-O,
+checks that no component requires newer than macOS 14, and repeats the check against
+the mounted DMG. A side-effect-free `--smoke-launch` starts the mounted executable far
+enough to load its native dependencies and AppKit and resolve required resources,
+then exits before TCC, Keychain, database, or relocation work. Runtime acceptance still
+requires the macOS 14/15/26 × Apple
+silicon/Intel hardware matrix recorded under Phase 8; compilation alone does not close
+that manual gate.
+
 This document is the canonical production path for v1.0. It supersedes older notes
 that treated Developer ID signing, notarization, or Sparkle as v1 release blockers.
 
@@ -17,7 +35,7 @@ that treated Developer ID signing, notarization, or Sparkle as v1 release blocke
 | User data       | Existing local GRDB/SQLite and UserDefaults storage only; no remote user/account/membership database; user key lives only in that user’s Keychain                                    | SQLCipher locally; private PostgreSQL for account/membership/usage; opt-in encrypted personalization sync              |
 | AI processing   | Direct Azure OpenAI Responses API with the user’s endpoint + key + deployment names (configured in Setup / Settings)                                                                 | Authenticated WriterFlow relay with server-side logical Azure routes and private model endpoints                       |
 | App-facing APIs | No bespoke WriterFlow HTTP, REST, or GraphQL API                                                                                                                                     | Versioned authenticated WriterFlow HTTPS/SSE API; public edge with private origins/model plane                          |
-| Distribution    | Release build, verified hardened-runtime ad-hoc app signature (or an explicit reviewed security exception), public DMG, SHA-256 checksum, manual Gatekeeper approval, manual updates | Developer ID/notarization/update work tracked as a separate v2 release gate                                             |
+| Distribution    | Release build, verified hardened-runtime ad-hoc app signature (or an explicit reviewed security exception), public DMG, SHA-256 checksum, manual Gatekeeper approval, manual updates | Same ad-hoc/manual-update policy in one universal Apple-silicon + Intel DMG (ADR-0010)                                  |
 
 
 For this plan, **no custom APIs** means WriterFlow does not create or operate an
@@ -117,7 +135,7 @@ state and should not be silently rewritten after the fact.
 
 
 
-## Build and package v1.0
+## Build and package the current ad-hoc release
 
 No Apple Developer Program membership or Apple signing credential is required for this
 path. Run it only after all production gates above pass:
@@ -126,8 +144,10 @@ path. Run it only after all production gates above pass:
 make verify-release
 ```
 
-`scripts/release-v1.sh` cleans previous output, runs unit tests, builds Release,
-requires hardened-runtime ad-hoc signing, verifies bundle ID/version/ARM64 architecture,
+`scripts/release-v1.sh` retains its historical filename but now cleans previous output,
+runs unit tests, builds both Release architectures, merges the universal executable,
+requires hardened-runtime ad-hoc signing, verifies bundle ID/version/deployment target,
+checks every bundled Mach-O for exact `arm64` + `x86_64` coverage,
 bundles third-party notices, scans the app and mounted DMG for credentials/private
 endpoints, verifies DMG integrity, and creates + verifies the SHA-256 file. Any failed
 check stops the workflow.
@@ -141,7 +161,7 @@ Before upload:
    lipo -archs build/WriterFlow.app/Contents/MacOS/WriterFlow
    codesign --verify --deep --strict --verbose=2 build/WriterFlow.app
    codesign -dv --verbose=4 build/WriterFlow.app 2>&1
-   hdiutil verify build/WriterFlow-1.0.0.dmg
+   hdiutil verify build/WriterFlow-2.0.2.dmg
   ```
    Confirm the expected bundle ID/version/architectures, `Signature=adhoc`, and—after
    that v1 hardening is implemented—the runtime flag. `spctl --assess` rejection is
@@ -152,7 +172,7 @@ Before upload:
    scanning with a review of every build input and generated resource.
 3. Verify the SHA-256 file from the directory whose filenames it records:
   ```bash
-   (cd build && shasum -a 256 -c WriterFlow-1.0.0.dmg.sha256)
+   (cd build && shasum -a 256 -c WriterFlow-2.0.2.dmg.sha256)
   ```
 4. Upload a release candidate, then download it through the intended public HTTPS URL
   in a normal browser before testing Gatekeeper. A local/USB copy may lack quarantine

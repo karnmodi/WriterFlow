@@ -248,6 +248,9 @@ actor AzureOpenAIClient {
         continuation: AsyncThrowingStream<String, Error>.Continuation,
         attempt: Int = 0
     ) async throws {
+        // A retry is safe only before any visible output. Restarting after a
+        // delta duplicates/mixes two generations and looks like a retry loop.
+        var emittedOutput = false
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -291,6 +294,7 @@ actor AzureOpenAIClient {
                 if let type = json["type"] as? String, type == "response.output_text.delta",
                    let delta = json["delta"] as? String, !delta.isEmpty {
                     gotDelta = true
+                    emittedOutput = true
                     continuation.yield(delta)
                 }
                 if let type = json["type"] as? String, type == "response.completed",
@@ -309,7 +313,7 @@ actor AzureOpenAIClient {
         } catch is CancellationError {
             continuation.finish()
         } catch let error as URLError where error.code == .timedOut {
-            if attempt < 1 {
+            if !emittedOutput, attempt < 1 {
                 try await streamOnce(
                     url: url, apiKey: apiKey, deployment: deployment,
                     prompt: prompt, continuation: continuation, attempt: attempt + 1
@@ -318,7 +322,7 @@ actor AzureOpenAIClient {
                 continuation.finish(throwing: AzureOpenAIError.timeout)
             }
         } catch {
-            if attempt < 1, shouldRetry(error) {
+            if !emittedOutput, attempt < 1, shouldRetry(error) {
                 try await streamOnce(
                     url: url, apiKey: apiKey, deployment: deployment,
                     prompt: prompt, continuation: continuation, attempt: attempt + 1
