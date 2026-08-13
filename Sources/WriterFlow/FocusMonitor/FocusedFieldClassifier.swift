@@ -26,14 +26,25 @@ enum FocusedFieldClassifier {
         }
 
         let rawRole = AXCall.string(element, AXAttr.role) ?? "?"
-        guard let editable = FocusedElementResolver.resolveEditable(from: element) else {
-            Log.focus.debug("classify: resolveEditable found nothing, rawRole=\(rawRole, privacy: .public) app=\(bundleID ?? "?", privacy: .public)")
+        let windowTitle = focusedWindowTitle(pid: pid)
+        let policy = ComposeAppPolicy.resolve(bundleID: bundleID, windowTitle: windowTitle)
+
+        guard let editable = FocusedElementResolver.resolveEditable(
+            from: element,
+            bundleID: bundleID,
+            windowTitle: windowTitle
+        ) else {
+            Log.focus.debug(
+                "classify: resolveEditable found nothing, rawRole=\(rawRole, privacy: .public) app=\(bundleID ?? "?", privacy: .public) policy=\(String(describing: policy), privacy: .public)"
+            )
             return nil
         }
-        guard StrictFieldGate.allows(editable, pid: pid) else {
+        guard StrictFieldGate.allows(editable, pid: pid, policy: policy) else {
             let role = AXCall.string(editable, AXAttr.role) ?? "?"
             let frame = AXCall.axFrame(editable) ?? .zero
-            Log.focus.debug("StrictFieldGate rejected role=\(role, privacy: .public) frame=\(frame.debugDescription, privacy: .public) app=\(bundleID ?? "?", privacy: .public)")
+            Log.focus.debug(
+                "StrictFieldGate rejected role=\(role, privacy: .public) frame=\(frame.debugDescription, privacy: .public) app=\(bundleID ?? "?", privacy: .public) policy=\(String(describing: policy), privacy: .public)"
+            )
             return nil
         }
         guard let role = AXCall.string(editable, AXAttr.role) else { return nil }
@@ -45,13 +56,15 @@ enum FocusedFieldClassifier {
         if placementMode == .fieldCorner {
             Log.focus.debug("Caret fallback fieldCorner for \(bundleID ?? "?", privacy: .public)")
         }
+        // Terminals use key-injection line replace (not AX scrollback write).
+        let supportsReplace = true
         return FocusedField(
             role: role,
             frame: cocoaFrame,
             anchorRect: anchor,
             appBundleID: bundleID,
             appPID: pid,
-            supportsReplace: !TerminalApps.isTerminal(bundleID: bundleID)
+            supportsReplace: supportsReplace
         )
     }
 
@@ -85,5 +98,11 @@ enum FocusedFieldClassifier {
         cocoaFieldFrame: CGRect
     ) -> CGRect {
         CaretEstimator.anchorRect(for: element, cocoaFieldFrame: cocoaFieldFrame)
+    }
+
+    private static func focusedWindowTitle(pid: pid_t) -> String? {
+        let app = AXUIElementCreateApplication(pid)
+        guard let window = AXCall.element(app, AXAttr.focusedWindow) else { return nil }
+        return AXCall.string(window, AXAttr.title)
     }
 }

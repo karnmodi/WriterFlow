@@ -22,6 +22,20 @@ enum TextInserter {
         site: String? = nil,
         role: String? = nil
     ) async -> WriteResult {
+        if TerminalApps.isTerminal(bundleID: bundleID) {
+            let injected = await MainActor.run {
+                TerminalLineInserter.replace(pid: pid, with: replacement)
+            }
+            if injected {
+                recordWrite(bundleID, ok: true)
+                return .clipboardPasted
+            }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(replacement, forType: .string)
+            recordWrite(bundleID, ok: false)
+            return .failed("Couldn't replace terminal line — text is on your clipboard. Press ⌘V.")
+        }
+
         let context = await readContext(pid: pid, range: range, role: role, bundleID: bundleID)
 
         guard let context else {
@@ -30,7 +44,8 @@ enum TextInserter {
         }
 
         let clipboardMode = await MainActor.run {
-            AppRuleStore.shared.rule(forBundleID: bundleID, site: site)?.clipboardFallback
+            if site == "google-docs" { return true as Bool? }
+            return AppRuleStore.shared.rule(forBundleID: bundleID, site: site)?.clipboardFallback
                 ?? (SettingsStore.shared.forceClipboardFallback ? true : nil)
         }
 
@@ -119,7 +134,10 @@ enum TextInserter {
         let app = AXUIElementCreateApplication(pid)
         AXCall.armTimeout(app)
         guard let rawFocused = FocusedElementResolver.focusedElement(in: app),
-              let focused = FocusedElementResolver.resolveEditable(from: rawFocused)
+              let focused = FocusedElementResolver.resolveEditable(
+                from: rawFocused,
+                bundleID: bundleID
+              )
         else { return nil }
 
         let resolvedRole = role ?? AXCall.string(focused, AXAttr.role) ?? ""
@@ -274,11 +292,11 @@ enum TextInserter {
 
     // MARK: - Helpers
 
-    private static func resolveFocused(pid: pid_t) -> AXUIElement? {
+    private static func resolveFocused(pid: pid_t, bundleID: String? = nil) -> AXUIElement? {
         let app = AXUIElementCreateApplication(pid)
         AXCall.armTimeout(app)
         guard let raw = FocusedElementResolver.focusedElement(in: app) else { return nil }
-        return FocusedElementResolver.resolveEditable(from: raw)
+        return FocusedElementResolver.resolveEditable(from: raw, bundleID: bundleID)
     }
 
     private static func clampRange(_ range: NSRange, in length: Int) -> NSRange {

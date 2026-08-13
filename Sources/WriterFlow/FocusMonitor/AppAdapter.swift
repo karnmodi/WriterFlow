@@ -31,6 +31,7 @@ struct BrowserAdapter: AppAdapter {
         if title.contains("copilot") || title.contains("bing chat") { return "copilot" }
         if title.contains("perplexity") { return "perplexity" }
         if title.contains("poe") && (title.contains("poe.com") || title.hasPrefix("poe")) { return "poe" }
+        if title.contains("google docs") || title.contains("docs.google") { return "google-docs" }
         if title.contains("gmail") || title.contains("mail.google") { return "gmail" }
         if title.contains("outlook") || title.contains("office 365") { return "outlook" }
         if title.contains("whatsapp") { return "whatsapp-web" }
@@ -38,6 +39,38 @@ struct BrowserAdapter: AppAdapter {
         return nil
     }
     var toneBias: String { "Email/web compose — lean slightly formal unless the draft is clearly casual." }
+}
+
+struct VSCodeAdapter: AppAdapter {
+    private static let knownBundleIDs: Set<String> = [
+        "com.microsoft.VSCode",
+        "com.microsoft.VSCodeInsiders",
+        "com.visualstudio.code.oss"
+    ]
+
+    func identify(bundleID: String?, windowTitle: String?) -> String? {
+        guard let bundleID else { return nil }
+        if Self.knownBundleIDs.contains(bundleID) { return "vscode" }
+        if bundleID.lowercased().contains("vscode") { return "vscode" }
+        return nil
+    }
+
+    var toneBias: String {
+        "VS Code editor/chat — technical and concise; preserve code fences when present."
+    }
+}
+
+struct SpreadsheetAdapter: AppAdapter {
+    func identify(bundleID: String?, windowTitle: String?) -> String? {
+        guard let bundleID else { return nil }
+        if bundleID == "com.microsoft.Excel" { return "excel" }
+        if bundleID == "com.apple.iWork.Numbers" { return "numbers" }
+        return nil
+    }
+
+    var toneBias: String {
+        "Spreadsheet cell / formula bar — keep the result short; avoid prose unless asked."
+    }
 }
 
 struct ChatAppAdapter: AppAdapter {
@@ -80,17 +113,29 @@ struct TerminalAdapter: AppAdapter {
         TerminalApps.isTerminal(bundleID: bundleID) ? "terminal" : nil
     }
     var toneBias: String { "Terminal input — keep it terse; likely a command, commit message, or note." }
-    var supportsReplace: Bool { false }
+    /// Line-scoped key injection (Ctrl+U + paste), not AX scrollback write.
+    var supportsReplace: Bool { true }
 }
 
 enum AppAdapterRegistry {
-    private static let mailAndWeb: Set<String> = ["com.google.Chrome", "com.apple.Safari", "org.mozilla.firefox"]
+    private static let mailAndWeb: Set<String> = [
+        "com.google.Chrome",
+        "com.apple.Safari",
+        "org.mozilla.firefox",
+        "com.brave.Browser",
+        "company.thebrowser.Browser",
+        "com.microsoft.edgemac"
+    ]
     private static let electronChat: Set<String> = ["com.tinyspeck.slackmacgap", "net.whatsapp.WhatsApp"]
 
     static func adapter(for bundleID: String?) -> AppAdapter {
         guard let bundleID else { return GenericAdapter() }
         if TerminalApps.isTerminal(bundleID: bundleID) { return TerminalAdapter() }
+        if SpreadsheetAdapter().identify(bundleID: bundleID, windowTitle: nil) != nil {
+            return SpreadsheetAdapter()
+        }
         if CursorAdapter().identify(bundleID: bundleID, windowTitle: nil) != nil { return CursorAdapter() }
+        if VSCodeAdapter().identify(bundleID: bundleID, windowTitle: nil) != nil { return VSCodeAdapter() }
         if bundleID == "notion.id" { return NotionAdapter() }
         if electronChat.contains(bundleID) || bundleID.lowercased().contains("telegram") { return ChatAppAdapter() }
         if mailAndWeb.contains(bundleID) { return BrowserAdapter() }
@@ -102,7 +147,9 @@ enum AppAdapterRegistry {
     static func siteLabel(bundleID: String?, windowTitle: String?) -> String? {
         let candidates: [AppAdapter] = [
             TerminalAdapter(),
+            SpreadsheetAdapter(),
             CursorAdapter(),
+            VSCodeAdapter(),
             NotionAdapter(),
             ChatAppAdapter(),
             BrowserAdapter(),
@@ -117,11 +164,20 @@ enum AppAdapterRegistry {
     }
 
     private static let llmChatSites: Set<String> = [
-        "chatgpt", "claude", "gemini", "copilot", "perplexity", "poe", "cursor"
+        "chatgpt", "claude", "gemini", "copilot", "perplexity", "poe", "cursor", "vscode"
     ]
 
     static func isLLMChatSite(_ site: String?) -> Bool {
         guard let site else { return false }
         return llmChatSites.contains(site)
+    }
+
+    /// Tone bias for prompts — site-aware so Docs tabs don't inherit email tone.
+    static func toneBias(bundleID: String?, windowTitle: String?) -> String {
+        let site = siteLabel(bundleID: bundleID, windowTitle: windowTitle)
+        if site == "google-docs" {
+            return "Google Docs — match the document's register; preserve structure."
+        }
+        return adapter(for: bundleID).toneBias
     }
 }

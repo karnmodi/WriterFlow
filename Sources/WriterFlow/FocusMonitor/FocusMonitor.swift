@@ -240,7 +240,12 @@ final class FocusMonitor {
         let bundleID = observer.bundleID
         let classified: FocusedField? = axQueue.sync {
             let appElement = AXUIElementCreateApplication(pid)
-            guard let raw = FocusedElementResolver.focusedElement(in: appElement) else { return nil }
+            guard let raw = FocusedElementResolver.focusedElement(in: appElement) else {
+                Log.focus.debug(
+                    "keystroke bootstrap: no focused element app=\(bundleID ?? "?", privacy: .public)"
+                )
+                return nil
+            }
             return FocusedFieldClassifier.classify(raw, pid: pid, bundleID: bundleID)
         }
         if let classified {
@@ -250,6 +255,13 @@ final class FocusMonitor {
             ) {
                 observer.observeValueChanges(on: focused)
             }
+            Log.focus.debug(
+                "keystroke bootstrap: accepted role=\(classified.role, privacy: .public) app=\(bundleID ?? "?", privacy: .public)"
+            )
+        } else {
+            Log.focus.debug(
+                "keystroke bootstrap: classify rejected app=\(bundleID ?? "?", privacy: .public)"
+            )
         }
     }
 
@@ -286,7 +298,10 @@ final class FocusMonitor {
             _ = self  // keep alive across queue hop
             let appElement = AXUIElementCreateApplication(pid)
             guard let rawFocused = FocusedElementResolver.focusedElement(in: appElement),
-                  let focused = FocusedElementResolver.resolveEditable(from: rawFocused),
+                  let focused = FocusedElementResolver.resolveEditable(
+                    from: rawFocused,
+                    bundleID: bundleID
+                  ),
                   let axRect = AXCall.axFrame(focused)
             else { return }
             let cocoaRect = AXCoords.toCocoa(axRect)

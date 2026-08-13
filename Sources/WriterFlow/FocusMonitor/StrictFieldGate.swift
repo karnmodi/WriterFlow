@@ -11,11 +11,13 @@ enum StrictFieldGate {
         AXRole.comboBox
     ]
 
-    private static let maxWebWidth: CGFloat = 1_200
-    private static let maxWebHeight: CGFloat = 600
     private static let maxWindowAreaFraction: CGFloat = 0.40
 
-    static func allows(_ element: AXUIElement, pid: pid_t) -> Bool {
+    static func allows(
+        _ element: AXUIElement,
+        pid: pid_t,
+        policy: ComposeAppPolicy = .standard
+    ) -> Bool {
         guard let role = AXCall.string(element, AXAttr.role) else { return false }
         if role == AXRole.secureTextField { return false }
 
@@ -27,25 +29,38 @@ enum StrictFieldGate {
             return true
         }
 
-        return allowsWebLike(element, role: role, axFrame: axFrame, pid: pid)
+        if policy == .spreadsheet {
+            // Cells only when small + writable; never treat a whole sheet as one field.
+            guard role == AXRole.cell || role == AXRole.group else {
+                return AXCall.isSettable(element, AXAttr.selectedTextRange)
+                    || AXCall.isSettable(element, AXAttr.value)
+            }
+            return allowsWebLike(element, role: role, axFrame: axFrame, pid: pid, policy: policy)
+        }
+
+        return allowsWebLike(element, role: role, axFrame: axFrame, pid: pid, policy: policy)
     }
 
     private static func allowsWebLike(
         _ element: AXUIElement,
         role: String,
         axFrame: CGRect,
-        pid: pid_t
+        pid: pid_t,
+        policy: ComposeAppPolicy
     ) -> Bool {
         guard role == AXRole.webArea || role == AXRole.group || role == AXRole.cell else {
             return AXCall.isSettable(element, AXAttr.selectedTextRange)
                 || AXCall.isSettable(element, AXAttr.value)
         }
 
-        if axFrame.width > maxWebWidth || axFrame.height > maxWebHeight {
+        if let maxWidth = policy.maxWebWidth, axFrame.width > maxWidth {
+            return false
+        }
+        if let maxHeight = policy.maxWebHeight, axFrame.height > maxHeight {
             return false
         }
 
-        if occupiesTooMuchOfWindow(axFrame: axFrame, pid: pid) {
+        if policy.enforcesWindowAreaFraction, occupiesTooMuchOfWindow(axFrame: axFrame, pid: pid) {
             return false
         }
 

@@ -44,7 +44,10 @@ struct PreviewCardView: View {
     var onReplace: () -> Void
     var onCopy: () -> Void
     var onRetry: () -> Void
-    var onDiscard: () -> Void
+    /// Soft-hide (Esc / Close) — keeps an in-flight or unseen result recoverable.
+    var onClose: () -> Void
+    /// Permanently abandon a streaming run (cancels the engine).
+    var onCancelGeneration: () -> Void
 
     private var activeText: String {
         // Custom can ask for a derivative artifact (title/summary/etc.) via the
@@ -138,7 +141,7 @@ struct PreviewCardView: View {
                 shortcut: "Esc",
                 enabled: true,
                 prominent: false,
-                action: onDiscard
+                action: onClose
             )
         }
         .padding(.horizontal, 14)
@@ -286,14 +289,25 @@ struct PreviewCardView: View {
 
     private var toolbar: some View {
         HStack(spacing: 6) {
-            IconToolButton(
-                systemName: "arrow.clockwise",
-                label: "Retry",
-                shortcut: "⌘R",
-                enabled: !isStreaming,
-                prominent: false,
-                action: onRetry
-            )
+            if isStreaming {
+                IconToolButton(
+                    systemName: "stop.circle",
+                    label: "Cancel",
+                    shortcut: nil,
+                    enabled: true,
+                    prominent: false,
+                    action: onCancelGeneration
+                )
+            } else {
+                IconToolButton(
+                    systemName: "arrow.clockwise",
+                    label: "Retry",
+                    shortcut: "⌘R",
+                    enabled: true,
+                    prominent: false,
+                    action: onRetry
+                )
+            }
             Spacer(minLength: 0)
 
             if isClarifyMode {

@@ -75,7 +75,10 @@ final class RecommendationEngine {
                 guard !Task.isCancelled else { return }
 
                 let fieldText = snapshot?.actionText ?? ""
-                let toneBias = AppAdapterRegistry.adapter(for: target.appBundleID).toneBias
+                let toneBias = AppAdapterRegistry.toneBias(
+                    bundleID: target.appBundleID,
+                    windowTitle: snapshot?.windowTitle
+                )
 
                 let action = try await classifier.classifyAction(
                     fieldText: fieldText,

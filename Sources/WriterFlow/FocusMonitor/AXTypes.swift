@@ -51,7 +51,7 @@ struct FocusedField: Equatable, Sendable {
     let anchorRect: CGRect   // caret/selection line — use for icon placement
     let appBundleID: String?
     let appPID: pid_t
-    /// False for apps (terminals) where AX writes aren't safe — Replace is disabled, Copy-only.
+    /// False when Replace must be disabled (rare). Terminals support line-scoped Replace.
     var supportsReplace: Bool = true
 
     /// Stable identity for async callbacks — frame/caret updates must not invalidate matches.

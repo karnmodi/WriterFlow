@@ -107,6 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
             self?.overlay.failPreview(message: message)
         }
 
+        overlay.onCancelRequested = { [weak self] in
+            self?.actionEngine.cancel()
+        }
         overlay.onActionSelected = { [weak self] action, field in
             self?.actionEngine.run(action: action, field: field)
         }

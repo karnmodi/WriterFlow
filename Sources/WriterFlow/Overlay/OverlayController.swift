@@ -12,6 +12,10 @@ final class OverlayController {
     private var isIconVisible: Bool = false
     private var isPopoverVisible: Bool = false
     private var isPreviewVisible: Bool = false
+    /// Panel ordered out but session (stream / result) still held for reopen.
+    private var isPreviewSoftHidden: Bool = false
+    /// Field captured when the run started — used to place/restore after blur.
+    private var previewSessionField: FocusedField?
     private var highlightedIndex: Int = 0
 
     private var previewVariants = PreviewVariants.empty()
@@ -20,7 +24,7 @@ final class OverlayController {
     private var previewClarifyQuestions: [PromptBuilderOutputParser.ClarifyQuestion] = []
     private var previewClarifySelections: [String: String] = [:]
     private var previewStreaming: Bool = false {
-        didSet { iconState.isBusy = previewStreaming }
+        didSet { refreshBusyIcon() }
     }
     private var previewCanReplace: Bool = false
     private var previewErrorMessage: String?
@@ -33,6 +37,16 @@ final class OverlayController {
     private var pendingEvent: ConversionEvent?
     private var pendingUndo: PendingUndo?
     private var isApplyingPreview = false
+
+    private var hasActivePreviewSession: Bool {
+        PreviewSession.hasActiveSession(
+            pendingAction: pendingAction,
+            isStreaming: previewStreaming,
+            hasVisibleText: !previewVariants.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            hasError: !(previewErrorMessage?.isEmpty ?? true),
+            isClarify: !previewClarifyQuestions.isEmpty
+        )
+    }
 
     private var recommendedAction: WritingAction?
     private var userMovedHighlight = false
@@ -70,6 +84,8 @@ final class OverlayController {
     /// Synchronous cache check for a recommendation produced by an earlier explicit
     /// action-menu open on the same field.
     var onCheckCachedRecommendation: ((FocusedField) -> WritingAction?)?
+    /// Cancels the in-flight ActionEngine run (Discard / Cancel generation).
+    var onCancelRequested: (() -> Void)?
 
     private let iconSize = CGSize(width: 28, height: 28)
     private let popoverSize = CGSize(width: 230, height: 360)
@@ -185,7 +201,16 @@ final class OverlayController {
             onReplace: { [weak self] in self?.applyPreview() },
             onCopy: { [weak self] in self?.copyPreview() },
             onRetry: { [weak self] in self?.retryPreview() },
-            onDiscard: { [weak self] in self?.discardPreview() }
+            onClose: { [weak self] in self?.softHidePreview() },
+            onCancelGeneration: { [weak self] in self?.discardPreview() }
+        )
+    }
+
+    private func refreshBusyIcon() {
+        iconState.isBusy = PreviewSession.isIconBusy(
+            isStreaming: previewStreaming,
+            isSoftHidden: isPreviewSoftHidden,
+            hasActiveSession: hasActivePreviewSession
         )
     }
 
@@ -321,6 +346,8 @@ final class OverlayController {
         pendingSnapshot = nil
         pendingEvent = nil
         pendingUndo = nil
+        isPreviewSoftHidden = false
+        previewSessionField = currentField
 
         guard let field = currentField else { return }
         dismissActionPopover()
@@ -333,12 +360,14 @@ final class OverlayController {
             previewPanel.animator().alphaValue = 1.0
         }
         installPreviewKeyMonitor()
+        refreshBusyIcon()
     }
 
     func appendVariant(_ index: Int, delta: String) {
         previewErrorMessage = nil
         previewVariants.append(to: index, delta: delta)
         refreshPreviewContent()
+        refreshBusyIcon()
     }
 
     func markVariantComplete(_ index: Int) {
@@ -360,7 +389,12 @@ final class OverlayController {
         previewStreaming = false
         previewCanReplace = false
         refreshPreviewContent()
-        installPreviewKeyMonitor()
+        if isPreviewSoftHidden || !isPreviewVisible {
+            restorePreview()
+        } else {
+            installPreviewKeyMonitor()
+        }
+        refreshBusyIcon()
     }
 
     func finishPreview(variants: PreviewVariants, snapshot: FieldSnapshot, event: ConversionEvent) {
@@ -378,7 +412,15 @@ final class OverlayController {
         pendingSnapshot = snapshot
         pendingEvent = event
         refreshPreviewContent()
-        installPreviewKeyMonitor()
+        if PreviewSession.shouldAutoRestoreOnCompletion(
+            isSoftHidden: isPreviewSoftHidden,
+            hasActiveSession: hasActivePreviewSession
+        ) {
+            restorePreview()
+        } else if isPreviewVisible {
+            installPreviewKeyMonitor()
+        }
+        refreshBusyIcon()
     }
 
     private func selectPreviewVariant(_ index: Int) {
@@ -421,14 +463,16 @@ final class OverlayController {
         previewCanReplace = false
         previewErrorMessage = message
         previewStreamStartedAt = nil
-        if !isPreviewVisible, let field = currentField {
-            positionPanelAboveIcon(previewPanel, size: effectivePreviewSize, field: field)
-            isPreviewVisible = true
-            previewPanel.orderFrontRegardless()
-            previewPanel.alphaValue = 1
-        }
         refreshPreviewContent()
-        installPreviewKeyMonitor()
+        if PreviewSession.shouldAutoRestoreOnCompletion(
+            isSoftHidden: isPreviewSoftHidden || !isPreviewVisible,
+            hasActiveSession: hasActivePreviewSession
+        ) {
+            restorePreview()
+        } else if isPreviewVisible {
+            installPreviewKeyMonitor()
+        }
+        refreshBusyIcon()
         ErrorToast.show(message, belowIcon: dockIconAnchor())
         Log.overlay.error("Preview failed: \(message, privacy: .public)")
     }
@@ -450,10 +494,15 @@ final class OverlayController {
         guard !AppRuleStore.shared.isExcluded(bundleID: field.appBundleID),
               !AXWatchdog.shared.isDisabled(bundleID: field.appBundleID) else {
             currentField = nil
-            hideIcon()
+            if !hasActivePreviewSession {
+                hideIcon()
+            }
             return
         }
         currentField = field
+        if hasActivePreviewSession {
+            previewSessionField = field
+        }
         // Show on every editable field focus for both "While typing" and "On field focus".
         // Typing-only gated previously, so missing Input Monitoring (or a first-keystroke
         // delay) left the icon dead on inputs — matches AppDelegate's degraded-mode claim.
@@ -477,10 +526,21 @@ final class OverlayController {
             }
             suppressBlurUntil = nil
         }
-        currentField = nil
+
         dismissActionPopover()
-        finalizeEvent(accepted: false)
-        dismissPreview()
+
+        // Keep an in-flight / unseen result recoverable — soft-hide the card and
+        // leave the busy icon up so the user can reopen the same stream.
+        if PreviewSession.shouldSoftHideOnDismiss(hasActiveSession: hasActivePreviewSession) {
+            if currentField != nil {
+                previewSessionField = currentField
+            }
+            softHidePreview()
+            return
+        }
+
+        currentField = nil
+        hardClearPreview()
         hideIcon()
     }
 
@@ -632,9 +692,61 @@ final class OverlayController {
         })
     }
 
-    private func dismissPreview() {
-        guard isPreviewVisible else { return }
+    /// Esc / Close / blur: hide the panel but keep streaming state + text so the
+    /// user can reopen the same response from the busy icon.
+    private func softHidePreview() {
+        guard isPreviewVisible || hasActivePreviewSession else { return }
         isPreviewVisible = false
+        isPreviewSoftHidden = true
+        keyMonitor.uninstall()
+
+        if let field = currentField ?? previewSessionField {
+            positionIcon(in: field)
+            showIcon()
+        }
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = animDuration(0.10)
+            previewPanel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.isPreviewSoftHidden {
+                    self.previewPanel.orderOut(nil)
+                }
+            }
+        })
+        refreshBusyIcon()
+        Log.overlay.info("Preview soft-hidden — session retained")
+    }
+
+    /// Bring back a soft-hidden (or just-finished) preview with the same UI state.
+    private func restorePreview() {
+        guard hasActivePreviewSession else { return }
+        let field = currentField ?? previewSessionField
+        guard let field else { return }
+
+        dismissActionPopover()
+        isPreviewSoftHidden = false
+        positionPanelAboveIcon(previewPanel, size: effectivePreviewSize, field: field)
+        refreshPreviewContent()
+        isPreviewVisible = true
+        previewPanel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = animDuration(0.12)
+            previewPanel.animator().alphaValue = 1.0
+        }
+        installPreviewKeyMonitor()
+        refreshBusyIcon()
+        Log.overlay.info("Preview restored from soft-hidden session")
+    }
+
+    /// Permanent teardown — clears buffer, busy state, and pending action.
+    private func hardClearPreview() {
+        let wasVisible = isPreviewVisible || isPreviewSoftHidden
+        isPreviewVisible = false
+        isPreviewSoftHidden = false
+        previewSessionField = nil
         previewVariants = .empty()
         previewUsesMultiVariant = false
         previewPromptBuilderPhase = nil
@@ -643,11 +755,15 @@ final class OverlayController {
         previewOriginalText = ""
         previewStreaming = false
         previewCanReplace = false
+        previewErrorMessage = nil
+        previewStreamStartedAt = nil
         pendingSnapshot = nil
         pendingAction = nil
         pendingInstruction = nil
         keyMonitor.uninstall()
+        refreshBusyIcon()
 
+        guard wasVisible else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = animDuration(0.10)
             previewPanel.animator().alphaValue = 0
@@ -656,10 +772,13 @@ final class OverlayController {
         })
     }
 
-    /// User-initiated close without accepting the result (Discard button / Esc).
+    /// Cancel generation (streaming) or permanently discard a completed result.
     private func discardPreview() {
+        if previewStreaming {
+            onCancelRequested?()
+        }
         finalizeEvent(accepted: false)
-        dismissPreview()
+        hardClearPreview()
     }
 
     /// Tears the card down when the run behind it was aborted out-of-band (the
@@ -667,15 +786,19 @@ final class OverlayController {
     /// task silently by design, so without this the card keeps spinning against
     /// a request that no longer exists.
     func cancelPreview() {
-        guard isPreviewVisible else { return }
+        guard isPreviewVisible || isPreviewSoftHidden || hasActivePreviewSession else { return }
         finalizeEvent(accepted: false)
-        dismissPreview()
+        hardClearPreview()
     }
 
     // MARK: - Interaction
 
     private func handleIconClick() {
         Log.overlay.info("Icon clicked")
+        if isPreviewSoftHidden, hasActivePreviewSession {
+            restorePreview()
+            return
+        }
         toggleActionPopover()
     }
 
@@ -845,7 +968,7 @@ final class OverlayController {
             await MainActor.run {
                 isApplyingPreview = false
                 finalizeEvent(accepted: true)
-                dismissPreview()
+                hardClearPreview()
                 switch result {
                 case .selectedTextReplaced, .fullValueReplaced, .clipboardPasted:
                     // Sound-free by default; a subtle haptic instead — silently a no-op on
@@ -887,7 +1010,7 @@ final class OverlayController {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         finalizeEvent(accepted: true)
-        dismissPreview()
+        hardClearPreview()
         ErrorToast.show("Copied to clipboard", duration: 2.0, belowIcon: dockIconAnchor(), style: .success)
     }
 
@@ -944,7 +1067,7 @@ final class OverlayController {
     private func handlePreviewKeyEvent(_ event: PopoverKeyMonitor.KeyEvent) {
         switch event {
         case .escape:
-            discardPreview()
+            softHidePreview()
         case .returnKey:
             if previewPromptBuilderPhase == .clarify {
                 if previewClarifyQuestions.allSatisfy({ previewClarifySelections[$0.id] != nil }) {

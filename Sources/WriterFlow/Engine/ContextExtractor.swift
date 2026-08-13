@@ -54,7 +54,10 @@ enum ContextExtractor {
         let app = AXUIElementCreateApplication(pid)
         AXCall.armTimeout(app)
         guard let rawFocused = FocusedElementResolver.focusedElement(in: app),
-              let focused = FocusedElementResolver.resolveEditable(from: rawFocused),
+              let focused = FocusedElementResolver.resolveEditable(
+                from: rawFocused,
+                bundleID: bundleID
+              ),
               let role = AXCall.string(focused, AXAttr.role)
         else { return nil }
 
@@ -64,9 +67,8 @@ enum ContextExtractor {
         let isTerminal = TerminalApps.isTerminal(bundleID: bundleID)
 
         // Terminals expose the whole scrollback as one blob with no meaningful
-        // selection — reduce to just the current input line, no write-back. Never
-        // eligible for the clipboard read-fallback: a terminal-wide ⌘A ⌘C would leak
-        // the whole scrollback, defeating the current-line-only privacy safeguard.
+        // selection — reduce to just the current input line. Replace uses
+        // TerminalLineInserter (Ctrl+U + paste), never AX scrollback write / ⌘A.
         if isTerminal {
             let line = TerminalApps.currentLine(from: rawText)
             let snapshot = FieldSnapshot(
@@ -76,7 +78,7 @@ enum ContextExtractor {
                 role: role,
                 appBundleID: bundleID,
                 windowTitle: windowTitle,
-                supportsReplace: false
+                supportsReplace: true
             )
             return ReadOutcome(snapshot: snapshot, valueUnreadable: false)
         }

@@ -3,6 +3,17 @@
 All notable changes to WriterFlow, grouped by development phase (see `phases/` and
 `ROADMAP.md`).
 
+## 2.0.3 — Unreleased
+
+- **Preview persistence:** Esc/Close/blur soft-hides an in-flight or completed-unseen
+  preview; the floating icon stays busy and restores the same streaming UI. Cancel
+  stops generation; Pause still aborts as before.
+- **Broader input detection:** Additive compose policies for Cursor/VS Code/chat,
+  Google Docs, and Excel/Numbers without loosening global StrictFieldGate limits for
+  apps that already work.
+- **Terminal / Claude CLI replace:** Line-scoped Ctrl+U + paste replace for known
+  terminals (no scrollback AX overwrite).
+
 ## 2.0.2 — Unreleased
 
 - **Universal macOS release:** Release packaging now compiles native arm64 and x86_64
