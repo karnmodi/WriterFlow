@@ -2,6 +2,6 @@
   "version": "2.0.3",
   "minimumMacOS": "macOS 14 or later",
   "architecture": "Universal (Apple silicon and Intel)",
-  "size": "TBD",
-  "sha256": ""
+  "size": "7.4 MB",
+  "sha256": "c2a484a12eed300fc1d31d54938c43d8c215f91aa4dd9e28f1ca6721068aad94"
 }
