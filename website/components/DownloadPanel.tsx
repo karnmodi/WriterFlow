@@ -85,7 +85,8 @@ export function DownloadPanel() {
               <p className="text-xs leading-5 text-white/70">
                 WriterFlow is ad-hoc signed and not notarized. macOS requires the
                 documented <strong className="font-medium text-white/76">Open Anyway</strong>{" "}
-                step on first launch. The checksum verifies the downloaded bytes, not the
+                step on first launch — the install guide includes a one-click link to
+                Security settings. The checksum verifies the downloaded bytes, not the
                 publisher&apos;s identity.
               </p>
             </div>

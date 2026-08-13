@@ -11,11 +11,18 @@ export const metadata: Metadata = {
     "A clear, user-focused path through download, verification, macOS permissions, account pairing, and your first rewrite.",
 };
 
+/** Deep-links to Privacy & Security → Security (where Open Anyway appears). */
+const SECURITY_SETTINGS_URL =
+  "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Security";
+
 const steps = [
   ["Download both files", "Download the WriterFlow DMG and its SHA-256 file. Keep them together in Downloads."],
   ["Verify what you downloaded", "Open Terminal in Downloads and run the checksum command below. A correct download reports “OK.”"],
   ["Move WriterFlow to Applications", "Open the DMG, drag WriterFlow onto Applications, then eject the disk image."],
-  ["Approve the first launch", "Open WriterFlow once. In System Settings → Privacy & Security, choose Open Anyway and confirm."],
+  [
+    "Approve the first launch",
+    "Open WriterFlow once and dismiss the unidentified-developer warning. Then open Security settings, click Open Anyway for WriterFlow, and confirm Open.",
+  ],
   ["Grant the two permissions", "Follow onboarding for Accessibility and Input Monitoring. WriterFlow never records key contents and stays inert in secure fields."],
   ["Sign in and approve this Mac", "Open Dashboard → Account, choose Sign In, complete browser sign-in, and confirm the displayed device code."],
   ["Complete your first rewrite", "Type in a supported app, open WriterFlow, choose an action, review the preview, and replace only when you are ready."],
@@ -90,6 +97,16 @@ export default function InstallPage() {
                         ) : (
                           `The final SHA-256 will be published alongside the WriterFlow ${release.version} DMG.`
                         )}
+                      </p>
+                    </div>
+                  ) : null}
+                  {index === 3 ? (
+                    <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <a className="button-primary" href={SECURITY_SETTINGS_URL}>
+                        Open Security settings
+                      </a>
+                      <p className="checksum-copy m-0">
+                        Opens System Settings → Privacy &amp; Security → Security. Open Anyway appears only after you try to launch WriterFlow once.
                       </p>
                     </div>
                   ) : null}

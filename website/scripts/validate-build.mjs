@@ -61,6 +61,8 @@ const requiredCopy = [
   [home, "Inference content is ephemeral"],
   [home, "Universal (Apple silicon and Intel)"],
   [install, "Open Anyway"],
+  [install, "Open Security settings"],
+  [install, "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Security"],
   [install, "SHA-256"],
   [install, releaseManifest.sha256 || "The final SHA-256 will be published"],
   [install, "Sign in and approve this Mac"],
