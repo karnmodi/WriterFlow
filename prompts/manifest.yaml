@@ -11,7 +11,7 @@
 # never the prompt text itself (Docs/contracts/inference-stream.md "Allowed
 # log fields").
 
-version: "5.1.3"
+version: "6.4.0"
 
 # V2-ARCHITECTURE.md §12.1 trust classes. Prompt compilation (Stage 5.4) must
 # place each asset/input in a distinct provider message/content part matching
@@ -40,33 +40,33 @@ systemPreambles:
 intents:
   elaborate:
     path: intents/elaborate.md
-    promptVersion: "elaborate@5.1.3"
+    promptVersion: "elaborate@6.4.0"
     contextualTransform: false
     backgroundContext: true
   formal:
     path: intents/formal.md
-    promptVersion: "formal@5.1.3"
+    promptVersion: "formal@6.4.0"
     contextualTransform: false
     backgroundContext: true
   casual:
     path: intents/casual.md
-    promptVersion: "casual@5.1.3"
+    promptVersion: "casual@6.4.0"
     contextualTransform: false
     backgroundContext: true
   fixGrammar:
     path: intents/grammar.md
-    promptVersion: "grammar@5.1.3"
+    promptVersion: "grammar@6.4.0"
     contextualTransform: false
     backgroundContext: true
     strictSuffix: "Strict rule: change only clear errors in spelling, grammar, punctuation, or capitalization. Never rephrase."
   reply:
     path: intents/reply.md
-    promptVersion: "reply@5.1.3"
+    promptVersion: "reply@6.4.0"
     contextualTransform: true
     replyFormat: common/reply-format/
   custom:
     path: intents/custom.md
-    promptVersion: "custom@5.1.3"
+    promptVersion: "custom@6.4.0"
     contextualTransform: false
     backgroundContext: true
     note: >-
@@ -76,7 +76,7 @@ intents:
       before any delta, not parsed from streamed text client-side.
   promptBuilder:
     path: intents/prompt-builder.md
-    promptVersion: "prompt-builder@5.1.3"
+    promptVersion: "prompt-builder@6.4.0"
     contextualTransform: false
     backgroundContext: true
     modeVariants: common/prompt-builder-mode/
@@ -85,6 +85,7 @@ intents:
 shared:
   contextualTransform: common/contextual-transform.md
   backgroundContext: common/background-context.md
+  untrustedDataPolicy: common/untrusted-data-policy.md
   continuationSite: common/continuation-site/
   variantInstruction:
     note: >-
@@ -93,6 +94,31 @@ shared:
       this manifest entry exists so promptVersion tracking is ready; the
       per-variant strategy text itself lives with the intent file it modifies
       until Stage 5.4 wires multi-variant generation through the server.
+
+variants:
+  reply:
+    email:
+      path: common/reply-format/gmail-outlook.md
+    chat:
+      path: common/reply-format/chat.md
+    linkedin:
+      path: common/reply-format/linkedin.md
+    llmChat:
+      path: common/continuation-site/llm-chat.md
+    codingChat:
+      path: common/continuation-site/cursor.md
+    default:
+      path: common/reply-format/default.md
+  promptBuilderMode:
+    fresh:
+      path: common/prompt-builder-mode/fresh-session.md
+    continuation:
+      path: common/prompt-builder-mode/continuation.md
+  promptBuilderOutput:
+    analyze:
+      path: common/prompt-builder-output-format/analyze.md
+    finalize:
+      path: common/prompt-builder-output-format/finalize.md
 
 schemas:
   decision: schemas/decision.json

@@ -2,7 +2,8 @@ import { DefaultAzureCredential, type AccessToken } from "@azure/identity";
 import type { WritingAction } from "@writerflow/shared";
 import { ApiError } from "../errors.js";
 import type { InferenceProvider, InferenceProviderRequest, InferenceStreamResult } from "./provider.js";
-import { compilePrompt } from "./promptCompiler.js";
+import type { PromptCompiler } from "./promptCompiler.js";
+import { GrammarOutputNormalizer } from "./grammarOutputNormalizer.js";
 
 export interface AzureOpenAIProviderConfig {
   endpoint: string;
@@ -58,14 +59,16 @@ export class AzureOpenAIProvider implements InferenceProvider {
   private readonly reasoningEffort: "minimal" | "low" | "medium" | "high" | undefined;
   private readonly maxCompletionTokens: number;
   private readonly credential: DefaultAzureCredential;
+  private readonly promptCompiler: PromptCompiler;
   private cachedToken: AccessToken | undefined;
 
-  constructor(config: AzureOpenAIProviderConfig) {
+  constructor(config: AzureOpenAIProviderConfig, promptCompiler: PromptCompiler) {
     this.endpoint = config.endpoint.replace(/\/$/, "");
     this.deployment = config.deployment;
     this.apiVersion = config.apiVersion ?? "2024-12-01-preview";
     this.reasoningEffort = config.reasoningEffort;
     this.maxCompletionTokens = config.maxCompletionTokens ?? 1024;
+    this.promptCompiler = promptCompiler;
     this.credential = new DefaultAzureCredential();
   }
 
@@ -84,7 +87,7 @@ export class AzureOpenAIProvider implements InferenceProvider {
   }
 
   stream(request: InferenceProviderRequest): InferenceStreamResult {
-    const prompt = compilePrompt(request);
+    const prompt = this.promptCompiler.compile(request);
     const draft = request.envelope.content.draft;
     const url =
       `${this.endpoint}/openai/deployments/${this.deployment}/chat/completions?api-version=${encodeURIComponent(this.apiVersion)}`;
@@ -179,6 +182,10 @@ export class AzureOpenAIProvider implements InferenceProvider {
         let inputTokens = Math.ceil(draft.length / 4);
         let outputTokens = 0;
         let gotDelta = false;
+        let gotProviderDelta = false;
+        const grammarNormalizer = request.action === "fixGrammar"
+          ? new GrammarOutputNormalizer(prompt.plan.source)
+          : undefined;
 
         for (;;) {
           const chunk = await reader.read();
@@ -198,9 +205,13 @@ export class AzureOpenAIProvider implements InferenceProvider {
               };
               const text = parsed.choices?.[0]?.delta?.content;
               if (text) {
-                gotDelta = true;
+                gotProviderDelta = true;
                 outputTokens += Math.ceil(text.length / 4);
-                yield text;
+                const visible = grammarNormalizer?.push(text) ?? text;
+                if (visible) {
+                  gotDelta = true;
+                  yield visible;
+                }
               }
               if (parsed.usage?.prompt_tokens != null) inputTokens = parsed.usage.prompt_tokens;
               if (parsed.usage?.completion_tokens != null) {
@@ -211,7 +222,12 @@ export class AzureOpenAIProvider implements InferenceProvider {
             }
           }
         }
-        if (!gotDelta) {
+        const finalGrammarText = grammarNormalizer?.finish() ?? "";
+        if (finalGrammarText) {
+          gotDelta = true;
+          yield finalGrammarText;
+        }
+        if (!gotProviderDelta || !gotDelta) {
           throw new ApiError(
             "MODEL_UNAVAILABLE",
             503,

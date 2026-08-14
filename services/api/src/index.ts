@@ -5,6 +5,7 @@ import { buildApp } from "./app.js";
 import { createSigningKeyProvider } from "./jwt/keyVaultProvider.js";
 import { EntraIdTokenVerifier } from "./entra/verifier.js";
 import { createInferenceProvider } from "./inference/createProvider.js";
+import { PromptCompiler } from "./inference/promptCompiler.js";
 
 const config = loadConfig();
 const pool = createPool(config);
@@ -15,8 +16,11 @@ const entraVerifier =
   config.ENTRA_TENANT_ISSUER && config.ENTRA_JWKS_URI && config.ENTRA_WEB_CLIENT_ID
     ? EntraIdTokenVerifier.remote(config.ENTRA_JWKS_URI, config.ENTRA_TENANT_ISSUER, config.ENTRA_WEB_CLIENT_ID)
     : null;
-const inferenceProvider = createInferenceProvider(process.env);
-const app = buildApp({ config, pool, signingKeys, entraVerifier, inferenceProvider });
+// Validate and cache every declared prompt asset before accepting traffic.
+// A missing/unsafe asset is a failed revision, never a degraded live request.
+const promptCompiler = PromptCompiler.load();
+const inferenceProvider = createInferenceProvider(process.env, promptCompiler);
+const app = buildApp({ config, pool, signingKeys, entraVerifier, inferenceProvider, promptCompiler });
 
 // Pay dependency cold-start cost before the revision accepts user traffic.
 // In production the first verification-key fetch from Key Vault can take

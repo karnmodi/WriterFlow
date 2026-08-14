@@ -12,15 +12,16 @@ import type { SigningKeyProvider } from "../jwt/keys.js";
 import { ApiError, sendError } from "../errors.js";
 import { commitInferenceRequest, releaseInferenceRequest, reserveInferenceRequest, transitionState } from "../inference/accounting.js";
 import type { InferenceProvider } from "../inference/provider.js";
+import type { PromptCompiler } from "../inference/promptCompiler.js";
 
-const actionConfig: Record<WritingAction, { route: LogicalRoute; promptVersion: string; intent: DecisionIntent }> = {
-  elaborate: { route: "rewrite_standard", promptVersion: "elaborate@5.1.3", intent: "elaborate" },
-  formal: { route: "rewrite_standard", promptVersion: "formal@5.1.3", intent: "tone" },
-  casual: { route: "rewrite_standard", promptVersion: "casual@5.1.3", intent: "tone" },
-  fixGrammar: { route: "grammar_fast", promptVersion: "grammar@5.1.3", intent: "grammar" },
-  reply: { route: "rewrite_standard", promptVersion: "reply@5.1.3", intent: "reply" },
-  custom: { route: "rewrite_standard", promptVersion: "custom@5.1.3", intent: "custom" },
-  promptBuilder: { route: "prompt_enhancer", promptVersion: "prompt-builder@5.1.3", intent: "prompt_enhance" }
+const actionConfig: Record<WritingAction, { route: LogicalRoute; intent: DecisionIntent }> = {
+  elaborate: { route: "rewrite_standard", intent: "elaborate" },
+  formal: { route: "rewrite_standard", intent: "tone" },
+  casual: { route: "rewrite_standard", intent: "tone" },
+  fixGrammar: { route: "grammar_fast", intent: "grammar" },
+  reply: { route: "rewrite_standard", intent: "reply" },
+  custom: { route: "rewrite_standard", intent: "custom" },
+  promptBuilder: { route: "prompt_enhancer", intent: "prompt_enhance" }
 };
 
 /**
@@ -29,7 +30,13 @@ const actionConfig: Record<WritingAction, { route: LogicalRoute; promptVersion: 
  * exceeded, provider error, client disconnect — commits or releases the
  * reservation created up front; none may leave one dangling.
  */
-export function registerInferenceRoutes(app: FastifyInstance, pool: pg.Pool, keys: SigningKeyProvider, provider: InferenceProvider): void {
+export function registerInferenceRoutes(
+  app: FastifyInstance,
+  pool: pg.Pool,
+  keys: SigningKeyProvider,
+  provider: InferenceProvider,
+  promptCompiler: PromptCompiler
+): void {
   app.post("/inference/stream", async (request, reply) => {
     const ctx = await requireDeviceAuth(request, pool, keys);
 
@@ -69,6 +76,7 @@ export function registerInferenceRoutes(app: FastifyInstance, pool: pg.Pool, key
       return;
     }
     const config = actionConfig[action];
+    const promptVersion = promptCompiler.promptVersion(action);
 
     let reservation;
     try {
@@ -82,7 +90,7 @@ export function registerInferenceRoutes(app: FastifyInstance, pool: pg.Pool, key
         mode: envelope.mode,
         requestedAction: action,
         route: config.route,
-        promptVersion: config.promptVersion
+        promptVersion
       });
     } catch (err) {
       if (err instanceof ApiError) {
@@ -118,7 +126,7 @@ export function registerInferenceRoutes(app: FastifyInstance, pool: pg.Pool, key
       // further to report; a still-in-flight one (another connection is
       // handling it) just closes here.
       if (reservation.state === "completed") {
-        send({ type: "completed", requestId, promptVersion: config.promptVersion });
+        send({ type: "completed", requestId, promptVersion });
       } else if (reservation.state === "failed" || reservation.state === "cancelled") {
         send({ type: "error", code: "INTERNAL_ERROR", message: "This operation already ended.", requestId });
       }
@@ -214,7 +222,7 @@ export function registerInferenceRoutes(app: FastifyInstance, pool: pg.Pool, key
       lifecycle.terminated = true;
 
       send({ type: "usage.summary", usedUnits: commitResult.usedUnits, remainingUnits: commitResult.remainingUnits });
-      send({ type: "completed", requestId, promptVersion: config.promptVersion });
+      send({ type: "completed", requestId, promptVersion });
       request.log.info({
         event: "inference.completed",
         inferenceRequestId: requestId,

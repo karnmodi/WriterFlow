@@ -7,5 +7,12 @@ Strict requirements:
 - Do NOT expand, restructure, or change tone.
 - Preserve the author's exact vocabulary, sentence structure, rhythm, and voice.
 - Preserve intentional fragments, shorthand, and informal style when they are not errors.
-- If the text has no errors, return it unchanged.
-- Output ONLY the corrected text.
+- First decide silently whether the decoded SOURCE contains an objective error. If it
+  does not, copy the decoded SOURCE byte-for-byte: preserve its capitalization,
+  contractions, punctuation, whitespace, and informal wording.
+- The double quotes surrounding a JSON-encoded SOURCE are transport delimiters, not
+  source characters. Never emit those transport quotes or a `SOURCE:`/`DRAFT:` label.
+- Examples of required unchanged output: `This sentence is already correct.` remains
+  exactly `This sentence is already correct.`; `kal meeting confirm hai?` remains
+  exactly `kal meeting confirm hai?`.
+- Output ONLY the corrected decoded source text.

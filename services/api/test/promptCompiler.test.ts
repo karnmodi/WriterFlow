@@ -1,10 +1,20 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
-import { compilePrompt } from "../src/inference/promptCompiler.js";
+import { cpSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { performance } from "node:perf_hooks";
+import { afterEach, describe, expect, it } from "vitest";
+import { compilePrompt, PromptCompiler } from "../src/inference/promptCompiler.js";
 import type { InferenceProviderRequest } from "../src/inference/provider.js";
 
 const promptsDir = path.resolve(fileURLToPath(new URL("../../../prompts", import.meta.url)));
+const temporaryDirectories: string[] = [];
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 function request(
   action: InferenceProviderRequest["action"],
@@ -46,8 +56,8 @@ describe("compilePrompt conversation policy", () => {
     const { system, user } = compilePrompt(request("formal", "User: hello\nAssistant: hi"), promptsDir);
     expect(system).toContain("Background context");
     expect(system).not.toContain("Treat DRAFT/NEXT MESSAGE as the user's intended next message");
-    expect(user).toContain("CONVERSATION:");
-    expect(user).toContain("DRAFT:");
+    expect(user).toContain('<UNTRUSTED_CONVERSATION encoding="json-string">');
+    expect(user).toContain('<UNTRUSTED_SOURCE encoding="json-string">');
   });
 
   it("uses contextual-transform for Reply when conversation is present", () => {
@@ -56,7 +66,7 @@ describe("compilePrompt conversation policy", () => {
     expect(system).toContain("Platform: Cursor IDE agent chat");
     expect(system).not.toContain("common/continuation-site");
     expect(system).not.toContain("README.txt");
-    expect(user).toContain("MY DRAFT/INTENT:");
+    expect(user).toContain('<UNTRUSTED_MY_DRAFT_OR_INTENT encoding="json-string">');
   });
 
   it("maps known LLM sites to reviewed guidance without authoring comments", () => {
@@ -68,7 +78,7 @@ describe("compilePrompt conversation policy", () => {
 
   it("does not turn an untrusted site into a prompt resource path", () => {
     const { system } = compilePrompt(request("reply", "User: hello", "../../README.txt"), promptsDir);
-    expect(system).toContain("Platform: contextual compose field");
+    expect(system).toContain("Draft a reply appropriate to the platform");
     expect(system).not.toContain("../../README.txt");
   });
 
@@ -93,16 +103,55 @@ describe("compilePrompt conversation policy", () => {
     const { user } = compilePrompt(request("formal", longThread), promptsDir);
     expect(user).toContain("UNIQUE_TAIL");
     expect(user).not.toContain("x".repeat(2_000));
-    const conversationBlock = user.split("CONVERSATION:\n")[1]?.split("\n\nDRAFT:")[0] ?? "";
-    expect(conversationBlock.length).toBeLessThanOrEqual(1_200);
+    const conversationBlock = user.split('<UNTRUSTED_CONVERSATION encoding="json-string">\n')[1]
+      ?.split("\n</UNTRUSTED_CONVERSATION>")[0] ?? "";
+    expect((JSON.parse(conversationBlock) as string).length).toBeLessThanOrEqual(1_200);
   });
 
   it("keeps a larger conversation budget for reply", () => {
     const longThread = `${"y".repeat(3_500)}REPLY_TAIL`;
     const { user } = compilePrompt(request("reply", longThread), promptsDir);
     expect(user).toContain("REPLY_TAIL");
-    const conversationBlock = user.split("CONVERSATION:\n")[1]?.split("\n\nMY DRAFT/INTENT:")[0] ?? "";
-    expect(conversationBlock.length).toBeGreaterThan(1_200);
-    expect(conversationBlock.length).toBeLessThanOrEqual(4_000);
+    const conversationBlock = user.split('<UNTRUSTED_CONVERSATION encoding="json-string">\n')[1]
+      ?.split("\n</UNTRUSTED_CONVERSATION>")[0] ?? "";
+    const decoded = JSON.parse(conversationBlock) as string;
+    expect(decoded.length).toBeGreaterThan(1_200);
+    expect(decoded.length).toBeLessThanOrEqual(4_000);
+  });
+});
+
+describe("PromptCompiler startup cache", () => {
+  function copyPrompts(): string {
+    const directory = mkdtempSync(path.join(tmpdir(), "writerflow-prompts-"));
+    temporaryDirectories.push(directory);
+    cpSync(promptsDir, directory, { recursive: true });
+    return directory;
+  }
+
+  it("fails startup when a declared asset is missing", () => {
+    const directory = copyPrompts();
+    unlinkSync(path.join(directory, "intents", "reply.md"));
+    expect(() => PromptCompiler.load(directory)).toThrow();
+  });
+
+  it("serves compiled prompts from memory after startup", () => {
+    const directory = copyPrompts();
+    const compiler = PromptCompiler.load(directory);
+    unlinkSync(path.join(directory, "intents", "formal.md"));
+    expect(compiler.compile(request("formal", null)).system).toContain("professional, formal register");
+  });
+
+  it("keeps warm compilation p95 below the 10ms hard gate", () => {
+    const compiler = PromptCompiler.load(promptsDir);
+    const sampleRequest = request("reply", "User: hello\nAssistant: hi", "gmail");
+    compiler.compile(sampleRequest);
+    const samples: number[] = [];
+    for (let index = 0; index < 1_000; index += 1) {
+      const started = performance.now();
+      compiler.compile(sampleRequest);
+      samples.push(performance.now() - started);
+    }
+    samples.sort((left, right) => left - right);
+    expect(samples[Math.ceil(samples.length * 0.95) - 1]).toBeLessThanOrEqual(10);
   });
 });

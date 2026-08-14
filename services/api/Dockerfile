@@ -22,7 +22,10 @@ COPY package.json package-lock.json ./
 COPY services/shared/package.json services/shared/package.json
 COPY services/api/package.json services/api/package.json
 COPY services/worker/package.json services/worker/package.json
-RUN npm ci --omit=dev --workspace services/shared --workspace services/api
+RUN npm ci --omit=dev --workspace services/shared --workspace services/api \
+    && npm cache clean --force \
+    && rm -rf /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx
 COPY --from=build /workspace/services/shared/dist services/shared/dist
 COPY --from=build /workspace/services/api/dist services/api/dist
 COPY --from=build /workspace/prompts prompts

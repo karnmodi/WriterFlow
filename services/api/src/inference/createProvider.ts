@@ -3,9 +3,10 @@ import { AzureOpenAIProvider, type AzureOpenAIProviderConfig } from "./azureOpen
 import { DevEchoProvider } from "./devEchoProvider.js";
 import { LogicalRoutePoolProvider } from "./routePool.js";
 import type { LogicalRoute } from "@writerflow/shared";
+import type { PromptCompiler } from "./promptCompiler.js";
 
 /** Select inference backend from environment — Azure OpenAI when configured. */
-export function createInferenceProvider(env: NodeJS.ProcessEnv): InferenceProvider {
+export function createInferenceProvider(env: NodeJS.ProcessEnv, promptCompiler: PromptCompiler): InferenceProvider {
   const endpoint = env["AZURE_OPENAI_ENDPOINT"];
   const deployment = env["AZURE_OPENAI_DEPLOYMENT"];
   if (endpoint && deployment) {
@@ -31,7 +32,7 @@ export function createInferenceProvider(env: NodeJS.ProcessEnv): InferenceProvid
           config.maxCompletionTokens = parsed;
         }
       }
-      return new AzureOpenAIProvider(config);
+      return new AzureOpenAIProvider(config, promptCompiler);
     };
 
     const routeDeployments: Record<LogicalRoute, string> = {

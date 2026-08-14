@@ -21,6 +21,7 @@ import type { SigningKeyProvider } from "./jwt/keys.js";
 import type { EntraIdTokenVerifier } from "./entra/verifier.js";
 import type { InferenceProvider } from "./inference/provider.js";
 import { DevEchoProvider } from "./inference/devEchoProvider.js";
+import { PromptCompiler } from "./inference/promptCompiler.js";
 
 export interface AppDependencies {
   config: AppConfig;
@@ -33,6 +34,8 @@ export interface AppDependencies {
    * approval). Optional so existing callers/tests that don't touch
    * inference routes don't need to know this dependency exists. */
   inferenceProvider?: InferenceProvider;
+  /** Validated startup-cached prompt assets. Optional only for existing test callers. */
+  promptCompiler?: PromptCompiler;
   /** Test-only seam: capture log output instead of writing to stdout. */
   logStream?: NodeJS.WritableStream;
 }
@@ -63,6 +66,7 @@ function buildRedactPaths(): string[] {
 }
 
 export function buildApp(deps: AppDependencies): FastifyInstance {
+  const promptCompiler = deps.promptCompiler ?? PromptCompiler.load();
   const app = Fastify({
     logger: {
       level: deps.config.LOG_LEVEL,
@@ -108,7 +112,13 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
   registerBillingRoutes(app, deps.pool, deps.signingKeys, deps.config);
   registerClassifierRoutes(app, deps.pool, deps.signingKeys);
   registerCohortRoutes(app, deps.pool, deps.signingKeys, deps.config);
-  registerInferenceRoutes(app, deps.pool, deps.signingKeys, deps.inferenceProvider ?? new DevEchoProvider());
+  registerInferenceRoutes(
+    app,
+    deps.pool,
+    deps.signingKeys,
+    deps.inferenceProvider ?? new DevEchoProvider(),
+    promptCompiler
+  );
 
   app.setErrorHandler((error: FastifyError | ApiError, request, reply) => {
     if (error instanceof ApiError) {

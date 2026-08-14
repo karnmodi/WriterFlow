@@ -16,6 +16,7 @@ export default tseslint.config(
       "eslint.config.mjs",
       "**/vitest.config.ts",
       "scripts/*.mjs",
+      "scripts/eval/*.mjs",
       "scripts/cloud/*.ts",
       "scripts/load/**"
     ]

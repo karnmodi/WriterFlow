@@ -227,8 +227,11 @@ launch is blocked by Gatekeeper. The supported user flow is:
   the left, Applications on the right). Drag WriterFlow onto Applications before
   opening the app.
 3. Try to open WriterFlow once and dismiss the unidentified-developer warning.
-4. Open **System Settings → Privacy & Security**, scroll to Security, and click
-  **Open Anyway** for WriterFlow; confirm **Open** in the next prompt.
+4. Open **System Settings → Privacy & Security → Security** (or use the install
+  page’s **Open Security settings** deep link:
+  `x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Security`),
+  click **Open Anyway** for WriterFlow, and confirm **Open** in the next prompt.
+  Open Anyway appears only after step 3.
 5. Grant Accessibility and Input Monitoring only after the app opens.
 
 Do not tell users to disable Gatekeeper or run `xattr` commands. Organization-managed

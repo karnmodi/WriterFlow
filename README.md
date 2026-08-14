@@ -249,8 +249,9 @@ Phase checklists live under `phases/`. V2 product requirements: `PRD-V2.md`. Cha
 
 3. Test on a clean, unmanaged Mac. Opening the DMG shows the branded installer window
    (WriterFlow left → Applications right). The user drags WriterFlow to Applications, tries to
-   open it once, then uses **System Settings → Privacy & Security → Open Anyway** and
-   confirms **Open**. Never ask users to disable Gatekeeper or run `xattr`.
+   open it once, then uses **System Settings → Privacy & Security → Open Anyway** (or the
+   install page’s **Open Security settings** deep link) and confirms **Open**. Never ask
+   users to disable Gatekeeper or run `xattr`.
 4. Publish the DMG, checksum, release notes, privacy disclosure, and exact macOS/CPU
    support together. Updates are manual in v1 and may require Accessibility/Input
    Monitoring approval again.

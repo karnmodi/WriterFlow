@@ -37,6 +37,28 @@ async function collect(result: InferenceStreamResult): Promise<string[]> {
 }
 
 describe("LogicalRoutePoolProvider", () => {
+  it("uses exactly one provider call on a normal successful action", async () => {
+    let primaryCalls = 0;
+    let fallbackCalls = 0;
+    const primary = provider(async function* () {
+      await Promise.resolve();
+      yield "primary";
+    }, () => {
+      primaryCalls += 1;
+    });
+    const fallback = provider(async function* () {
+      await Promise.resolve();
+      yield "fallback";
+    }, () => {
+      fallbackCalls += 1;
+    });
+    const pool = new LogicalRoutePoolProvider(new Map([["grammar_fast", primary]]), fallback);
+
+    await expect(collect(pool.stream(request("grammar_fast")))).resolves.toEqual(["primary"]);
+    expect(primaryCalls).toBe(1);
+    expect(fallbackCalls).toBe(0);
+  });
+
   it("falls back when the primary fails before its first delta", async () => {
     let fallbackCalls = 0;
     const primary = provider(async function* () {
