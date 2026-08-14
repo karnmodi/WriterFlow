@@ -38,13 +38,35 @@ final class OverlayController {
     private var pendingUndo: PendingUndo?
     private var isApplyingPreview = false
 
+    private var previewHasVisibleText: Bool {
+        !previewVariants.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var previewHasError: Bool {
+        !(previewErrorMessage?.isEmpty ?? true)
+    }
+
+    private var previewIsClarify: Bool {
+        !previewClarifyQuestions.isEmpty
+    }
+
     private var hasActivePreviewSession: Bool {
         PreviewSession.hasActiveSession(
             pendingAction: pendingAction,
             isStreaming: previewStreaming,
-            hasVisibleText: !previewVariants.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            hasError: !(previewErrorMessage?.isEmpty ?? true),
-            isClarify: !previewClarifyQuestions.isEmpty
+            hasVisibleText: previewHasVisibleText,
+            hasError: previewHasError,
+            isClarify: previewIsClarify
+        )
+    }
+
+    private var shouldSoftHidePreview: Bool {
+        PreviewSession.shouldSoftHideOnDismiss(
+            hasActiveSession: hasActivePreviewSession,
+            isStreaming: previewStreaming,
+            hasVisibleText: previewHasVisibleText,
+            hasError: previewHasError,
+            isClarify: previewIsClarify
         )
     }
 
@@ -201,7 +223,7 @@ final class OverlayController {
             onReplace: { [weak self] in self?.applyPreview() },
             onCopy: { [weak self] in self?.copyPreview() },
             onRetry: { [weak self] in self?.retryPreview() },
-            onClose: { [weak self] in self?.softHidePreview() },
+            onClose: { [weak self] in self?.dismissPreviewCard() },
             onCancelGeneration: { [weak self] in self?.discardPreview() }
         )
     }
@@ -210,7 +232,8 @@ final class OverlayController {
         iconState.isBusy = PreviewSession.isIconBusy(
             isStreaming: previewStreaming,
             isSoftHidden: isPreviewSoftHidden,
-            hasActiveSession: hasActivePreviewSession
+            hasActiveSession: hasActivePreviewSession,
+            hasError: previewHasError
         )
     }
 
@@ -531,7 +554,8 @@ final class OverlayController {
 
         // Keep an in-flight / unseen result recoverable — soft-hide the card and
         // leave the busy icon up so the user can reopen the same stream.
-        if PreviewSession.shouldSoftHideOnDismiss(hasActiveSession: hasActivePreviewSession) {
+        // Terminal errors hard-clear so the normal floating icon returns.
+        if shouldSoftHidePreview {
             if currentField != nil {
                 previewSessionField = currentField
             }
@@ -690,6 +714,20 @@ final class OverlayController {
         }, completionHandler: { [weak self] in
             Task { @MainActor in self?.panel.orderOut(nil) }
         })
+    }
+
+    /// Esc / Close: soft-hide recoverable work; hard-clear terminal errors so the
+    /// floating icon (not the busy spinner) comes back.
+    private func dismissPreviewCard() {
+        if shouldSoftHidePreview {
+            softHidePreview()
+        } else {
+            hardClearPreview()
+            if let field = currentField ?? previewSessionField, hasValidFieldFrame(field) {
+                positionIcon(in: field)
+                showIcon()
+            }
+        }
     }
 
     /// Esc / Close / blur: hide the panel but keep streaming state + text so the
@@ -1067,7 +1105,7 @@ final class OverlayController {
     private func handlePreviewKeyEvent(_ event: PopoverKeyMonitor.KeyEvent) {
         switch event {
         case .escape:
-            softHidePreview()
+            dismissPreviewCard()
         case .returnKey:
             if previewPromptBuilderPhase == .clarify {
                 if previewClarifyQuestions.allSatisfy({ previewClarifySelections[$0.id] != nil }) {

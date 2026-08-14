@@ -3,6 +3,12 @@
 All notable changes to WriterFlow, grouped by development phase (see `phases/` and
 `ROADMAP.md`).
 
+## 2.0.4 — Unreleased
+
+- **Failed generation UI:** When a rewrite fails, dismiss returns to the normal floating
+  icon instead of leaving the busy/loading spinner. Soft-hide + busy icon remain only
+  for recoverable in-flight or completed-unseen results.
+
 ## 2.0.3 — Unreleased
 
 - **Preview persistence:** Esc/Close/blur soft-hides an in-flight or completed-unseen

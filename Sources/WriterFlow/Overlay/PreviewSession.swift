@@ -16,15 +16,34 @@ enum PreviewSession {
         return isStreaming || hasVisibleText || hasError || isClarify
     }
 
-    /// Esc / Close / field blur while a session is active → soft-hide (keep buffer).
-    /// Permanent teardown uses hard clear (accept, Pause, Cancel generation, new run).
-    static func shouldSoftHideOnDismiss(hasActiveSession: Bool) -> Bool {
-        hasActiveSession
+    /// Esc / Close / field blur while recoverable work is active → soft-hide.
+    /// Terminal failures hard-clear so the normal floating icon returns (no busy spinner).
+    static func shouldSoftHideOnDismiss(
+        hasActiveSession: Bool,
+        isStreaming: Bool,
+        hasVisibleText: Bool,
+        hasError: Bool,
+        isClarify: Bool
+    ) -> Bool {
+        guard hasActiveSession else { return false }
+        if hasError && !isStreaming {
+            return false
+        }
+        return isStreaming || hasVisibleText || isClarify
     }
 
-    /// Floating icon stays busy while streaming or while a soft-hidden session awaits reopen.
-    static func isIconBusy(isStreaming: Bool, isSoftHidden: Bool, hasActiveSession: Bool) -> Bool {
-        isStreaming || (isSoftHidden && hasActiveSession)
+    /// Floating icon stays busy while streaming or while a soft-hidden recoverable
+    /// session awaits reopen — never for a finished error state.
+    static func isIconBusy(
+        isStreaming: Bool,
+        isSoftHidden: Bool,
+        hasActiveSession: Bool,
+        hasError: Bool
+    ) -> Bool {
+        if hasError && !isStreaming {
+            return false
+        }
+        return isStreaming || (isSoftHidden && hasActiveSession)
     }
 
     /// After finish/fail, auto-restore a soft-hidden card so the user sees the outcome.
