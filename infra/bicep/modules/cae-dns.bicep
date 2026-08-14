@@ -9,13 +9,15 @@ param defaultDomain string
 param staticIp string
 param vnetId string
 param linkName string
+@description('Skip when the CAE default domain zone is already linked to this VNet (common after platform auto-link).')
+param createVnetLink bool = true
 
 resource zone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
   name: defaultDomain
   location: 'global'
 }
 
-resource vnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
+resource vnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = if (createVnetLink) {
   parent: zone
   name: linkName
   location: 'global'

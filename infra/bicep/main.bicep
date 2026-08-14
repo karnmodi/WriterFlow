@@ -175,14 +175,17 @@ module deletionRegistry 'modules/deletion-registry.bicep' = {
 }
 
 // Resolve *.${apiCaeDefaultDomain} to the internal CAE static IP inside the
-// VNet — required for APIM outbound and website→API server-to-server calls.
-module apiCaeDns 'modules/cae-dns.bicep' = {
+// VNet — required for Standard v2 APIM outbound. On private-beta (Developer APIM)
+// the public API already lives on the website CAE, and Azure often auto-links the
+// internal CAE default-domain zone to the VNet — recreating that link Conflict-fails.
+module apiCaeDns 'modules/cae-dns.bicep' = if (!useDeveloperApim) {
   name: '${namePrefix}-api-cae-dns'
   params: {
     defaultDomain: containerAppsEnv.outputs.defaultDomain
     staticIp: containerAppsEnv.outputs.staticIp
     vnetId: network.outputs.vnetId
     linkName: '${namePrefix}-api-cae-dns-link'
+    createVnetLink: true
   }
 }
 
@@ -416,7 +419,11 @@ module migrationJob 'modules/container-app-migrations.bicep' = if (deployMigrati
   params: {
     namePrefix: namePrefix
     location: coreLocation
-    containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
+    // Private-beta API + website share the public CAE; the prod job already lives
+    // there. Pointing at the internal CAE fails with ContainerAppsJobEnvironmentMismatch.
+    containerAppsEnvironmentId: useDeveloperApim
+      ? websiteContainerAppsEnv.outputs.environmentId
+      : containerAppsEnv.outputs.environmentId
     containerRegistryLoginServer: containerRegistry.outputs.loginServer
     databaseUrlSecretUri: migrationDatabaseUrlSecretUri
     imageTag: imageTag
