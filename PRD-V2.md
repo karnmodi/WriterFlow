@@ -286,10 +286,17 @@ encrypted store remains locally readable offline or signed out.
   when needed and returns a structured decision with confidence and reason code.
 - Low confidence defaults to neutral improve; it must not silently choose a destructive
   insert/replace mode.
-- The default pre-generation options panel is removed. A secondary correction control
-  remains in preview and feeds explicit feedback to the classifier evaluation set.
+- The default pre-generation options panel is removed in the auto cohort. Preview exposes
+  Replace, Copy, free-text Adjust, and Discard; Retry appears only after failure. Adjust
+  preserves the prior result until the adjusted stream's first delta and emits only
+  content-free classifier feedback.
 - Preserve deliberate free-text Custom work through Shift-click or `⌃⌥⇧ Space`, which
   opens Custom entry directly. Do not auto-generate and then ask for the instruction.
+- Keep an active-field-only `ContextCapsule` in volatile local memory. It is cleared on
+  field/app switch, secure input, pause/permission loss, sleep, or 60 seconds idle and is
+  never passively uploaded; the explicit trigger performs the authoritative re-read.
+- Keep SSE for the one-request output stream. No Socket.IO/client WebSocket dependency is
+  introduced; reconsider native WebSockets only for future bidirectional tool workflows.
 
 ### 7.5 Prompt enhancement
 

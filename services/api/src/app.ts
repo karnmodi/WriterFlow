@@ -16,6 +16,7 @@ import { registerBillingRoutes } from "./routes/billing.js";
 import { registerClassifierRoutes } from "./routes/classifier.js";
 import { registerCohortRoutes } from "./routes/cohort.js";
 import { registerInferenceRoutes } from "./routes/inference.js";
+import { registerInferenceFeedbackRoutes } from "./routes/inferenceFeedback.js";
 import { ApiError, sendError, type ErrorBody } from "./errors.js";
 import type { SigningKeyProvider } from "./jwt/keys.js";
 import type { EntraIdTokenVerifier } from "./entra/verifier.js";
@@ -110,7 +111,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
   registerAccountRoutes(app, deps.pool, deps.signingKeys);
   registerUsageRoutes(app, deps.pool, deps.signingKeys);
   registerBillingRoutes(app, deps.pool, deps.signingKeys, deps.config);
-  registerClassifierRoutes(app, deps.pool, deps.signingKeys);
+  registerClassifierRoutes(app, deps.pool, deps.signingKeys, deps.config);
   registerCohortRoutes(app, deps.pool, deps.signingKeys, deps.config);
   registerInferenceRoutes(
     app,
@@ -119,6 +120,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
     deps.inferenceProvider ?? new DevEchoProvider(),
     promptCompiler
   );
+  registerInferenceFeedbackRoutes(app, deps.pool, deps.signingKeys);
 
   app.setErrorHandler((error: FastifyError | ApiError, request, reply) => {
     if (error instanceof ApiError) {

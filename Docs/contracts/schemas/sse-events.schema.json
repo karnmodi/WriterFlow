@@ -37,6 +37,11 @@
           "enum": ["classifier_fast", "grammar_fast", "rewrite_standard", "rewrite_premium", "prompt_enhancer", "style_analyzer"]
         },
         "reasonCode": { "type": ["string", "null"] }
+        ,"skillId": { "type": "string", "enum": ["reply", "continue", "improve", "correct", "shorten", "expand", "tone_adapt", "prompt_enhance", "custom_adjust"] }
+        ,"skillVersion": { "type": "string", "minLength": 1 }
+        ,"skillLabel": { "type": "string", "minLength": 1, "maxLength": 64 }
+        ,"decisionSource": { "type": "string", "enum": ["explicit", "rule", "classifier", "fallback", "adjustment"] }
+        ,"executionMode": { "type": "string", "enum": ["direct", "composed"] }
       }
     },
     {

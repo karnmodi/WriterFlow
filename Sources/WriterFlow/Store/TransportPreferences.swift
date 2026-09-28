@@ -5,6 +5,7 @@ import Foundation
 enum TransportPreferences {
     private static let useCloudInferenceKey = "writerflow.transport.useCloudInference"
     private static let allowByoFallbackKey = "writerflow.transport.allowByoFallback"
+    private static let autoActionEnabledKey = "writerflow.phase6.autoActionEnabled"
 
     static var useCloudInference: Bool {
         get {
@@ -26,8 +27,14 @@ enum TransportPreferences {
         set { UserDefaults.standard.set(newValue, forKey: allowByoFallbackKey) }
     }
 
-    static func apply(useCloudInference: Bool, allowByoFallback: Bool) {
+    static var autoActionEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: autoActionEnabledKey) }
+        set { UserDefaults.standard.set(newValue, forKey: autoActionEnabledKey) }
+    }
+
+    static func apply(useCloudInference: Bool, allowByoFallback: Bool, autoActionEnabled: Bool = false) {
         self.useCloudInference = useCloudInference
         self.allowByoFallback = allowByoFallback
+        self.autoActionEnabled = autoActionEnabled
     }
 }

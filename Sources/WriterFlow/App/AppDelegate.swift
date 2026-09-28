@@ -1,9 +1,10 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDelegate, FocusMonitorDelegate {
     private var statusItem: NSStatusItem?
     private var pauseMenuItem: NSMenuItem?
     private var statusMenuItem: NSMenuItem?
@@ -13,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
     private let focusMonitor = FocusMonitor()
     private let overlay = OverlayController()
     private let globalHotkey = GlobalHotkey()
+    private let naturalLanguageHotkey = GlobalHotkey(id: 2)
+    private let contextCapsules = ContextCapsuleStore()
     private let dependencies = AppDependencies.shared
     private lazy var settings = SettingsStore.shared
     private lazy var modelsConfig = dependencies.modelsConfig
@@ -26,6 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         legacyClient: dependencies.legacyActionClient,
         inferenceTransport: inferenceTransport,
         deviceSession: deviceSession
+    )
+    private lazy var autoActionCoordinator = AutoActionCoordinator(
+        capsules: contextCapsules,
+        engine: actionEngine,
+        overlay: overlay
     )
     private lazy var recommendationEngine = RecommendationEngine(
         classifier: dependencies.recommendationClassifier
@@ -83,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
             onboarding.show()
         }
 
-        focusMonitor.delegate = overlay
+        focusMonitor.delegate = self
 
         actionEngine.onStreamDelta = { [weak self] delta in
             self?.overlay.appendVariant(0, delta: delta)
@@ -106,9 +114,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         actionEngine.onFailed = { [weak self] message in
             self?.overlay.failPreview(message: message)
         }
+        actionEngine.onSkillDecision = {
+            [weak self] skillID, skillVersion, label, action, outputMode, executionMode in
+            self?.overlay.applySkillDecision(
+                skillID: skillID,
+                skillVersion: skillVersion,
+                label: label,
+                action: action,
+                outputMode: outputMode,
+                executionMode: executionMode
+            )
+        }
 
         overlay.onCancelRequested = { [weak self] in
-            self?.actionEngine.cancel()
+            self?.autoActionCoordinator.cancel()
         }
         overlay.onActionSelected = { [weak self] action, field in
             self?.actionEngine.run(action: action, field: field)
@@ -134,13 +153,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         recommendationEngine.onRecommendation = { [weak self] action, field in
             self?.overlay.applyRecommendation(action, for: field)
         }
+        overlay.onAutoTrigger = { [weak self] field, directive in
+            self?.startPrimaryAction(field: field, directive: directive)
+        }
+        overlay.onAutoRetry = { [weak self] field, directive, retryOf in
+            self?.autoActionCoordinator.retry(field: field, directive: directive, retryOf: retryOf)
+        }
+        overlay.onAdjustActionSelected = { [weak self] instruction, field, parentID, priorOutput in
+            self?.autoActionCoordinator.adjust(
+                instruction: instruction,
+                field: field,
+                parentOperationID: parentID,
+                priorOutput: priorOutput
+            )
+        }
+        overlay.onClassifierFeedback = { [weak self] operationID, outcome, appCategory in
+            guard let self else { return }
+            Task {
+                do {
+                    let token = try await self.deviceSession.accessToken()
+                    try await self.writerFlowAPI.sendInferenceFeedback(
+                        operationId: operationID,
+                        outcome: outcome,
+                        appCategory: appCategory,
+                        accessToken: token
+                    )
+                } catch {
+                    Log.engine.notice("Classifier feedback was not recorded")
+                }
+            }
+        }
 
-        globalHotkey.onTrigger = { [weak self] in
+        naturalLanguageHotkey.onTrigger = { [weak self] in
             guard self?.settings.isPaused == false else { return }
-            self?.overlay.toggleActionPopover()
+            self?.overlay.openNaturalDirectiveComposer()
         }
         if !settings.isPaused {
-            _ = globalHotkey.install(combo: settings.hotkeyCombo)
+            installPrimaryHotkey(combo: settings.hotkeyCombo)
+            installNaturalLanguageHotkey(for: settings.hotkeyCombo)
         }
 
         // Reconcile persisted launch-at-login state with the current SMAppService registration.
@@ -164,6 +214,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
             .sink { [weak self] combo in self?.applyHotkeyCombo(combo) }
             .store(in: &cancellables)
 
+        NotificationCenter.default.publisher(for: .writerFlowDeviceSessionChanged)
+            .sink { [weak self] _ in self?.refreshTransportPolicy() }
+            .store(in: &cancellables)
+
         permissions.$accessibility
             .combineLatest(permissions.$inputMonitoring)
             .dropFirst()
@@ -180,6 +234,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
             name: NSApplication.didBecomeActiveNotification,
             object: nil
         )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(systemWillSleep),
+            name: NSWorkspace.willSleepNotification,
+            object: nil
+        )
     }
 
     private func refreshTransportPolicy() {
@@ -189,13 +249,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
                 let flags = try await writerFlowAPI.cohortFlags(accessToken: token)
                 TransportPreferences.apply(
                     useCloudInference: flags.useCloudInference,
-                    allowByoFallback: flags.allowByoFallback
+                    allowByoFallback: flags.allowByoFallback,
+                    autoActionEnabled: flags.autoActionEnabled
                 )
             } catch {
                 // Private-beta default is cloud and fail-closed. A stale or
                 // unavailable flag response must never silently expose BYO.
-                TransportPreferences.apply(useCloudInference: true, allowByoFallback: false)
-                Log.auth.notice("Cohort flags unavailable; using cloud-only default")
+                let autoActionWasEnabled = TransportPreferences.autoActionEnabled
+                TransportPreferences.apply(useCloudInference: true, allowByoFallback: false, autoActionEnabled: false)
+                if case DeviceSessionError.notPaired = error {
+                    // Expected/quiet: nothing to fetch flags with until the user signs in.
+                    Log.auth.notice("Cohort flags unavailable; not signed in")
+                } else {
+                    // Signed in but the flags call itself failed (API unreachable, 5xx,
+                    // decode error, ...) — this silently turns off auto-action, so the
+                    // user needs to know why rather than just seeing it stop working.
+                    Log.auth.error("Cohort flags request failed; using cloud-only default: \(String(describing: error))")
+                    if autoActionWasEnabled {
+                        ErrorToast.show(
+                            "WriterFlow couldn't reach its server just now — auto actions are paused until it reconnects.",
+                            style: .info
+                        )
+                    }
+                }
             }
         }
     }
@@ -205,10 +281,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         applyPermissionState()
     }
 
+    @objc private func systemWillSleep() {
+        contextCapsules.clear()
+        autoActionCoordinator.cancel()
+        overlay.cancelPreview()
+    }
+
     /// `writerflow://paired` (ADR-0011) — foreground hint only. Deliberately
     /// never reads `url.query`/`url.fragment` as anything credential-like;
     /// the only effect is nudging an in-flight pairing poll to check sooner.
     func application(_ application: NSApplication, open urls: [URL]) {
+        #if DEBUG
+        // Explicit local-development entry point. This compiles out of the
+        // release app and is accepted only while the API resolves to
+        // loopback, so a website cannot start production account pairing.
+        if urls.contains(where: { $0.scheme == "writerflow" && $0.host == "pair-local" }),
+           WriterFlowAPIConfig.isLoopbackAPI(WriterFlowAPIConfig.resolved().baseURL) {
+            dashboardWindow.show()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                NotificationCenter.default.post(name: .openWriterFlowAccount, object: nil)
+                NotificationCenter.default.post(name: .beginWriterFlowLocalPairing, object: nil)
+            }
+            return
+        }
+        #endif
         guard urls.contains(where: { $0.scheme == "writerflow" && $0.host == "paired" }) else { return }
         Log.auth.info("writerflow://paired foreground hint received")
         NSApp.activate(ignoringOtherApps: true)
@@ -261,13 +357,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
                 onboarding.close(userInitiated: false)
             }
         }
+        if !permissions.allGranted {
+            contextCapsules.clear()
+        }
         updateActivationPolicy()
 
         // Event tap / AX observer only succeed when TCC is already granted at install time.
         if !settings.isPaused {
             if (!hadAccessibility && axNow) || (!hadInputMonitoring && imNow) {
                 focusMonitor.restart()
-                _ = globalHotkey.install(combo: settings.hotkeyCombo)
+                installPrimaryHotkey(combo: settings.hotkeyCombo)
+                installNaturalLanguageHotkey(for: settings.hotkeyCombo)
                 Log.app.info("Permissions newly granted — restarted focus monitor + hotkey")
             }
         }
@@ -280,13 +380,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         statusItem?.button?.appearsDisabled = paused
         if paused {
             globalHotkey.uninstall()
+            naturalLanguageHotkey.uninstall()
             actionEngine.cancel()
+            contextCapsules.clear()
             overlay.dismissActionPopover()
             overlay.cancelPreview()
             focusMonitor.stop()
             Log.app.info("Paused")
         } else {
-            _ = globalHotkey.install(combo: settings.hotkeyCombo)
+            installPrimaryHotkey(combo: settings.hotkeyCombo)
+            installNaturalLanguageHotkey(for: settings.hotkeyCombo)
             focusMonitor.start()
             Log.app.info("Resumed")
         }
@@ -297,13 +400,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
     private func applyHotkeyCombo(_ combo: HotkeyCombo) {
         guard !settings.isPaused else { return }
         let previous = globalHotkey.installedCombo ?? combo
+        configurePrimaryHotkeyCallback()
         if globalHotkey.install(combo: combo) {
+            installNaturalLanguageHotkey(for: combo)
             settings.hotkeyStatusIsError = false
             settings.hotkeyStatusMessage = "Shortcut set to \(combo.displayString)."
         } else {
             settings.hotkeyStatusIsError = true
             settings.hotkeyStatusMessage = "\(combo.displayString) is already in use by another app — reverted to \(previous.displayString)."
             settings.hotkeyCombo = previous
+        }
+    }
+
+    private func configurePrimaryHotkeyCallback() {
+        globalHotkey.onTrigger = { [weak self] in
+            guard let self, self.settings.isPaused == false else { return }
+            guard let field = self.overlay.activeField else {
+                Log.app.notice("Primary hotkey ignored because no editable field is active")
+                return
+            }
+            Log.app.info("Primary hotkey triggered")
+            self.startPrimaryAction(field: field, directive: nil)
+        }
+    }
+
+    private func installPrimaryHotkey(combo: HotkeyCombo) {
+        configurePrimaryHotkeyCallback()
+        if globalHotkey.install(combo: combo) {
+            Log.app.info("Primary hotkey installed: \(combo.displayString, privacy: .public)")
+        } else {
+            Log.app.error("Primary hotkey registration failed: \(combo.displayString, privacy: .public)")
+        }
+    }
+
+    private func installNaturalLanguageHotkey(for combo: HotkeyCombo) {
+        naturalLanguageHotkey.onTrigger = { [weak self] in
+            guard self?.settings.isPaused == false else { return }
+            self?.overlay.openNaturalDirectiveComposer()
+        }
+        let naturalCombo = HotkeyCombo(
+            keyCode: combo.keyCode,
+            modifiers: combo.modifiers | UInt32(shiftKey)
+        )
+        if !naturalLanguageHotkey.install(combo: naturalCombo) {
+            Log.app.notice("Natural-language hotkey unavailable")
         }
     }
 
@@ -340,7 +480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
         onboard.target = self
         menu.addItem(onboard)
 
-        let actions = NSMenuItem(title: "Open Actions", action: #selector(openActions), keyEquivalent: "")
+        let actions = NSMenuItem(title: "Write with WriterFlow", action: #selector(openActions), keyEquivalent: "")
         actions.keyEquivalentModifierMask = [.control, .option]
         actions.keyEquivalent = " "
         actions.target = self
@@ -354,7 +494,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
 
         menu.addItem(.separator())
 
+        #if DEBUG
+        let quit = NSMenuItem(title: "Quit writeflow_local", action: #selector(quitApp), keyEquivalent: "q")
+        #else
         let quit = NSMenuItem(title: "Quit WriterFlow", action: #selector(quitApp), keyEquivalent: "q")
+        #endif
         quit.target = self
         menu.addItem(quit)
 
@@ -366,7 +510,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowVisibilityDel
     }
 
     @objc private func openActions() {
-        overlay.toggleActionPopover()
+        guard let field = overlay.activeField else { return }
+        startPrimaryAction(field: field, directive: nil)
+    }
+
+    private func startPrimaryAction(field: FocusedField, directive: String?) {
+        if TransportPreferences.autoActionEnabled {
+            autoActionCoordinator.trigger(field: field, directive: directive)
+        } else {
+            overlay.toggleActionPopover()
+        }
+    }
+
+    func focusMonitor(_ monitor: FocusMonitor, fieldDidFocus field: FocusedField) {
+        overlay.fieldDidFocus(field)
+        contextCapsules.focus(field)
+    }
+
+    func focusMonitor(_ monitor: FocusMonitor, fieldDidBlur previousBundleID: String?) {
+        overlay.fieldDidBlur()
+        contextCapsules.clear()
+    }
+
+    func focusMonitorTypingStarted(_ monitor: FocusMonitor) {
+        overlay.typingStarted()
+        if let field = overlay.activeField { contextCapsules.fieldChanged(field) }
+    }
+
+    func focusMonitorTypingActivity(_ monitor: FocusMonitor) {
+        if let field = overlay.activeField { contextCapsules.fieldChanged(field) }
+    }
+
+    func focusMonitorTypingStopped(_ monitor: FocusMonitor) {
+        overlay.typingStopped()
+    }
+
+    func focusMonitor(_ monitor: FocusMonitor, fieldFrameUpdated field: FocusedField) {
+        overlay.fieldFrameUpdated(field)
+        // Refresh target geometry without reading field or conversation text.
+        contextCapsules.focus(field)
     }
 
     @objc private func showOnboarding() {

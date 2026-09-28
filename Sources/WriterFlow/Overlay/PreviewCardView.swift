@@ -27,6 +27,8 @@ enum PreviewStreamingStatus {
 
 struct PreviewCardView: View {
     let actionTitle: String
+    let skillMetadata: String?
+    let isHoldingPreviousResult: Bool
     let variants: PreviewVariants
     let usesMultiVariant: Bool
     let promptBuilderPhase: PromptBuilderPreviewPhase?
@@ -34,8 +36,10 @@ struct PreviewCardView: View {
     let clarifySelections: [String: String]
     let originalText: String
     let action: WritingAction?
+    let serverOutputMode: String?
     let isStreaming: Bool
     let canReplace: Bool
+    let canCopy: Bool
     let errorMessage: String?
     let streamStartedAt: Date?
     var onSelectVariant: (Int) -> Void
@@ -44,6 +48,7 @@ struct PreviewCardView: View {
     var onReplace: () -> Void
     var onCopy: () -> Void
     var onRetry: () -> Void
+    var onAdjust: () -> Void
     /// Soft-hide (Esc / Close) — keeps an in-flight or unseen result recoverable.
     var onClose: () -> Void
     /// Permanently abandon a streaming run (cancels the engine).
@@ -53,7 +58,7 @@ struct PreviewCardView: View {
         // Custom can ask for a derivative artifact (title/summary/etc.) via the
         // `---INSERT---` marker convention (see `CustomOutputParser`) — strip it from what's
         // displayed. No other action's prompt ever produces this marker.
-        guard action == .custom else { return variants.selectedText }
+        guard serverOutputMode == nil, action == .custom else { return variants.selectedText }
         return CustomOutputParser.parse(variants.selectedText).text
     }
 
@@ -61,7 +66,8 @@ struct PreviewCardView: View {
     /// above the existing content rather than replacing it — used to relabel the Replace
     /// button so the non-destructive behavior isn't a surprise.
     private var isInsertMode: Bool {
-        action == .custom && CustomOutputParser.parse(variants.selectedText).mode == .insertBeforeContent
+        if let serverOutputMode { return serverOutputMode == "insert_before" }
+        return action == .custom && CustomOutputParser.parse(variants.selectedText).mode == .insertBeforeContent
     }
 
     private var showsDiff: Bool {
@@ -86,6 +92,9 @@ struct PreviewCardView: View {
             return "Couldn't finish — retry when ready"
         }
         if isStreaming {
+            if isHoldingPreviousResult {
+                return "Previous result stays visible while WriterFlow retries…"
+            }
             return PreviewStreamingStatus.subtitle(
                 text: activeText,
                 promptBuilderPhase: promptBuilderPhase
@@ -123,6 +132,12 @@ struct PreviewCardView: View {
                 Text(actionTitle)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
+                if let skillMetadata, !skillMetadata.isEmpty {
+                    Text(skillMetadata)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
                 Text(headerSubtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -130,11 +145,6 @@ struct PreviewCardView: View {
                     .animation(.easeOut(duration: 0.12), value: headerSubtitle)
             }
             Spacer(minLength: 0)
-            if isStreaming, !usesMultiVariant {
-                ProgressView()
-                    .controlSize(.small)
-                    .scaleEffect(0.85)
-            }
             IconToolButton(
                 systemName: "xmark",
                 label: "Close",
@@ -155,6 +165,11 @@ struct PreviewCardView: View {
         }
         if usesMultiVariant {
             variantPicker
+        }
+        if skillMetadata != nil {
+            DashboardSectionCaption(text: "Orchestrator output")
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
         }
         StreamingPreviewScroll(
             text: activeText,
@@ -298,7 +313,7 @@ struct PreviewCardView: View {
                     prominent: false,
                     action: onCancelGeneration
                 )
-            } else {
+            } else if errorMessage != nil {
                 IconToolButton(
                     systemName: "arrow.clockwise",
                     label: "Retry",
@@ -306,6 +321,31 @@ struct PreviewCardView: View {
                     enabled: true,
                     prominent: false,
                     action: onRetry
+                )
+            } else {
+                IconToolButton(
+                    systemName: "arrow.clockwise",
+                    label: "Retry",
+                    shortcut: "⌘R",
+                    enabled: !activeText.isEmpty,
+                    prominent: false,
+                    action: onRetry
+                )
+                IconToolButton(
+                    systemName: "slider.horizontal.3",
+                    label: "Adjust",
+                    shortcut: "⌘J",
+                    enabled: !activeText.isEmpty,
+                    prominent: false,
+                    action: onAdjust
+                )
+                IconToolButton(
+                    systemName: "trash",
+                    label: "Discard",
+                    shortcut: nil,
+                    enabled: !activeText.isEmpty,
+                    prominent: false,
+                    action: onCancelGeneration
                 )
             }
             Spacer(minLength: 0)
@@ -320,7 +360,7 @@ struct PreviewCardView: View {
                     systemName: "doc.on.doc",
                     label: "Copy",
                     shortcut: "⌘C",
-                    enabled: canReplace && !activeText.isEmpty,
+                    enabled: canCopy && !activeText.isEmpty,
                     prominent: false,
                     action: onCopy
                 )

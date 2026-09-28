@@ -214,4 +214,11 @@ final class AccountViewModelTests: XCTestCase {
             return XCTFail("expected .signedOut after cancellation, got \(viewModel.loadState)")
         }
     }
+
+    func testSignInFailureMessageForUnreachableHost() {
+        XCTAssertEqual(
+            AccountViewModel.signInFailureMessage(URLError(.cannotConnectToHost)),
+            "Could not reach WriterFlow's account service. Check your connection and try again."
+        )
+    }
 }

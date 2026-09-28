@@ -22,7 +22,8 @@
     "db:down": "docker compose down",
     "migrate:up": "npm run migrate:up --workspace services/api",
     "migrate:down": "npm run migrate:down --workspace services/api",
-    "check": "npm run lint && npm run build --workspace @writerflow/shared && npm run typecheck && npm run build && npm run test"
+    "eval:classifier": "node prompts/classifier/evaluate.mjs",
+    "check": "npm run lint && npm run build --workspace @writerflow/shared && npm run typecheck && npm run build && npm run test && npm run eval:classifier"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

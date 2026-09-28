@@ -3,8 +3,9 @@ import Foundation
 
 /// AX tree walk that collects visible conversation-like text (Gmail thread,
 /// WhatsApp/Slack chat) above the focused field. Per Stage 2.2's privacy rule,
-/// full content (`extractConversation`) is only ever called from Reply/Custom —
-/// never passively. `hasVisibleConversation` is a structural presence check
+/// full content (`extractConversation`) is called for an explicit legacy action or
+/// into Phase 6's volatile local active-field capsule — never uploaded passively.
+/// `hasVisibleConversation` is a structural presence check
 /// with no content, safe for the Recommendation Engine to call on every popover open.
 enum ConversationExtractor {
     private static let maxChars = 4_000

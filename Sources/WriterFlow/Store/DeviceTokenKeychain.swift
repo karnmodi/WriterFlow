@@ -13,6 +13,11 @@ enum DeviceTokenKeychain {
     /// cold start share one accessibility class.
     static let preferredAccessible = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     private static let productionService = "com.karan.writerflow.device-session"
+    /// An explicit loopback API opt-in is a separate development account
+    /// boundary. Reusing the production item here makes a valid production
+    /// refresh token look corrupt to the local signing key (and, worse,
+    /// signing out locally would delete the production session).
+    private static let localDevelopmentService = "com.karan.writerflow.local-device-session"
     private static let account = "writerflow-tokens"
 
     /// Test seam. Without it `swift test` operates on the real item: it
@@ -21,7 +26,16 @@ enum DeviceTokenKeychain {
     /// `SecItemDelete` silently fails and leaves state behind.
     nonisolated(unsafe) static var serviceOverrideForTesting: String?
 
-    private static var service: String { serviceOverrideForTesting ?? productionService }
+    private static var service: String {
+        if let override = serviceOverrideForTesting { return override }
+        #if DEBUG
+        let api = WriterFlowAPIConfig.resolved()
+        if WriterFlowAPIConfig.isLoopbackAPI(api.baseURL) {
+            return localDevelopmentService
+        }
+        #endif
+        return productionService
+    }
 
     struct StoredTokens: Codable, Equatable, Sendable {
         let deviceID: String

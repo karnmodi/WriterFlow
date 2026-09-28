@@ -2,6 +2,10 @@ import SwiftUI
 
 extension Notification.Name {
     static let openWriterFlowAccount = Notification.Name("writerflow.openAccount")
+    static let writerFlowDeviceSessionChanged = Notification.Name("writerflow.deviceSessionChanged")
+    #if DEBUG
+    static let beginWriterFlowLocalPairing = Notification.Name("writerflow.beginLocalPairing")
+    #endif
 }
 
 struct DashboardView: View {
@@ -38,6 +42,12 @@ struct DashboardView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openWriterFlowAccount)) { _ in
             selectedTab = .account
         }
+        #if DEBUG
+        .onReceive(NotificationCenter.default.publisher(for: .beginWriterFlowLocalPairing)) { _ in
+            selectedTab = .account
+            Task { await accountViewModel.beginSignIn() }
+        }
+        #endif
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 640, minHeight: 480)
     }

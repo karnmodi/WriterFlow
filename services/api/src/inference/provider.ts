@@ -1,4 +1,9 @@
-import type { InferenceRequestEnvelope, LogicalRoute, WritingAction } from "@writerflow/shared";
+import type { InferenceRequestEnvelope, LogicalRoute, SkillId, WritingAction } from "@writerflow/shared";
+
+export interface ProviderPromptOverride {
+  system: string;
+  user: string;
+}
 
 /** The server-resolved provider input. Clients never select a model/deployment. */
 export interface InferenceProviderRequest {
@@ -6,6 +11,9 @@ export interface InferenceProviderRequest {
   route: LogicalRoute;
   envelope: InferenceRequestEnvelope;
   signal?: AbortSignal;
+  skillId?: SkillId;
+  promptOverride?: ProviderPromptOverride;
+  maxCompletionTokensOverride?: number;
 }
 
 export interface InferenceProviderUsage {

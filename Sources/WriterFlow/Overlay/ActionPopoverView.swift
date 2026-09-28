@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Compact action list shown in the non-activating popover panel.
 struct ActionPopoverView: View {
+    let customOnly: Bool
     let highlightedIndex: Int
     let isCustomHighlighted: Bool
     let recommendedAction: WritingAction?
@@ -27,20 +28,22 @@ struct ActionPopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(actions.enumerated()), id: \.offset) { index, action in
-                ActionRow(
-                    action: action,
-                    isHighlighted: index == highlightedIndex && !isCustomHighlighted && !showPromptBuilderField,
-                    isRecommended: action == recommendedAction,
-                    onSelect: { onSelect(action) }
-                )
+            if !customOnly {
+                ForEach(Array(actions.enumerated()), id: \.offset) { index, action in
+                    ActionRow(
+                        action: action,
+                        isHighlighted: index == highlightedIndex && !isCustomHighlighted && !showPromptBuilderField,
+                        isRecommended: action == recommendedAction,
+                        onSelect: { onSelect(action) }
+                    )
+                }
             }
 
             if showPromptBuilderField {
                 promptBuilderInputSection
             }
 
-            Divider().padding(.vertical, 4)
+            if !customOnly { Divider().padding(.vertical, 4) }
 
             customSection
         }

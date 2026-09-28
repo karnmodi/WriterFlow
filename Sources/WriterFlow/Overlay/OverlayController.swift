@@ -30,6 +30,19 @@ final class OverlayController {
     private var previewErrorMessage: String?
     private var previewStreamStartedAt: Date?
     private var previewActionTitle: String = ""
+    private var previewSkillMetadata: String?
+    private var previewOutputMode: String = "replace"
+    private var isAutoPreview = false
+    private var pendingOperationID: UUID?
+    private var pendingFingerprint: TargetFingerprint?
+    private var adjustmentBackup: PreviewVariants?
+    private var adjustmentParentOperationID: UUID?
+    private var pendingAdjustmentInstruction: String?
+    private var pendingAdjustmentPriorOutput: String?
+    private var awaitingAdjustedFirstDelta = false
+    private var retryBackup: PreviewVariants?
+    private var retryParentOperationID: UUID?
+    private var awaitingRetryFirstDelta = false
     private var previewOriginalText: String = ""
     private var pendingSnapshot: FieldSnapshot?
     private var pendingAction: WritingAction?
@@ -86,6 +99,9 @@ final class OverlayController {
     private var showPromptBuilderField = false
     private var promptBuilderText = ""
     private var pendingPopoverRefresh = false
+    private enum ComposerPurpose { case legacyCustom, autoDirective, adjustment }
+    private var composerPurpose: ComposerPurpose = .legacyCustom
+    private var customOnlyComposer = false
 
     private struct PendingUndo {
         let pid: pid_t
@@ -108,6 +124,12 @@ final class OverlayController {
     var onCheckCachedRecommendation: ((FocusedField) -> WritingAction?)?
     /// Cancels the in-flight ActionEngine run (Discard / Cancel generation).
     var onCancelRequested: (() -> Void)?
+    var onAutoTrigger: ((FocusedField, String?) -> Void)?
+    var onAutoRetry: ((FocusedField, String?, UUID?) -> Void)?
+    var onAdjustActionSelected: ((String, FocusedField, UUID, String) -> Void)?
+    var onClassifierFeedback: ((UUID, String, String?) -> Void)?
+
+    var activeField: FocusedField? { currentField }
 
     private let iconSize = CGSize(width: 28, height: 28)
     private let popoverSize = CGSize(width: 230, height: 360)
@@ -162,6 +184,7 @@ final class OverlayController {
 
     private var popoverRootView: ActionPopoverView {
         ActionPopoverView(
+            customOnly: customOnlyComposer,
             highlightedIndex: highlightedIndex,
             isCustomHighlighted: isCustomHighlighted,
             recommendedAction: recommendedAction,
@@ -204,6 +227,8 @@ final class OverlayController {
     private var previewRootView: PreviewCardView {
         PreviewCardView(
             actionTitle: previewActionTitle,
+            skillMetadata: previewSkillMetadata,
+            isHoldingPreviousResult: awaitingRetryFirstDelta,
             variants: previewVariants,
             usesMultiVariant: previewUsesMultiVariant,
             promptBuilderPhase: previewPromptBuilderPhase,
@@ -211,8 +236,10 @@ final class OverlayController {
             clarifySelections: previewClarifySelections,
             originalText: previewOriginalText,
             action: pendingAction,
+            serverOutputMode: isAutoPreview ? previewOutputMode : nil,
             isStreaming: previewStreaming,
             canReplace: previewCanReplace,
+            canCopy: previewHasVisibleText && (!previewStreaming || previewCanReplace),
             errorMessage: previewErrorMessage,
             streamStartedAt: previewStreamStartedAt,
             onSelectVariant: { [weak self] index in self?.selectPreviewVariant(index) },
@@ -223,6 +250,7 @@ final class OverlayController {
             onReplace: { [weak self] in self?.applyPreview() },
             onCopy: { [weak self] in self?.copyPreview() },
             onRetry: { [weak self] in self?.retryPreview() },
+            onAdjust: { [weak self] in self?.openAdjustmentComposer() },
             onClose: { [weak self] in self?.dismissPreviewCard() },
             onCancelGeneration: { [weak self] in self?.discardPreview() }
         )
@@ -247,6 +275,9 @@ final class OverlayController {
     /// instruction asks for a derivative artifact like a title, not a rewrite). Every other
     /// action always replaces, unchanged.
     private var previewOutputText: (text: String, insertBeforeContent: Bool) {
+        if isAutoPreview {
+            return (activePreviewText, previewOutputMode == "insert_before")
+        }
         guard pendingAction == .custom else { return (activePreviewText, false) }
         let parsed = CustomOutputParser.parse(activePreviewText)
         return (parsed.text, parsed.mode == .insertBeforeContent)
@@ -265,6 +296,8 @@ final class OverlayController {
         }
         guard !isPopoverVisible else { return }
 
+        composerPurpose = .legacyCustom
+        customOnlyComposer = false
         highlightedIndex = firstEnabledPopoverIndex()
         recommendedAction = nil
         userMovedHighlight = false
@@ -353,8 +386,13 @@ final class OverlayController {
     /// was started with, retained so Retry can re-issue the same request rather
     /// than a bare action against the field's contents.
     func beginPreview(action: WritingAction, instruction: String? = nil) {
+        isAutoPreview = false
+        pendingOperationID = nil
+        pendingFingerprint = nil
+        previewOutputMode = "replace"
         pendingInstruction = instruction
         previewActionTitle = action.title
+        previewSkillMetadata = nil
         previewVariants = .empty()
         previewUsesMultiVariant = action.usesMultiVariantPreview
         previewPromptBuilderPhase = action == .promptBuilder ? .analyzing : nil
@@ -386,9 +424,124 @@ final class OverlayController {
         refreshBusyIcon()
     }
 
+    /// Arms the busy icon but deliberately keeps the preview card hidden until
+    /// the first visible output delta arrives.
+    func prepareAutoRun(
+        field: FocusedField,
+        operationID: UUID,
+        fingerprint: TargetFingerprint,
+        directive: String?
+    ) {
+        currentField = field
+        pendingInstruction = directive
+        previewActionTitle = "WriterFlow"
+        previewSkillMetadata = nil
+        previewVariants = .empty()
+        previewUsesMultiVariant = false
+        previewPromptBuilderPhase = nil
+        previewClarifyQuestions = []
+        previewClarifySelections = [:]
+        previewOriginalText = ""
+        previewStreaming = true
+        previewCanReplace = false
+        previewErrorMessage = nil
+        previewStreamStartedAt = Date()
+        previewOutputMode = "replace"
+        pendingAction = .custom
+        pendingSnapshot = nil
+        pendingEvent = nil
+        pendingUndo = nil
+        previewSessionField = field
+        pendingOperationID = operationID
+        pendingFingerprint = fingerprint
+        isAutoPreview = true
+        isPreviewSoftHidden = false
+        dismissActionPopover()
+        refreshBusyIcon()
+    }
+
+    func applySkillDecision(
+        skillID: String,
+        skillVersion: String,
+        label: String,
+        action: WritingAction,
+        outputMode: String,
+        executionMode: String
+    ) {
+        previewActionTitle = label
+        let version = skillVersion.split(separator: "@", maxSplits: 1).last.map(String.init) ?? skillVersion
+        previewSkillMetadata = "\(skillID) v\(version) · \(executionMode)"
+        pendingAction = action
+        previewOutputMode = outputMode
+        if isPreviewVisible { refreshPreviewContent() }
+    }
+
+    /// Keeps the completed result on screen while a retry captures fresh field
+    /// context and waits for its first replacement delta.
+    private func beginAutoRetry(retryOf: UUID?) {
+        retryBackup = previewVariants
+        retryParentOperationID = retryOf
+        awaitingRetryFirstDelta = true
+        previewStreaming = true
+        previewCanReplace = false
+        previewErrorMessage = nil
+        previewStreamStartedAt = Date()
+        refreshPreviewContent()
+        refreshBusyIcon()
+    }
+
+    func prepareAutoRetry(
+        field: FocusedField,
+        operationID: UUID,
+        retryOf: UUID?,
+        fingerprint: TargetFingerprint,
+        directive: String?
+    ) {
+        currentField = field
+        if retryBackup == nil { beginAutoRetry(retryOf: retryOf) }
+        pendingInstruction = directive
+        pendingOperationID = operationID
+        pendingFingerprint = fingerprint
+        isAutoPreview = true
+        refreshPreviewContent()
+        if !isPreviewVisible { restorePreview() }
+        refreshBusyIcon()
+    }
+
+    func prepareAdjustment(
+        operationID: UUID,
+        fingerprint: TargetFingerprint,
+        parentOperationID: UUID,
+        instruction: String,
+        priorOutput: String
+    ) {
+        adjustmentBackup = previewVariants
+        adjustmentParentOperationID = parentOperationID
+        pendingAdjustmentInstruction = instruction
+        pendingAdjustmentPriorOutput = priorOutput
+        awaitingAdjustedFirstDelta = true
+        previewStreaming = true
+        previewCanReplace = !previewVariants.selectedText.isEmpty && (pendingSnapshot?.supportsReplace ?? true)
+        previewErrorMessage = nil
+        previewStreamStartedAt = Date()
+        pendingOperationID = operationID
+        pendingFingerprint = fingerprint
+        refreshPreviewContent()
+        refreshBusyIcon()
+    }
+
     func appendVariant(_ index: Int, delta: String) {
         previewErrorMessage = nil
+        if awaitingAdjustedFirstDelta || awaitingRetryFirstDelta {
+            awaitingAdjustedFirstDelta = false
+            awaitingRetryFirstDelta = false
+            previewVariants = .empty()
+            previewCanReplace = false
+        }
         previewVariants.append(to: index, delta: delta)
+        if isAutoPreview && !isPreviewVisible && !isPreviewSoftHidden {
+            restorePreview()
+        }
         refreshPreviewContent()
         refreshBusyIcon()
     }
@@ -434,6 +587,14 @@ final class OverlayController {
             && snapshot.supportsReplace
         pendingSnapshot = snapshot
         pendingEvent = event
+        adjustmentBackup = nil
+        adjustmentParentOperationID = nil
+        pendingAdjustmentInstruction = nil
+        pendingAdjustmentPriorOutput = nil
+        awaitingAdjustedFirstDelta = false
+        retryBackup = nil
+        retryParentOperationID = nil
+        awaitingRetryFirstDelta = false
         refreshPreviewContent()
         if PreviewSession.shouldAutoRestoreOnCompletion(
             isSoftHidden: isPreviewSoftHidden,
@@ -483,7 +644,23 @@ final class OverlayController {
         // Keep the card open with an explicit error — dismissing + toast alone
         // looked like a silent hang under rate-limit / overload.
         previewStreaming = false
-        previewCanReplace = false
+        if let retryBackup {
+            previewVariants = retryBackup
+            self.retryBackup = nil
+            pendingOperationID = retryParentOperationID
+            retryParentOperationID = nil
+            awaitingRetryFirstDelta = false
+            previewCanReplace = !previewVariants.selectedText.isEmpty && (pendingSnapshot?.supportsReplace ?? true)
+        } else if let adjustmentBackup {
+            previewVariants = adjustmentBackup
+            self.adjustmentBackup = nil
+            pendingOperationID = adjustmentParentOperationID
+            adjustmentParentOperationID = nil
+            awaitingAdjustedFirstDelta = false
+            previewCanReplace = !previewVariants.selectedText.isEmpty && (pendingSnapshot?.supportsReplace ?? true)
+        } else {
+            previewCanReplace = false
+        }
         previewErrorMessage = message
         previewStreamStartedAt = nil
         refreshPreviewContent()
@@ -798,6 +975,19 @@ final class OverlayController {
         pendingSnapshot = nil
         pendingAction = nil
         pendingInstruction = nil
+        pendingOperationID = nil
+        pendingFingerprint = nil
+        previewOutputMode = "replace"
+        isAutoPreview = false
+        previewSkillMetadata = nil
+        adjustmentBackup = nil
+        adjustmentParentOperationID = nil
+        pendingAdjustmentInstruction = nil
+        pendingAdjustmentPriorOutput = nil
+        awaitingAdjustedFirstDelta = false
+        retryBackup = nil
+        retryParentOperationID = nil
+        awaitingRetryFirstDelta = false
         keyMonitor.uninstall()
         refreshBusyIcon()
 
@@ -815,6 +1005,7 @@ final class OverlayController {
         if previewStreaming {
             onCancelRequested?()
         }
+        reportClassifierFeedback(outcome: "discarded")
         finalizeEvent(accepted: false)
         hardClearPreview()
     }
@@ -825,6 +1016,7 @@ final class OverlayController {
     /// a request that no longer exists.
     func cancelPreview() {
         guard isPreviewVisible || isPreviewSoftHidden || hasActivePreviewSession else { return }
+        reportClassifierFeedback(outcome: "discarded")
         finalizeEvent(accepted: false)
         hardClearPreview()
     }
@@ -837,7 +1029,14 @@ final class OverlayController {
             restorePreview()
             return
         }
-        toggleActionPopover()
+        guard let field = currentField else { return }
+        if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
+            showNaturalComposer(purpose: .autoDirective)
+        } else if let onAutoTrigger {
+            onAutoTrigger(field, nil)
+        } else {
+            toggleActionPopover()
+        }
     }
 
     private func handleActionSelected(_ action: WritingAction) {
@@ -885,9 +1084,22 @@ final class OverlayController {
         let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let field = currentField else { return }
         SettingsStore.shared.recordCustomInstruction(trimmed)
-        Log.overlay.info("Custom action submitted")
-        beginPreview(action: .custom, instruction: trimmed)
-        onCustomActionSelected?(trimmed, field)
+        let purpose = composerPurpose
+        dismissActionPopover()
+        switch purpose {
+        case .autoDirective:
+            Log.overlay.info("Automatic directive submitted")
+            onAutoTrigger?(field, trimmed)
+        case .adjustment:
+            guard let operationID = pendingOperationID else { return }
+            Log.overlay.info("Preview adjustment submitted")
+            reportClassifierFeedback(outcome: "adjusted")
+            onAdjustActionSelected?(trimmed, field, operationID, activePreviewText)
+        case .legacyCustom:
+            Log.overlay.info("Custom action submitted")
+            beginPreview(action: .custom, instruction: trimmed)
+            onCustomActionSelected?(trimmed, field)
+        }
     }
 
     /// Scoped, deliberate exception to "never steal focus" (golden rule #1) —
@@ -907,6 +1119,8 @@ final class OverlayController {
     }
 
     private func openCustomInput() {
+        composerPurpose = .legacyCustom
+        customOnlyComposer = false
         // Mark active BEFORE activating WriterFlow so the ensuing host-field
         // blur is ignored by fieldDidBlur and does not dismiss the popover.
         showPromptBuilderField = false
@@ -917,6 +1131,34 @@ final class OverlayController {
         userMovedHighlight = true
         actionPanel.contentView = makePopoverHostingView()
         focusCustomField()
+    }
+
+    private func showNaturalComposer(purpose: ComposerPurpose) {
+        guard let field = currentField else { return }
+        composerPurpose = purpose
+        customOnlyComposer = true
+        showPromptBuilderField = false
+        promptBuilderText = ""
+        showCustomField = true
+        customText = ""
+        beginCustomInput()
+        positionPanelAboveIcon(actionPanel, size: CGSize(width: 300, height: 110), field: field)
+        let hosting = makePopoverHostingView()
+        hosting.frame = NSRect(origin: .zero, size: CGSize(width: 300, height: 110))
+        actionPanel.contentView = hosting
+        isPopoverVisible = true
+        actionPanel.alphaValue = 1
+        actionPanel.orderFrontRegardless()
+        focusCustomField()
+    }
+
+    private func openAdjustmentComposer() {
+        showNaturalComposer(purpose: .adjustment)
+    }
+
+    func openNaturalDirectiveComposer() {
+        guard currentField != nil else { return }
+        showNaturalComposer(purpose: .autoDirective)
     }
 
     private func openPromptBuilderInput() {
@@ -954,12 +1196,69 @@ final class OverlayController {
     }
 
     private func applyPreview() {
+        usePriorResultIfAdjustmentIsPending()
         guard let snapshot = pendingSnapshot, let field = currentField else {
             ErrorToast.show("Couldn't apply — field changed. Try again.", belowIcon: dockIconAnchor())
             discardPreview()
             return
         }
         let (text, insertBeforeContent) = previewOutputText
+        guard previewCanReplace, !text.isEmpty, !isApplyingPreview else { return }
+
+        if let fingerprint = pendingFingerprint {
+            isApplyingPreview = true
+            Task {
+                let live = await ContextExtractor.readFocusedField(
+                    pid: field.appPID,
+                    bundleID: field.appBundleID
+                )
+                await MainActor.run {
+                    isApplyingPreview = false
+                    guard let live else {
+                        disableReplaceForChangedTarget()
+                        return
+                    }
+                    let liveSite = AppAdapterRegistry.siteLabel(
+                        bundleID: live.appBundleID,
+                        windowTitle: live.windowTitle
+                    )
+                    guard fingerprint.matches(field: field, snapshot: live, site: liveSite) else {
+                        disableReplaceForChangedTarget()
+                        return
+                    }
+                    applyPreviewValidated(
+                        snapshot: snapshot,
+                        field: field,
+                        text: text,
+                        insertBeforeContent: insertBeforeContent
+                    )
+                }
+            }
+            return
+        }
+        applyPreviewValidated(
+            snapshot: snapshot,
+            field: field,
+            text: text,
+            insertBeforeContent: insertBeforeContent
+        )
+    }
+
+    private func disableReplaceForChangedTarget() {
+        previewCanReplace = false
+        refreshPreviewContent()
+        ErrorToast.show(
+            "The writing field changed. Replace is disabled, but you can still Copy.",
+            belowIcon: dockIconAnchor()
+        )
+    }
+
+    private func applyPreviewValidated(
+        snapshot: FieldSnapshot,
+        field: FocusedField,
+        text: String,
+        insertBeforeContent: Bool
+    ) {
         guard previewCanReplace, !text.isEmpty, !isApplyingPreview else { return }
         isApplyingPreview = true
 
@@ -1005,10 +1304,11 @@ final class OverlayController {
             )
             await MainActor.run {
                 isApplyingPreview = false
-                finalizeEvent(accepted: true)
-                hardClearPreview()
                 switch result {
                 case .selectedTextReplaced, .fullValueReplaced, .clipboardPasted:
+                    reportClassifierFeedback(outcome: "accepted")
+                    finalizeEvent(accepted: true)
+                    hardClearPreview()
                     // Sound-free by default; a subtle haptic instead — silently a no-op on
                     // trackpads/Macs without the Taptic Engine.
                     NSHapticFeedbackManager.defaultPerformer.perform(
@@ -1030,6 +1330,7 @@ final class OverlayController {
                         self?.restoreOriginal()
                     }
                 case .failed(let reason):
+                    finalizeEvent(accepted: false)
                     ErrorToast.show("Replace failed: \(reason)", belowIcon: dockIconAnchor())
                 }
             }
@@ -1039,17 +1340,39 @@ final class OverlayController {
     /// Copies the preview result to the clipboard and closes the card — an
     /// alternative to Replace when the user wants to paste it elsewhere.
     private func copyPreview() {
+        usePriorResultIfAdjustmentIsPending()
         let (text, _) = previewOutputText
-        guard !text.isEmpty, (previewCanReplace || pendingSnapshot?.supportsReplace == false) else { return }
+        guard !text.isEmpty, !previewStreaming else { return }
         if var event = pendingEvent {
             event.output = text
             pendingEvent = event
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        reportClassifierFeedback(outcome: "accepted")
         finalizeEvent(accepted: true)
         hardClearPreview()
         ErrorToast.show("Copied to clipboard", duration: 2.0, belowIcon: dockIconAnchor(), style: .success)
+    }
+
+    private func reportClassifierFeedback(outcome: String) {
+        guard isAutoPreview, let operationID = pendingOperationID else { return }
+        let appCategory = currentField.map {
+            ContextSignalBuilder.appCategory(
+                site: AppAdapterRegistry.siteLabel(bundleID: $0.appBundleID, windowTitle: pendingSnapshot?.windowTitle)
+            )
+        }
+        onClassifierFeedback?(operationID, outcome, appCategory)
+    }
+
+    private func usePriorResultIfAdjustmentIsPending() {
+        guard awaitingAdjustedFirstDelta else { return }
+        onCancelRequested?()
+        awaitingAdjustedFirstDelta = false
+        adjustmentBackup = nil
+        previewStreaming = false
+        pendingOperationID = adjustmentParentOperationID
+        adjustmentParentOperationID = nil
     }
 
     /// Discards the current attempt and re-runs it against the field's live
@@ -1058,9 +1381,21 @@ final class OverlayController {
     /// dropped the instruction, so retrying a Prompt Builder brief on an empty
     /// field failed with "Describe the prompt you need first."
     private func retryPreview() {
-        guard let action = pendingAction, let field = currentField else { return }
+        guard !previewStreaming, let action = pendingAction, let field = currentField else { return }
         finalizeEvent(accepted: false)
         let instruction = pendingInstruction
+        if isAutoPreview {
+            let adjustmentInstruction = pendingAdjustmentInstruction
+            let adjustmentPriorOutput = pendingAdjustmentPriorOutput
+            let parentOperationID = adjustmentParentOperationID ?? pendingOperationID
+            if let adjustmentInstruction, let adjustmentPriorOutput, let parentOperationID {
+                onAdjustActionSelected?(adjustmentInstruction, field, parentOperationID, adjustmentPriorOutput)
+            } else {
+                beginAutoRetry(retryOf: parentOperationID)
+                onAutoRetry?(field, instruction, parentOperationID)
+            }
+            return
+        }
         beginPreview(action: action, instruction: instruction)
 
         switch (action, instruction) {

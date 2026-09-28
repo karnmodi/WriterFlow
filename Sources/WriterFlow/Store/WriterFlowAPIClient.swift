@@ -8,7 +8,38 @@ import Foundation
 struct WriterFlowAPIConfig: Sendable {
     let baseURL: URL
 
-    static let production = WriterFlowAPIConfig(baseURL: URL(string: "https://apiwriterflow.aviusolutions.com/v2")!)
+    /// Live pairing/inference edge. The vanity hostname
+    /// `apiwriterflow.aviusolutions.com` sits behind Cloudflare, which serves
+    /// an interactive challenge to native URLSession and never returns a
+    /// pairing code — so Sign In cannot open the browser. APIM's own
+    /// gateway is the same API without that challenge (same pattern as the
+    /// website's `WRITERFLOW_API_BASE_URL`).
+    static let production = WriterFlowAPIConfig(baseURL: URL(string: "https://wfprod-apim-dev.azure-api.net/v2")!)
+
+    /// Loopback `.env` values are for `services/api` on this machine. Sign-in
+    /// still has to reach the live gateway unless the developer opts in with
+    /// `WRITERFLOW_USE_LOCAL_API=1`.
+    static func overrideBaseURL(from env: [String: String]) -> URL? {
+        guard let raw = env["WRITERFLOW_API_BASE_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty,
+              let url = URL(string: raw) else {
+            return nil
+        }
+        if isLoopbackAPI(url), !explicitLocalAPI(env) {
+            return nil
+        }
+        return url
+    }
+
+    static func isLoopbackAPI(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
+    }
+
+    static func explicitLocalAPI(_ env: [String: String]) -> Bool {
+        let raw = env["WRITERFLOW_USE_LOCAL_API"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return raw == "1" || raw == "true" || raw == "yes"
+    }
 
     #if DEBUG
     /// Reads `WRITERFLOW_API_BASE_URL` for local `services/api`, e.g.
@@ -16,9 +47,9 @@ struct WriterFlowAPIConfig: Sendable {
     ///
     /// Lookup order (later wins): project `.env` (when running from the repo
     /// tree) → Application Support `secrets.env` (what `make install` /
-    /// `make run` syncs, so `~/Applications/WriterFlow.app` still finds it) →
-    /// process environment. Without an override, even a debug app uses the
-    /// live production APIM gateway.
+    /// `make run` syncs, so `~/Applications/writeflow_local.app` still finds it) →
+    /// process environment. Loopback overrides are ignored unless
+    /// `WRITERFLOW_USE_LOCAL_API=1`, so Sign In can open the live pairing page.
     static func resolved() -> WriterFlowAPIConfig {
         let exec = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? ".")
         var merged: [String: String] = [:]
@@ -34,9 +65,7 @@ struct WriterFlowAPIConfig: Sendable {
         for (key, value) in ProcessInfo.processInfo.environment where !value.isEmpty {
             merged[key] = value
         }
-        if let raw = merged["WRITERFLOW_API_BASE_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !raw.isEmpty,
-           let url = URL(string: raw) {
+        if let url = overrideBaseURL(from: merged) {
             Log.auth.info(
                 "WriterFlow API base URL override: \(url.absoluteString, privacy: .public)"
             )
@@ -173,6 +202,28 @@ actor WriterFlowAPIClient {
     struct CohortFlags: Decodable, Sendable, Equatable {
         let useCloudInference: Bool
         let allowByoFallback: Bool
+        let autoActionEnabled: Bool
+        let classifierEnabled: Bool
+        let composedEnabled: Bool
+
+        private enum CodingKeys: String, CodingKey {
+            case useCloudInference
+            case allowByoFallback
+            case autoActionEnabled
+            case classifierEnabled
+            case composedEnabled
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            useCloudInference = try values.decode(Bool.self, forKey: .useCloudInference)
+            allowByoFallback = try values.decode(Bool.self, forKey: .allowByoFallback)
+            // Older production edges do not know about Phase 6. Decode them
+            // as the safe rollback cohort instead of failing the whole policy.
+            autoActionEnabled = try values.decodeIfPresent(Bool.self, forKey: .autoActionEnabled) ?? false
+            classifierEnabled = try values.decodeIfPresent(Bool.self, forKey: .classifierEnabled) ?? false
+            composedEnabled = try values.decodeIfPresent(Bool.self, forKey: .composedEnabled) ?? false
+        }
     }
 
     /// `GET /v2/me` — requires a bearer WriterFlow access token (not the
@@ -183,6 +234,27 @@ actor WriterFlowAPIClient {
 
     func cohortFlags(accessToken: String) async throws -> CohortFlags {
         try await get(path: "/cohort/flags", accessToken: accessToken)
+    }
+
+    func sendInferenceFeedback(
+        operationId: UUID,
+        outcome: String,
+        appCategory: String?,
+        accessToken: String
+    ) async throws {
+        struct Body: Encodable {
+            let operationId: UUID
+            let revisedSkillId: String? = nil
+            let appCategory: String?
+            let outcome: String
+        }
+        let request = makeRequest(path: "/inference/feedback", accessToken: accessToken)
+        let (_, response) = try await send(
+            request,
+            body: Body(operationId: operationId, appCategory: appCategory, outcome: outcome)
+        )
+        guard let http = response as? HTTPURLResponse else { throw DeviceSessionError.decodingFailed }
+        guard http.statusCode == 204 else { throw DeviceSessionError.httpError(http.statusCode) }
     }
 
     /// `DELETE /v2/devices/{id}` — 204 on success; 404 if `deviceId` isn't

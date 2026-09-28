@@ -65,6 +65,30 @@ final class InferenceTransportRoutingTests: XCTestCase {
             hasTransport: true
         ))
     }
+
+    func testAutomaticWritingExplainsTheActualUnavailableCondition() {
+        XCTAssertEqual(
+            automaticWritingUnavailableMessage(
+                useCloudInference: false,
+                sessionState: .signedIn(deviceId: "device-1"),
+                hasTransport: true
+            ),
+            "Automatic writing is not enabled for this cohort."
+        )
+        XCTAssertEqual(
+            automaticWritingUnavailableMessage(
+                useCloudInference: true,
+                sessionState: .needsRePair,
+                hasTransport: true
+            ),
+            "Your session expired. Open Dashboard → Account and sign in again."
+        )
+        XCTAssertNil(automaticWritingUnavailableMessage(
+            useCloudInference: true,
+            sessionState: .signedIn(deviceId: "device-1"),
+            hasTransport: true
+        ))
+    }
 }
 
 final class InferenceRequestBuilderTests: XCTestCase {

@@ -61,6 +61,20 @@ BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")"
 [[ "$BUNDLE_ID" == "$EXPECTED_BUNDLE_ID" ]] || fail "bundle id is '$BUNDLE_ID', expected '$EXPECTED_BUNDLE_ID'"
 pass "bundle id = $BUNDLE_ID"
 
+BUNDLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$PLIST")"
+[[ "$BUNDLE_NAME" == "WriterFlow" ]] || fail "CFBundleName is '$BUNDLE_NAME', expected 'WriterFlow'"
+pass "CFBundleName = WriterFlow"
+
+DISPLAY_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$PLIST")"
+[[ "$DISPLAY_NAME" == "WriterFlow" ]] || fail "CFBundleDisplayName is '$DISPLAY_NAME', expected 'WriterFlow'"
+pass "CFBundleDisplayName = WriterFlow"
+
+EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")"
+[[ "$EXECUTABLE" == "WriterFlow" ]] || fail "CFBundleExecutable is '$EXECUTABLE', expected 'WriterFlow'"
+[[ -x "$APP/Contents/MacOS/WriterFlow" ]] || fail "release executable must be Contents/MacOS/WriterFlow"
+[[ ! -e "build/writeflow_local.app" ]] || fail "release checkup produced writeflow_local.app — release must be WriterFlow only"
+pass "release artifact is WriterFlow only"
+
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
 [[ "$VERSION" == "$EXPECTED_VERSION" ]] || fail "CFBundleShortVersionString is '$VERSION', expected '$EXPECTED_VERSION'"
 pass "version = $VERSION"

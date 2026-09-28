@@ -18,6 +18,21 @@ and the ARM64 ad-hoc-signed DMG. Its production AI transport is bring-your-own A
 OpenAI endpoint/key/deployment configuration; the user's key is stored in that user's
 Keychain and no publisher-owned/shared credential ships in the app.
 
+**Phase 6 context-aware skill orchestration is implemented locally behind default-off
+cohort flags (2026-08-15); rollout gates remain open.** The strict explicit/auto/adjust
+contract, nine reviewed skill manifests, deterministic rules, internal classifier,
+bounded two-specialist path, 2.5-second server no-delta deadline, per-attempt ledger
+keys, and content-free classifier feedback are implemented in `services/`. The Mac now
+has volatile active-field capsules, opaque target revalidation, `AutoActionCoordinator`,
+first-delta preview presentation, exact word-coalesced streaming, natural-language
+Shift-click/`⌃⌥⇧ Space`, and Replace/Copy/Adjust/Discard. The legacy action menu remains
+the default rollback path until the 85% exact/95% acceptable live classifier and staged
+cohort gates pass. The synthetic 330-case rule harness passes; it is not evidence that
+the live classifier or app matrix release gates have passed. On 2026-08-18 the local
+PostgreSQL migration, API, Entra device pairing, cohort refresh, and authenticated auto
+SSE decision stream were verified end to end; production flags and cloud resources were
+not changed.
+
 **V2.0.2 is the macOS compatibility release.** The minimum remains macOS 14.0, covering
 Sonoma 14, Sequoia 15, and Tahoe 26. Release packaging is now one universal app/DMG
 with native arm64 and x86_64 slices; debug builds remain native-only. The automated

@@ -183,7 +183,6 @@ final class FocusMonitor {
         if currentField != field {
             currentField = field
             delegate?.focusMonitor(self, fieldDidFocus: field)
-            restartFrameTimer()
         }
     }
 
@@ -227,9 +226,11 @@ final class FocusMonitor {
         }
         guard currentField != nil else { return }
         pollFrame()
+        delegate?.focusMonitorTypingActivity(self)
         if !typingActive {
             typingActive = true
             delegate?.focusMonitorTypingStarted(self)
+            restartFrameTimer()
         }
         scheduleTypingStopped()
     }
@@ -273,16 +274,18 @@ final class FocusMonitor {
             guard !Task.isCancelled, let self else { return }
             if self.typingActive {
                 self.typingActive = false
+                self.frameTimer?.invalidate()
+                self.frameTimer = nil
                 self.delegate?.focusMonitorTypingStopped(self)
             }
         }
     }
 
-    // MARK: - Frame polling (only while a field is focused)
+    // MARK: - Frame polling (only while the user is actively typing)
 
     private func restartFrameTimer() {
         frameTimer?.invalidate()
-        guard currentField != nil else { return }
+        guard currentField != nil, typingActive else { return }
         let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.pollFrame() }
         }

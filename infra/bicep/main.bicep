@@ -284,6 +284,22 @@ module apiApp 'modules/container-app-api.bicep' = if (!useDeveloperApim) {
         name: 'WRITERFLOW_COHORT_BYO_FALLBACK'
         value: 'false'
       }
+      {
+        name: 'WRITERFLOW_COHORT_AUTO_ACTION'
+        value: 'false'
+      }
+      {
+        name: 'WRITERFLOW_CLASSIFIER_ENABLED'
+        value: 'false'
+      }
+      {
+        name: 'WRITERFLOW_COMPOSED_ENABLED'
+        value: 'false'
+      }
+      {
+        name: 'WRITERFLOW_SHADOW_AUTO_DECISIONS'
+        value: 'false'
+      }
     ]
     secretEnvironmentVariables: concat(empty(databaseUrlSecretUri) ? [] : [
       {
@@ -383,6 +399,22 @@ module publicApiApp 'modules/container-app-api.bicep' = if (useDeveloperApim) {
       }
       {
         name: 'WRITERFLOW_COHORT_BYO_FALLBACK'
+        value: 'false'
+      }
+      {
+        name: 'WRITERFLOW_COHORT_AUTO_ACTION'
+        value: 'false'
+      }
+      {
+        name: 'WRITERFLOW_CLASSIFIER_ENABLED'
+        value: 'false'
+      }
+      {
+        name: 'WRITERFLOW_COMPOSED_ENABLED'
+        value: 'false'
+      }
+      {
+        name: 'WRITERFLOW_SHADOW_AUTO_DECISIONS'
         value: 'false'
       }
     ]

@@ -1,0 +1,13 @@
+{
+  "datasetVersion": "phase6-synthetic-v1",
+  "recordedAt": "2026-08-15",
+  "cases": 330,
+  "applications": 11,
+  "deterministicExactPercent": 56.36,
+  "deterministicAcceptablePercent": 100,
+  "highConfidenceRuleCases": 162,
+  "highConfidenceAcceptablePercent": 100,
+  "menuChoiceBaseline": "oracle only; user explicitly chooses a named action",
+  "recommendationEngineBaseline": "not comparable without sending the synthetic drafts to its legacy model",
+  "rolloutGateMet": false
+}

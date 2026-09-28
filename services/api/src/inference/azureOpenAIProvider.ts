@@ -87,11 +87,14 @@ export class AzureOpenAIProvider implements InferenceProvider {
   }
 
   stream(request: InferenceProviderRequest): InferenceStreamResult {
-    const prompt = this.promptCompiler.compile(request);
+    const compiledPrompt = request.promptOverride ? undefined : this.promptCompiler.compile(request);
+    const prompt = request.promptOverride ?? compiledPrompt;
+    if (!prompt) throw new Error("No validated prompt was available for this request.");
     const draft = request.envelope.content.draft;
     const url =
       `${this.endpoint}/openai/deployments/${this.deployment}/chat/completions?api-version=${encodeURIComponent(this.apiVersion)}`;
-    const maxCompletionTokens = maxCompletionTokensForAction(request.action, this.maxCompletionTokens);
+    const maxCompletionTokens = request.maxCompletionTokensOverride
+      ?? maxCompletionTokensForAction(request.action, this.maxCompletionTokens);
     const reasoningEffort = this.reasoningEffort;
     const getBearer = (): Promise<string> => this.accessToken();
 
@@ -183,8 +186,8 @@ export class AzureOpenAIProvider implements InferenceProvider {
         let outputTokens = 0;
         let gotDelta = false;
         let gotProviderDelta = false;
-        const grammarNormalizer = request.action === "fixGrammar"
-          ? new GrammarOutputNormalizer(prompt.plan.source)
+        const grammarNormalizer = request.action === "fixGrammar" && compiledPrompt
+          ? new GrammarOutputNormalizer(compiledPrompt.plan.source)
           : undefined;
 
         for (;;) {

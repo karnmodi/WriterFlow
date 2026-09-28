@@ -61,4 +61,15 @@ enum WritingAction: CaseIterable, Sendable, Equatable {
     static func matching(shortcut digit: Int) -> WritingAction? {
         enabledActions.first { $0.shortcut == digit }
     }
+
+    static func forSkill(_ skillID: String) -> WritingAction {
+        switch skillID {
+        case "reply", "continue": return .reply
+        case "correct": return .fixGrammar
+        case "expand": return .elaborate
+        case "tone_adapt": return .formal
+        case "prompt_enhance": return .promptBuilder
+        default: return .custom
+        }
+    }
 }

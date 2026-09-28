@@ -7,15 +7,21 @@ import type { SigningKeyProvider } from "../jwt/keys.js";
 export interface CohortFlags {
   useCloudInference: boolean;
   allowByoFallback: boolean;
+  autoActionEnabled: boolean;
+  classifierEnabled: boolean;
+  composedEnabled: boolean;
 }
 
-/** Server-controlled cohort flags for Stage 5.6 alpha (kill switches). */
+/** Server-controlled transport + Phase 6 rollout kill switches. */
 export function resolveCohortFlags(_config: AppConfig): CohortFlags {
   const env = process.env["WRITERFLOW_COHORT_CLOUD_INFERENCE"];
   const useCloudInference = env === "1" || env === "true";
   const fallbackEnv = process.env["WRITERFLOW_COHORT_BYO_FALLBACK"];
   const allowByoFallback = fallbackEnv !== "0" && fallbackEnv !== "false";
-  return { useCloudInference, allowByoFallback };
+  const autoActionEnabled = ["1", "true"].includes(process.env["WRITERFLOW_COHORT_AUTO_ACTION"] ?? "");
+  const classifierEnabled = ["1", "true"].includes(process.env["WRITERFLOW_CLASSIFIER_ENABLED"] ?? "");
+  const composedEnabled = ["1", "true"].includes(process.env["WRITERFLOW_COMPOSED_ENABLED"] ?? "");
+  return { useCloudInference, allowByoFallback, autoActionEnabled, classifierEnabled, composedEnabled };
 }
 
 /** GET /v2/cohort/flags — Mac app reads server-controlled transport switches. */

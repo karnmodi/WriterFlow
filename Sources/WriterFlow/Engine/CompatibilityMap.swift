@@ -92,6 +92,10 @@ actor CompatibilityMap {
     private static func defaultURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
+        #if DEBUG
+        return base.appendingPathComponent("writeflow_local/compatibility.json")
+        #else
         return base.appendingPathComponent("WriterFlow/compatibility.json")
+        #endif
     }
 }

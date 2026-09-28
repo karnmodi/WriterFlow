@@ -28,8 +28,11 @@ discriminant:
   (`elaborate | formal | casual | fixGrammar | reply | custom | promptBuilder`).
   `custom` requires `task.customInstruction`. `promptBuilder` requires
   `task.promptBuilder = {phase: "analyze"|"finalize", flowId, brief, answers}`.
-- **`auto`** (Phase 6, rejected in Phase 5): no `requestedAction`; the server derives
-  intent from bounded context signals.
+- **`auto`** (Phase 6): no `requestedAction`; the server derives a reviewed first-party
+  skill from bounded context signals inside this same request.
+- **`adjust`** (Phase 6): includes `parentOperationId`, a free-text instruction capped at
+  2,000 characters, and the prior preview capped at 8,000 characters. The prior output
+  is supplied because the server deliberately does not retain generated text.
 
 Every string field, total request bytes, context length, and output token budget is
 capped server-side independent of any client-declared length. Unknown top-level
@@ -56,8 +59,9 @@ clients must ignore them, not count them toward ordering. A client that receives
 treat the stream as invalid and discard any buffered output. See
 `Docs/contracts/schemas/sse-events.schema.json` for the per-event payload shape.
 
-`explicit` mode always returns `decision.confidence = null`; `auto` mode (Phase 6)
-returns a measured confidence and reason code.
+`explicit` mode always returns `decision.confidence = null`. `auto` and `adjust` return
+skill ID/version/label, confidence, reason code, decision source, and direct/composed
+execution mode. Provider/model/deployment identities remain server-side.
 
 ## Canonical operation state machine
 
@@ -108,7 +112,8 @@ Structured logs and traces for this endpoint may include only: request ID,
 user/org/device IDs (pseudonymous, never IdP subject/email in cleartext), `mode`,
 `intent`, `route`, `promptVersion`, char/token counts, latency, operation state,
 and the `ErrorCode` enum value. `draft`, `selectedText`, `conversation`,
-`customInstruction`, `promptBuilder.answers`, `personalization.*`, and any raw
+`customInstruction`, `promptBuilder.answers`, adjustment text/prior preview,
+specialist data, `personalization.*`, and any raw
 model output are forbidden in logs, traces, and the `usage_ledger`/
 `inference_requests` tables — this is enforced by a logger allowlist (Stage 5.1),
 not by convention, and verified by the canary-content test fixture (threat #12 in

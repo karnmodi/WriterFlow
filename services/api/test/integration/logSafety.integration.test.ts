@@ -183,4 +183,91 @@ describe.skipIf(!dbAvailable)("secrets never reach the backend request log", () 
       expect(logText).not.toContain(canary);
     }
   });
+
+  it("accepts auto mode and streams a closed skill decision before output", async () => {
+    const previousAutoFlag = process.env["WRITERFLOW_COHORT_AUTO_ACTION"];
+    process.env["WRITERFLOW_COHORT_AUTO_ACTION"] = "true";
+    try {
+      const verifier = randomBytes(32).toString("base64url");
+      const challenge = computeS256Challenge(verifier);
+      const auth = await authorizeDevice(appPool, "https://writerflow.aviusolutions.com", {
+        installId: "mac-auto-inference-contract",
+        deviceLabel: "Auto Inference Contract Mac",
+        codeChallenge: challenge,
+        codeChallengeMethod: "S256"
+      });
+      const identity = testEntraIdentity(`auto-inference-${randomBytes(4).toString("hex")}`);
+      const approval = await approveDevice(appPool, identity, auth.userCode);
+      if (approval.kind !== "approved") throw new Error(`expected approved, got ${approval.kind}`);
+      const tokens = await pollDeviceToken(appPool, keys, auth.deviceCode, verifier);
+      if (tokens.kind !== "issued") throw new Error(`expected issued, got ${tokens.kind}`);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/inference/stream",
+        headers: {
+          authorization: `Bearer ${tokens.accessToken}`,
+          "idempotency-key": randomUUID(),
+          "x-writerflow-version": "2.0.2",
+          "x-writerflow-device": tokens.deviceId
+        },
+        payload: {
+          operationId: randomUUID(),
+          mode: "auto",
+          task: { outputModeHint: "replace" },
+          target: {
+            bundleId: "com.apple.mail",
+            site: "outlook",
+            windowClass: "compose",
+            fieldRevision: "opaque-revision"
+          },
+          content: {
+            targetScope: "empty_reply",
+            draft: "",
+            selectedText: null,
+            conversation: "Could you send the revised proposal by Friday?"
+          },
+          signals: {
+            hasSelection: false,
+            hasVisibleThread: true,
+            inputLength: 0,
+            appTone: "formal",
+            appCategory: "email",
+            destinationKind: "reply",
+            composeSurface: "thread_reply",
+            draftState: "empty",
+            contentShape: "empty",
+            constraintCount: 0
+          },
+          personalization: null
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      const events = response.body
+        .split("\n")
+        .filter((line) => line.startsWith("data: "))
+        .map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+      expect(events.map((event) => event["type"])).toEqual([
+        "request.accepted",
+        "decision",
+        "output.delta",
+        "usage.summary",
+        "completed"
+      ]);
+      expect(events[1]).toMatchObject({
+        type: "decision",
+        skillId: "reply",
+        skillVersion: "reply@6.0.0",
+        skillLabel: "Reply",
+        decisionSource: "rule",
+        executionMode: "direct",
+        reasonCode: "thread_reply"
+      });
+      expect(events[2]?.["delta"]).toBe(modelOutputCanary);
+    } finally {
+      if (previousAutoFlag == null) delete process.env["WRITERFLOW_COHORT_AUTO_ACTION"];
+      else process.env["WRITERFLOW_COHORT_AUTO_ACTION"] = previousAutoFlag;
+    }
+  });
 });

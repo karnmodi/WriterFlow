@@ -125,7 +125,10 @@ schemas:
 
 evals:
   cases: evals/cases.jsonl
+  classifierCases: classifier/cases.mjs
+  classifierHarness: classifier/evaluate.mjs
   note: >-
-    Smoke-test cases only. The 300-case labeled eval corpus spanning Gmail,
-    Outlook, Slack, WhatsApp, Notes, LinkedIn, ChatGPT, Claude, Cursor,
-    Notion is Stage 6.1 work (V2-ROADMAP.md) — out of Stage 5.1 scope.
+    Behavior regression cases remain in evals/cases.jsonl. Phase 6's classifier
+    harness expands to 330 labeled synthetic cases spanning Gmail, Outlook,
+    Slack, WhatsApp, Notes, LinkedIn, ChatGPT, Claude, Cursor, Notion, and
+    generic fields; rollout remains gated on real classifier and shadow metrics.

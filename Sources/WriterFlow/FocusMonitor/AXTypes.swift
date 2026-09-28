@@ -7,6 +7,8 @@ import Foundation
 /// concurrency warnings on shared mutable state.
 enum AXAttr {
     static let role                 = "AXRole"
+    static let subrole              = "AXSubrole"
+    static let identifier           = "AXIdentifier"
     static let value                = "AXValue"
     static let selectedText         = "AXSelectedText"
     static let selectedTextRange    = "AXSelectedTextRange"
@@ -54,10 +56,22 @@ struct FocusedField: Equatable, Sendable {
     /// False when Replace must be disabled (rare). Terminals support line-scoped Replace.
     var supportsReplace: Bool = true
 
-    /// Stable identity for async callbacks — frame/caret updates must not invalidate matches.
+    /// Stable-enough identity for async callbacks. The caret rectangle is
+    /// deliberately excluded, while the full field frame is quantized so two
+    /// compose boxes in the same app never share volatile context.
     func matchesRecommendationTarget(_ other: FocusedField) -> Bool {
         appPID == other.appPID
             && appBundleID == other.appBundleID
             && role == other.role
+            && Self.quantized(frame) == Self.quantized(other.frame)
+    }
+
+    private static func quantized(_ frame: CGRect) -> CGRect {
+        CGRect(
+            x: (frame.origin.x / 4).rounded() * 4,
+            y: (frame.origin.y / 4).rounded() * 4,
+            width: (frame.width / 4).rounded() * 4,
+            height: (frame.height / 4).rounded() * 4
+        )
     }
 }

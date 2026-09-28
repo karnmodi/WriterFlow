@@ -97,7 +97,11 @@ struct AzureModelsConfig: Codable, Sendable, Equatable {
 
     static var appSupportURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        #if DEBUG
+        return base.appendingPathComponent("writeflow_local", isDirectory: true)
+        #else
         return base.appendingPathComponent("WriterFlow", isDirectory: true)
+        #endif
     }
 
     static var configURL: URL {

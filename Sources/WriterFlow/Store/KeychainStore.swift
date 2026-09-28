@@ -168,8 +168,9 @@ enum KeychainStore {
         for (key, value) in env where key.hasPrefix("API_KEY_") || key == keyEnvName || key == "TARGET_URI" {
             lines.append("\(key)=\(value)")
         }
-        let apiBase = env["WRITERFLOW_API_BASE_URL"] ?? existing["WRITERFLOW_API_BASE_URL"]
-        if let apiBase, !apiBase.isEmpty {
+        var merged = existing
+        merged.merge(env) { _, new in new }
+        if let apiBase = WriterFlowAPIConfig.overrideBaseURL(from: merged)?.absoluteString {
             lines.append("WRITERFLOW_API_BASE_URL=\(apiBase)")
         }
         guard !lines.isEmpty else { return }

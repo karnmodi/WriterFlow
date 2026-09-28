@@ -37,10 +37,16 @@ export interface ReserveInferenceRequestParams {
   operationId: string;
   idempotencyKey: string;
   retryOf?: string | null;
-  mode: "explicit" | "auto";
+  mode: "explicit" | "auto" | "adjust";
   requestedAction: string | null;
   route: string;
   promptVersion: string;
+  skillId?: string | null;
+  skillVersion?: string | null;
+  decisionSource?: string | null;
+  decisionConfidence?: number | null;
+  executionMode?: string | null;
+  parentOperationId?: string | null;
 }
 
 export interface ReservedInferenceRequest {
@@ -64,6 +70,41 @@ export interface CommitInferenceRequestParams {
 export interface CommitResult {
   usedUnits: number;
   remainingUnits: number;
+}
+
+export interface ProviderStageUsageParams {
+  organizationId: string;
+  userId: string;
+  requestId: string;
+  stage: "classifier" | "enhancer" | "generator";
+  stageKey: string;
+  attemptNo: number;
+  route: string;
+  inputTokens: number;
+  outputTokens: number;
+  status?: "committed" | "failed";
+}
+
+export interface InferenceDecisionMetadata {
+  organizationId: string;
+  requestId: string;
+  requestedAction: string;
+  route: string;
+  promptVersion: string;
+  skillId: string;
+  skillVersion: string;
+  decisionSource: string;
+  confidence: number;
+  executionMode: string;
+}
+
+export interface ShadowInferenceDecisionMetadata {
+  organizationId: string;
+  requestId: string;
+  skillId: string;
+  skillVersion: string;
+  confidence: number;
+  reasonCode: string;
 }
 
 function currentPeriod(now = new Date()): { start: string; end: string } {
@@ -178,8 +219,15 @@ export async function reserveInferenceRequest(
 
     const requestResult = await client.query<{ id: string; state: OperationState }>(
       `INSERT INTO inference_requests
-         (organization_id, user_id, device_id, operation_id, idempotency_key, retry_of, mode, requested_action, route, prompt_version)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         (organization_id, user_id, device_id, operation_id, idempotency_key, retry_of, mode,
+          requested_action, route, prompt_version, skill_id, skill_version, decision_source,
+          decision_confidence, execution_mode, adjustment_of)
+       VALUES ($1, $2, $3, $4, $5,
+         (SELECT id FROM inference_requests
+          WHERE organization_id = $1 AND user_id = $2 AND operation_id = $6
+          LIMIT 1),
+         $7, $8, $9, $10, $11, $12, $13, $14, $15,
+         (SELECT id FROM inference_requests WHERE organization_id = $1 AND operation_id = $16 LIMIT 1))
        RETURNING id, state`,
       [
         params.organizationId,
@@ -191,7 +239,13 @@ export async function reserveInferenceRequest(
         params.mode,
         params.requestedAction,
         params.route,
-        params.promptVersion
+        params.promptVersion,
+        params.skillId ?? null,
+        params.skillVersion ?? null,
+        params.decisionSource ?? null,
+        params.decisionConfidence ?? null,
+        params.executionMode ?? null,
+        params.parentOperationId ?? null
       ]
     );
     const request = requestResult.rows[0];
@@ -204,6 +258,71 @@ export async function reserveInferenceRequest(
     );
 
     return { requestId: request.id, state: request.state, reused: false };
+  });
+}
+
+/** Records non-billable orchestration/provider attempts without inference content. */
+export async function recordProviderStageUsage(pool: pg.Pool, params: ProviderStageUsageParams): Promise<void> {
+  await withTenantContext(pool, params.organizationId, async (client) => {
+    const pricingVersionId = await requirePricingVersionId(client);
+    await client.query(
+      `INSERT INTO usage_ledger
+         (inference_request_id, organization_id, user_id, stage, stage_key, attempt_no, route,
+          pricing_version_id, input_tokens, output_tokens, provider_cost_micros, billable_units, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 0, $11)
+       ON CONFLICT (inference_request_id, stage_key, attempt_no) DO NOTHING`,
+      [
+        params.requestId,
+        params.organizationId,
+        params.userId,
+        params.stage,
+        params.stageKey,
+        params.attemptNo,
+        params.route,
+        pricingVersionId,
+        params.inputTokens,
+        params.outputTokens,
+        params.status ?? "committed"
+      ]
+    );
+  });
+}
+
+export async function updateInferenceDecision(pool: pg.Pool, params: InferenceDecisionMetadata): Promise<void> {
+  await withTenantContext(pool, params.organizationId, async (client) => {
+    await client.query(
+      `UPDATE inference_requests
+       SET requested_action = $2, route = $3, prompt_version = $4, skill_id = $5,
+           skill_version = $6, decision_source = $7, decision_confidence = $8,
+           execution_mode = $9
+       WHERE id = $1`,
+      [
+        params.requestId,
+        params.requestedAction,
+        params.route,
+        params.promptVersion,
+        params.skillId,
+        params.skillVersion,
+        params.decisionSource,
+        params.confidence,
+        params.executionMode
+      ]
+    );
+  });
+}
+
+export async function updateShadowInferenceDecision(
+  pool: pg.Pool,
+  params: ShadowInferenceDecisionMetadata
+): Promise<void> {
+  await withTenantContext(pool, params.organizationId, async (client) => {
+    await client.query(
+      `UPDATE inference_requests
+       SET shadow_skill_id = $2, shadow_skill_version = $3,
+           shadow_decision_confidence = $4, shadow_reason_code = $5
+       WHERE id = $1`,
+      [params.requestId, params.skillId, params.skillVersion, params.confidence, params.reasonCode]
+    );
   });
 }
 
@@ -252,16 +371,16 @@ export async function commitInferenceRequest(pool: pg.Pool, params: CommitInfere
       params.requestId
     ]);
     const route = row.route ?? "rewrite_standard";
-    const stage = route === "prompt_enhancer" ? "enhancer" : "generator";
     await client.query(
       `INSERT INTO usage_ledger
-         (inference_request_id, organization_id, user_id, stage, route, pricing_version_id, input_tokens, output_tokens, provider_cost_micros, billable_units, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9, 'committed')`,
+         (inference_request_id, organization_id, user_id, stage, stage_key, attempt_no, route,
+          pricing_version_id, input_tokens, output_tokens, provider_cost_micros, billable_units, status)
+       VALUES ($1, $2, $3, $4, 'generator', 1, $5, $6, $7, $8, 0, $9, 'committed')`,
       [
         params.requestId,
         params.organizationId,
         params.userId,
-        stage,
+        "generator",
         route,
         pricingVersionId,
         params.inputTokens,
@@ -284,8 +403,9 @@ export async function commitInferenceRequest(pool: pg.Pool, params: CommitInfere
 }
 
 /**
- * Terminal failure/cancellation: releases the reservation (no
- * `usage_ledger` entry — zero customer billable units, per
+ * Terminal failure/cancellation: releases the reservation. Provider attempts
+ * already recorded by stage remain immutable with zero billable units; no
+ * successful generator/customer-unit entry is added, per
  * Docs/contracts/inference-stream.md) and marks the request accordingly.
  * A no-op, not an error, if the request is already terminal — a second
  * disconnect after completion, or a race between two release paths, is

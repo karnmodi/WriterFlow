@@ -2,28 +2,76 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://apiwriterflow.aviusolutions.com/schemas/v2/inference-request.schema.json",
   "title": "InferenceRequestEnvelope",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["operationId", "mode", "task", "target", "content", "signals"],
-  "properties": {
-    "operationId": { "type": "string", "format": "uuid" },
-    "retryOf": { "type": "string", "format": "uuid" },
-    "mode": { "type": "string", "enum": ["explicit", "auto"] },
-    "task": {
+  "oneOf": [
+    { "$ref": "#/$defs/explicit" },
+    { "$ref": "#/$defs/auto" },
+    { "$ref": "#/$defs/adjust" }
+  ],
+  "$defs": {
+    "common": {
+      "type": "object",
+      "required": ["operationId", "mode", "task", "target", "content", "signals"],
+      "properties": {
+        "operationId": { "type": "string", "format": "uuid" },
+        "retryOf": { "type": ["string", "null"], "format": "uuid" },
+        "target": { "$ref": "#/$defs/target" },
+        "content": { "$ref": "#/$defs/content" },
+        "signals": { "$ref": "#/$defs/signals" },
+        "personalization": { "$ref": "#/$defs/personalization" }
+      }
+    },
+    "explicit": {
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operationId": true, "retryOf": true, "target": true, "content": true,
+            "signals": true, "personalization": true,
+            "mode": { "const": "explicit" },
+            "task": { "$ref": "#/$defs/explicitTask" }
+          }
+        }
+      ]
+    },
+    "auto": {
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operationId": true, "retryOf": true, "target": true, "content": true,
+            "signals": true, "personalization": true,
+            "mode": { "const": "auto" },
+            "task": { "$ref": "#/$defs/autoTask" }
+          }
+        }
+      ]
+    },
+    "adjust": {
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operationId": true, "retryOf": true, "target": true, "content": true,
+            "signals": true, "personalization": true,
+            "mode": { "const": "adjust" },
+            "task": { "$ref": "#/$defs/adjustTask" }
+          }
+        }
+      ]
+    },
+    "explicitTask": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["outputModeHint"],
+      "required": ["requestedAction", "outputModeHint"],
       "properties": {
-        "requestedAction": {
-          "type": ["string", "null"],
-          "enum": ["elaborate", "formal", "casual", "fixGrammar", "reply", "custom", "promptBuilder", null],
-          "description": "Required (non-null) when mode = explicit; must be null when mode = auto."
-        },
-        "customInstruction": {
-          "type": ["string", "null"],
-          "maxLength": 2000,
-          "description": "Required when requestedAction = custom."
-        },
+        "requestedAction": { "type": "string", "enum": ["elaborate", "formal", "casual", "fixGrammar", "reply", "custom", "promptBuilder"] },
+        "customInstruction": { "type": ["string", "null"], "maxLength": 2000 },
         "promptBuilder": {
           "type": ["object", "null"],
           "additionalProperties": false,
@@ -32,20 +80,33 @@
             "phase": { "type": "string", "enum": ["analyze", "finalize"] },
             "flowId": { "type": "string", "format": "uuid" },
             "brief": { "type": "string", "maxLength": 2000 },
-            "answers": {
-              "type": "array",
-              "maxItems": 20,
-              "items": { "type": "string", "maxLength": 500 }
-            }
+            "answers": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 500 } }
           }
         },
-        "outputModeHint": {
-          "type": "string",
-          "enum": ["replace", "insert_before"],
-          "description": "Never authoritative — the validated server decision determines the actual output mode."
-        }
+        "outputModeHint": { "$ref": "#/$defs/outputMode" }
       }
     },
+    "autoTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outputModeHint"],
+      "properties": {
+        "directive": { "type": ["string", "null"], "maxLength": 2000 },
+        "outputModeHint": { "$ref": "#/$defs/outputMode" }
+      }
+    },
+    "adjustTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parentOperationId", "instruction", "priorOutput", "outputModeHint"],
+      "properties": {
+        "parentOperationId": { "type": "string", "format": "uuid" },
+        "instruction": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "priorOutput": { "type": "string", "maxLength": 8000 },
+        "outputModeHint": { "$ref": "#/$defs/outputMode" }
+      }
+    },
+    "outputMode": { "type": "string", "enum": ["replace", "insert_before"] },
     "target": {
       "type": "object",
       "additionalProperties": false,
@@ -54,11 +115,7 @@
         "bundleId": { "type": "string", "maxLength": 256 },
         "site": { "type": ["string", "null"], "maxLength": 128 },
         "windowClass": { "type": ["string", "null"], "maxLength": 64 },
-        "fieldRevision": {
-          "type": ["string", "null"],
-          "maxLength": 128,
-          "description": "Client-opaque correlation value; no server security role."
-        }
+        "fieldRevision": { "type": ["string", "null"], "maxLength": 128, "description": "Opaque client fingerprint revision; never source text." }
       }
     },
     "content": {
@@ -80,7 +137,14 @@
         "hasSelection": { "type": "boolean" },
         "hasVisibleThread": { "type": "boolean" },
         "inputLength": { "type": "integer", "minimum": 0 },
-        "appTone": { "type": ["string", "null"], "enum": ["formal", "casual", "neutral", null] }
+        "appTone": { "type": ["string", "null"], "enum": ["formal", "casual", "neutral", null] },
+        "appCategory": { "type": "string", "enum": ["email", "personal_message", "work_message", "llm_chat", "code", "other"] },
+        "destinationKind": { "type": "string", "enum": ["compose", "reply", "document", "prompt", "code", "other"] },
+        "composeSurface": { "type": "string", "enum": ["new_message", "thread_reply", "editor", "single_line", "other"] },
+        "draftState": { "type": "string", "enum": ["empty", "fragment", "substantial"] },
+        "contentShape": { "type": "string", "enum": ["empty", "sentence", "paragraph", "list", "prompt", "code", "other"] },
+        "languageHint": { "type": ["string", "null"], "maxLength": 32 },
+        "constraintCount": { "type": "integer", "minimum": 0, "maximum": 32 }
       }
     },
     "personalization": {

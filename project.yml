@@ -22,8 +22,6 @@ targets:
         product: GRDB
     settings:
       base:
-        PRODUCT_NAME: WriterFlow
-        PRODUCT_BUNDLE_IDENTIFIER: com.karan.writerflow
         INFOPLIST_FILE: Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: WriterFlow.entitlements
@@ -35,3 +33,10 @@ targets:
         SWIFT_STRICT_CONCURRENCY: complete
         ENABLE_HARDENED_RUNTIME: YES
         COMBINE_HIDPI_IMAGES: YES
+      configs:
+        Debug:
+          PRODUCT_NAME: writeflow_local
+          PRODUCT_BUNDLE_IDENTIFIER: com.karan.writerflow.local
+        Release:
+          PRODUCT_NAME: WriterFlow
+          PRODUCT_BUNDLE_IDENTIFIER: com.karan.writerflow

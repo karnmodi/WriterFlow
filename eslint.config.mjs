@@ -18,7 +18,8 @@ export default tseslint.config(
       "scripts/*.mjs",
       "scripts/eval/*.mjs",
       "scripts/cloud/*.ts",
-      "scripts/load/**"
+      "scripts/load/**",
+      "prompts/classifier/*.mjs"
     ]
   },
   js.configs.recommended,

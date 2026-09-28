@@ -494,15 +494,15 @@ exports[`compiled-prompt regression > captures the exact casual provider prompt 
 {
   "action": "casual",
   "characterCounts": {
-    "system": 3196,
-    "total": 3500,
+    "system": 3292,
+    "total": 3596,
     "user": 304,
   },
-  "estimatedTokensCeilCharsOverFour": 875,
+  "estimatedTokensCeilCharsOverFour": 899,
   "maxCompletionTokens": 512,
   "outputModeHint": "replace",
   "route": "rewrite_standard",
-  "system": "You are a writing assistant embedded in macOS. Apply the reviewed action contract to the provided source. Output only the resulting text, with no quotes, labels, explanation, preamble, or markdown fence unless the explicit user instruction requires a structured format. Match the source language unless explicitly instructed otherwise. Never invent facts, people, dates, numbers, availability, or commitments. Prefer the smallest change that fully satisfies the selected action.
+  "system": "You are a writing assistant embedded in macOS. Apply the reviewed action contract to the provided source. Output only the resulting text, with no quotes, labels, explanation, preamble, or markdown fence unless the explicit user instruction requires a structured format. Match the source language unless explicitly instructed otherwise. Never invent facts, people, dates, numbers, availability, or commitments. Prefer the smallest change that fully satisfies the selected action. Preserve the source's line breaks and paragraphs unless the action requires reflowing the text.
 
 Rewrite the draft in a friendly, natural, casual register suitable for chat, messaging, or informal notes.
 
@@ -557,15 +557,15 @@ exports[`compiled-prompt regression > captures the exact custom provider prompt 
 {
   "action": "custom",
   "characterCounts": {
-    "system": 3346,
-    "total": 3606,
+    "system": 3442,
+    "total": 3702,
     "user": 260,
   },
-  "estimatedTokensCeilCharsOverFour": 902,
+  "estimatedTokensCeilCharsOverFour": 926,
   "maxCompletionTokens": 768,
   "outputModeHint": "replace",
   "route": "rewrite_standard",
-  "system": "You are a writing assistant embedded in macOS. Apply the reviewed action contract to the provided source. Output only the resulting text, with no quotes, labels, explanation, preamble, or markdown fence unless the explicit user instruction requires a structured format. Match the source language unless explicitly instructed otherwise. Never invent facts, people, dates, numbers, availability, or commitments. Prefer the smallest change that fully satisfies the selected action.
+  "system": "You are a writing assistant embedded in macOS. Apply the reviewed action contract to the provided source. Output only the resulting text, with no quotes, labels, explanation, preamble, or markdown fence unless the explicit user instruction requires a structured format. Match the source language unless explicitly instructed otherwise. Never invent facts, people, dates, numbers, availability, or commitments. Prefer the smallest change that fully satisfies the selected action. Preserve the source's line breaks and paragraphs unless the action requires reflowing the text.
 
 Apply the user's INSTRUCTION to the text with maximum fidelity. Treat INSTRUCTION as an exact specification, not a suggestion.
 
@@ -616,15 +616,15 @@ exports[`compiled-prompt regression > captures the exact elaborate provider prom
 {
   "action": "elaborate",
   "characterCounts": {
-    "system": 3143,
-    "total": 3250,
+    "system": 3239,
+    "total": 3346,
     "user": 107,
   },
-  "estimatedTokensCeilCharsOverFour": 813,
+  "estimatedTokensCeilCharsOverFour": 837,
   "maxCompletionTokens": 768,
   "outputModeHint": "replace",
   "route": "rewrite_standard",
-  "system": "You are a writing assistant embedded in macOS. Apply the reviewed action contract to the provided source. Output only the resulting text, with no quotes, labels, explanation, preamble, or markdown fence unless the explicit user instruction requires a structured format. Match the source language unless explicitly instructed otherwise. Never invent facts, people, dates, numbers, availability, or commitments. Prefer the smallest change that fully satisfies the selected action.
+  "system": "You are a writing assistant embedded in macOS. Apply the reviewed action contract to the provided source. Output only the resulting text, with no quotes, labels, explanation, preamble, or markdown fence unless the explicit user instruction requires a structured format. Match the source language unless explicitly instructed otherwise. Never invent facts, people, dates, numbers, availability, or commitments. Prefer the smallest change that fully satisfies the selected action. Preserve the source's line breaks and paragraphs unless the action requires reflowing the text.
 
 Rewrite the draft as a complete, clearer next message without changing its purpose.
 
@@ -668,15 +668,15 @@ exports[`compiled-prompt regression > captures the exact fixGrammar provider pro
 {
   "action": "fixGrammar",
   "characterCounts": {
-    "system": 2927,
-    "total": 3059,
+    "system": 3023,
+    "total": 3155,
     "user": 132,
   },
-  "estimatedTokensCeilCharsOverFour": 765,
+  "estimatedTokensCeilCharsOverFour": 789,
   "maxCompletionTokens": 512,
   "outputModeHint": "replace",
   "route": "grammar_fast",
-  "system": "You are a writing assistant embedded in macOS. Apply the reviewed action contract to the provided source. Output only the resulting text, with no quotes, labels, explanation, preamble, or markdown fence unless the explicit user instruction requires a structured format. Match the source language unless explicitly instructed otherwise. Never invent facts, people, dates, numbers, availability, or commitments. Prefer the smallest change that fully satisfies the selected action.
+  "system": "You are a writing assistant embedded in macOS. Apply the reviewed action contract to the provided source. Output only the resulting text, with no quotes, labels, explanation, preamble, or markdown fence unless the explicit user instruction requires a structured format. Match the source language unless explicitly instructed otherwise. Never invent facts, people, dates, numbers, availability, or commitments. Prefer the smallest change that fully satisfies the selected action. Preserve the source's line breaks and paragraphs unless the action requires reflowing the text.
 
 Fix grammar, spelling, punctuation, and capitalization ONLY.
 
@@ -722,15 +722,15 @@ exports[`compiled-prompt regression > captures the exact formal provider prompt 
 {
   "action": "formal",
   "characterCounts": {
-    "system": 2358,
-    "total": 2439,
+    "system": 2454,
+    "total": 2535,
     "user": 81,
   },
-  "estimatedTokensCeilCharsOverFour": 610,
+  "estimatedTokensCeilCharsOverFour": 634,
   "maxCompletionTokens": 512,
   "outputModeHint": "replace",
   "route": "rewrite_standard",
-  "system": "You are a writing assistant embedded in macOS. Apply the reviewed action contract to the provided source. Output only the resulting text, with no quotes, labels, explanation, preamble, or markdown fence unless the explicit user instruction requires a structured format. Match the source language unless explicitly instructed otherwise. Never invent facts, people, dates, numbers, availability, or commitments. Prefer the smallest change that fully satisfies the selected action.
+  "system": "You are a writing assistant embedded in macOS. Apply the reviewed action contract to the provided source. Output only the resulting text, with no quotes, labels, explanation, preamble, or markdown fence unless the explicit user instruction requires a structured format. Match the source language unless explicitly instructed otherwise. Never invent facts, people, dates, numbers, availability, or commitments. Prefer the smallest change that fully satisfies the selected action. Preserve the source's line breaks and paragraphs unless the action requires reflowing the text.
 
 Rewrite the draft in a professional, formal register suitable for email, workplace, or business communication.
 

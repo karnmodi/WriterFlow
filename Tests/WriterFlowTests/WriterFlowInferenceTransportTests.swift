@@ -44,22 +44,17 @@ final class WriterFlowInferenceTransportTests: XCTestCase {
     private let testConfig = WriterFlowAPIConfig(baseURL: URL(string: "https://test.invalid/v2")!)
 
     private func makeRequest() -> InferenceRequest {
-        .init(
-            action: .fixGrammar,
-            operationId: UUID(),
-            retryOf: nil,
-            bundleId: "com.apple.Notes",
+        InferenceRequestBuilder.fixGrammar(
+            snapshot: FieldSnapshot(
+                fullText: "Their going to the store.",
+                selectedText: "",
+                selectedRange: NSRange(location: 25, length: 0),
+                role: "AXTextArea",
+                appBundleID: "com.apple.Notes",
+                windowTitle: "Note"
+            ),
             site: nil,
-            windowClass: nil,
-            targetScope: "field",
-            draft: "Their going to the store.",
-            selectedText: nil,
-            conversation: nil,
-            hasSelection: false,
-            hasVisibleThread: false,
-            customInstruction: nil,
-            promptBuilder: nil,
-            outputModeHint: "replace"
+            conversation: nil
         )
     }
 
@@ -139,6 +134,63 @@ final class WriterFlowInferenceTransportTests: XCTestCase {
         XCTAssertEqual(task["requestedAction"] as? String, "custom")
         XCTAssertEqual(task["customInstruction"] as? String, "Write a short title")
         XCTAssertEqual(task["outputModeHint"] as? String, "insert_before")
+        let signals = try XCTUnwrap(json["signals"] as? [String: Any])
+        XCTAssertEqual(Set(signals.keys), Set(["hasSelection", "hasVisibleThread", "inputLength", "appTone"]))
+        XCTAssertTrue((json["target"] as? [String: Any])?["fieldRevision"] is NSNull)
+    }
+
+    func testAutoModeSendsCapsuleSignalsAndParsesSkillDecision() async throws {
+        let body = sseBody([
+            #"{"type":"request.accepted","requestId":"30000000-0000-4000-8000-000000000008"}"#,
+            #"{"type":"decision","intent":"reply","confidence":0.97,"outputMode":"replace","route":"rewrite_standard","reasonCode":"thread_reply","skillId":"reply","skillVersion":"reply@6.0.0","skillLabel":"Reply","decisionSource":"rule","executionMode":"direct"}"#,
+            #"{"type":"output.delta","delta":"Friday works for me."}"#,
+            #"{"type":"completed","requestId":"30000000-0000-4000-8000-000000000008","promptVersion":"reply@6.0.0"}"#
+        ])
+        MockURLProtocol.stub(method: "POST", pathSuffix: "/inference/stream", statusCode: 200, json: body)
+        let session = FakeDeviceSession(state: .signedIn(deviceId: "device-1"))
+        let transport = WriterFlowInferenceTransport(deviceSession: session, config: testConfig, session: MockURLProtocol.session)
+        let field = FocusedField(
+            role: "AXTextArea",
+            frame: CGRect(x: 0, y: 0, width: 320, height: 80),
+            anchorRect: CGRect(x: 0, y: 0, width: 1, height: 18),
+            appBundleID: "com.apple.mail",
+            appPID: 50
+        )
+        let snapshot = FieldSnapshot(
+            fullText: "",
+            selectedText: "",
+            selectedRange: NSRange(location: 0, length: 0),
+            role: "AXTextArea",
+            appBundleID: "com.apple.mail",
+            windowTitle: "Reply"
+        )
+        let capsule = ContextCapsule(
+            field: field,
+            snapshot: snapshot,
+            conversation: "Can you join Friday?",
+            site: "outlook",
+            signals: ContextSignalBuilder.build(snapshot: snapshot, conversationContext: "Can you join Friday?"),
+            fingerprint: TargetFingerprint.make(field: field, snapshot: snapshot, site: "outlook"),
+            capturedAt: Date()
+        )
+
+        let events = try await collect(transport.stream(InferenceRequestBuilder.auto(capsule: capsule)))
+
+        XCTAssertEqual(events[1], .skillDecision(
+            skillId: "reply", skillVersion: "reply@6.0.0", label: "Reply", confidence: 0.97,
+            route: "rewrite_standard", outputMode: "replace", reasonCode: "thread_reply", executionMode: "direct"
+        ))
+        let request = try XCTUnwrap(MockURLProtocol.requests().first)
+        let data = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["mode"] as? String, "auto")
+        XCTAssertNil((json["task"] as? [String: Any])?["requestedAction"])
+        XCTAssertEqual((json["signals"] as? [String: Any])?["hasVisibleThread"] as? Bool, true)
+        XCTAssertEqual(
+            (json["signals"] as? [String: Any])?["appCategory"] as? String,
+            capsule.signals.appCategory
+        )
+        XCTAssertNotNil((json["target"] as? [String: Any])?["fieldRevision"] as? String)
     }
 
     func testDeltaBeforeDecisionIsRejectedAsInvalidOrder() async throws {

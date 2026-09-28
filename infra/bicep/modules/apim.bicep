@@ -253,6 +253,12 @@ var authenticatedOperations = [
     method: 'GET'
     urlTemplate: '/cohort/flags'
   }
+  {
+    name: 'inference-feedback'
+    displayName: 'Record inference feedback'
+    method: 'POST'
+    urlTemplate: '/inference/feedback'
+  }
 ]
 
 resource authenticatedOperation 'Microsoft.ApiManagement/service/apis/operations@2024-06-01-preview' = [for operation in authenticatedOperations: {

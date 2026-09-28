@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SkillIdSchema } from "./inference-request.js";
 
 /** Mirrors Docs/contracts/schemas/sse-events.schema.json and the canonical
  * ordering in Docs/contracts/inference-stream.md. */
@@ -50,7 +51,12 @@ const DecisionEventSchema = z.strictObject({
   confidence: z.number().min(0).max(1).nullable(),
   outputMode: z.enum(["replace", "insert_before"]),
   route: LogicalRouteSchema,
-  reasonCode: z.string().nullable().optional()
+  reasonCode: z.string().nullable().optional(),
+  skillId: SkillIdSchema.optional(),
+  skillVersion: z.string().min(1).optional(),
+  skillLabel: z.string().min(1).max(64).optional(),
+  decisionSource: z.enum(["explicit", "rule", "classifier", "fallback", "adjustment"]).optional(),
+  executionMode: z.enum(["direct", "composed"]).optional()
 });
 
 const PromptBuilderQuestionsEventSchema = z.strictObject({

@@ -5,13 +5,17 @@ import Foundation
 /// recorder) — default ⌃⌥Space avoids conflict with Spotlight (⌘Space) and other assistants
 /// commonly bound to plain ⌥Space.
 final class GlobalHotkey {
-    private static let hotKeyID = EventHotKeyID(signature: OSType(0x5746_4C57), id: 1) // "WFLW"
+    private let hotKeyID: EventHotKeyID
 
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
     private(set) var installedCombo: HotkeyCombo?
 
     var onTrigger: (() -> Void)?
+
+    init(id: UInt32 = 1) {
+        hotKeyID = EventHotKeyID(signature: OSType(0x5746_4C57), id: id) // "WFLW"
+    }
 
     /// Registers `combo` with the OS. Returns `false` (leaving any previous registration
     /// untouched) if another app already owns that exact key+modifier combination —
@@ -24,7 +28,7 @@ final class GlobalHotkey {
         let status = RegisterEventHotKey(
             combo.keyCode,
             combo.modifiers,
-            Self.hotKeyID,
+            hotKeyID,
             GetApplicationEventTarget(),
             0,
             &ref
@@ -70,12 +74,13 @@ final class GlobalHotkey {
         }
     }
 
-    fileprivate func handleHotKey(_ id: EventHotKeyID) {
-        guard id.signature == Self.hotKeyID.signature, id.id == Self.hotKeyID.id else { return }
+    fileprivate func handleHotKey(_ id: EventHotKeyID) -> Bool {
+        guard id.signature == hotKeyID.signature, id.id == hotKeyID.id else { return false }
         let callback = onTrigger
         DispatchQueue.main.async {
             callback?()
         }
+        return true
     }
 }
 
@@ -99,6 +104,5 @@ private func globalHotkeyHandler(
     guard status == noErr else { return status }
 
     let hotkey = Unmanaged<GlobalHotkey>.fromOpaque(userData).takeUnretainedValue()
-    hotkey.handleHotKey(id)
-    return noErr
+    return hotkey.handleHotKey(id) ? noErr : OSStatus(eventNotHandledErr)
 }

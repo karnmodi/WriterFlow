@@ -14,6 +14,10 @@ struct FieldSnapshot: Sendable, Equatable {
     let appBundleID: String?
     /// Focused window title when readable — used for browser site detection.
     let windowTitle: String?
+    /// Stronger local-only identity signals. They are folded into the opaque
+    /// fingerprint revision and never logged or sent as raw strings.
+    var subrole: String? = nil
+    var elementIdentifier: String? = nil
     /// False for apps (terminals) where AX writes aren't safe — Replace is disabled, Copy-only.
     var supportsReplace: Bool = true
 

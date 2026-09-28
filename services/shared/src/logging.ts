@@ -13,7 +13,7 @@ export interface InferenceLogFields {
   userId?: string;
   orgId?: string;
   deviceId?: string;
-  mode?: "explicit" | "auto";
+  mode?: "explicit" | "auto" | "adjust";
   intent?: string;
   route?: string;
   promptVersion?: string;
@@ -61,5 +61,10 @@ export const FORBIDDEN_LOG_FIELD_NAMES = [
   "inlineEnabledProfile",
   "delta",
   "output",
-  "brief"
+  "brief",
+  "priorOutput",
+  "instruction",
+  "contextSummary",
+  "constraints",
+  "specialistInput"
 ] as const;

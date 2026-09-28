@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: WriterFlow v2 API
-  version: "2.0.0-alpha.1"
+  version: "2.0.0-alpha.2"
   description: >
     Stage 5.0 contract draft. Covers every REST endpoint except
     POST /v2/inference/stream, whose SSE request/event contract is defined
@@ -343,6 +343,24 @@ components:
           type: string
           description: Derived style summary only — raw samples are not echoed back.
 
+    ClassifierFeedbackRequest:
+      type: object
+      required: [operationId, outcome]
+      additionalProperties: false
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        revisedSkillId:
+          type: [string, "null"]
+          enum: [reply, continue, improve, correct, shorten, expand, tone_adapt, prompt_enhance, custom_adjust, null]
+        appCategory:
+          type: [string, "null"]
+          enum: [email, personal_message, work_message, llm_chat, code, other, null]
+        outcome:
+          type: string
+          enum: [accepted, adjusted, discarded]
+
   responses:
     Unauthorized:
       description: Missing/invalid/expired token, revoked device, or disabled user.
@@ -358,6 +376,25 @@ components:
             $ref: '#/components/schemas/Error'
 
 paths:
+  /inference/feedback:
+    post:
+      summary: Record a coarse, content-free outcome for one auto/adjust operation.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassifierFeedbackRequest'
+      responses:
+        '204':
+          description: Feedback recorded idempotently.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Operation is not owned by the authenticated user or has no skill decision.
+
   /device/authorize:
     post:
       summary: Begin device pairing (ADR-0011). Unauthenticated, rate-limited, PKCE-bound.

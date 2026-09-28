@@ -93,6 +93,23 @@ final class WriterFlowAPIClientAccountTests: XCTestCase {
         }
     }
 
+    func testLegacyCohortResponseDefaultsPhase6FlagsOff() async throws {
+        MockURLProtocol.stub(
+            method: "GET",
+            pathSuffix: "/cohort/flags",
+            statusCode: 200,
+            json: Data(#"{"useCloudInference":true,"allowByoFallback":false}"#.utf8)
+        )
+
+        let flags = try await makeClient().cohortFlags(accessToken: "access-token-1")
+
+        XCTAssertTrue(flags.useCloudInference)
+        XCTAssertFalse(flags.allowByoFallback)
+        XCTAssertFalse(flags.autoActionEnabled)
+        XCTAssertFalse(flags.classifierEnabled)
+        XCTAssertFalse(flags.composedEnabled)
+    }
+
     // MARK: - revokeDevice()
 
     func testRevokeDeviceSucceedsOn204() async throws {
@@ -119,5 +136,51 @@ final class WriterFlowAPIClientAccountTests: XCTestCase {
         } catch DeviceSessionError.httpError(let code) {
             XCTAssertEqual(code, 404)
         }
+    }
+
+    func testInferenceFeedbackSendsOnlyCoarseOutcomeMetadata() async throws {
+        MockURLProtocol.stub(method: "POST", pathSuffix: "/inference/feedback", statusCode: 204, json: Data())
+        let client = makeClient()
+        let operationID = try XCTUnwrap(UUID(uuidString: "01900000-0000-7000-8000-000000000001"))
+
+        try await client.sendInferenceFeedback(
+            operationId: operationID,
+            outcome: "accepted",
+            appCategory: "email",
+            accessToken: "access-token-1"
+        )
+
+        let request = try XCTUnwrap(MockURLProtocol.requests().first)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer access-token-1")
+        let data = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["outcome"] as? String, "accepted")
+        XCTAssertEqual(json["appCategory"] as? String, "email")
+        XCTAssertNil(json["draft"])
+        XCTAssertNil(json["instruction"])
+        XCTAssertNil(json["output"])
+    }
+
+    func testLoopbackAPIOverrideIsIgnoredUnlessOptedIn() {
+        let localhost = URL(string: "http://localhost:8080")!
+        XCTAssertTrue(WriterFlowAPIConfig.isLoopbackAPI(localhost))
+        XCTAssertNil(
+            WriterFlowAPIConfig.overrideBaseURL(from: [
+                "WRITERFLOW_API_BASE_URL": "http://localhost:8080"
+            ])
+        )
+        XCTAssertEqual(
+            WriterFlowAPIConfig.overrideBaseURL(from: [
+                "WRITERFLOW_API_BASE_URL": "http://localhost:8080",
+                "WRITERFLOW_USE_LOCAL_API": "1"
+            ]),
+            localhost
+        )
+        XCTAssertEqual(
+            WriterFlowAPIConfig.overrideBaseURL(from: [
+                "WRITERFLOW_API_BASE_URL": "https://apiwriterflow.aviusolutions.com/v2"
+            ])?.absoluteString,
+            "https://apiwriterflow.aviusolutions.com/v2"
+        )
     }
 }

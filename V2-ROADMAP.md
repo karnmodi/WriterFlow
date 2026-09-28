@@ -122,8 +122,11 @@ records a prompt version and logical route without logging prompt content.
 ### Stage 6.5 — Remove normal options flow
 
 - Clicking icon/hotkey starts `AutoActionCoordinator` directly.
-- Preview shows the chosen intent label and a secondary “Change intent” correction.
-- Keep Replace/Copy/Retry/Discard and the existing non-activating focus guarantees.
+- Preview shows the chosen skill label and Replace/Copy/Adjust/Discard; Retry appears
+  only after failure. Adjust is free text and preserves the prior usable result until a
+  replacement stream emits its first delta.
+- Keep the existing non-activating focus guarantees and revalidate the opaque target
+  fingerprint before Replace; changed targets remain Copy-only.
 - Make Shift-click on the icon and collision-checked `⌃⌥⇧ Space` open the existing
   non-activating Custom composer directly. It sends no auto request before submission;
   the default options list is not shown.

@@ -4,14 +4,20 @@ import Foundation
 enum ContextExtractor {
     /// Read the currently focused field of the given process.
     /// Runs off-main and returns `nil` if nothing focused / not text-editable.
-    static func readFocusedField(pid: pid_t, bundleID: String?) async -> FieldSnapshot? {
+    static func readFocusedField(
+        pid: pid_t,
+        bundleID: String?,
+        allowClipboardFallback: Bool = true
+    ) async -> FieldSnapshot? {
         if let outcome = await readOnce(pid: pid, bundleID: bundleID) {
             logSnapshot(outcome.snapshot)
             if !outcome.snapshot.fullText.isEmpty || !outcome.snapshot.selectedText.isEmpty {
                 recordRead(bundleID, ok: true)
                 return outcome.snapshot
             }
-            if outcome.valueUnreadable, let fallback = await copyAllFallback(pid: pid, base: outcome.snapshot) {
+            if allowClipboardFallback,
+               outcome.valueUnreadable,
+               let fallback = await copyAllFallback(pid: pid, base: outcome.snapshot) {
                 recordRead(bundleID, ok: true)
                 return fallback
             }
@@ -64,6 +70,8 @@ enum ContextExtractor {
         let rawValue = AXCall.string(focused, AXAttr.value)
         let rawText = rawValue ?? ""
         let windowTitle = focusedWindowTitle(app: app)
+        let subrole = AXCall.string(focused, AXAttr.subrole)
+        let elementIdentifier = AXCall.string(focused, AXAttr.identifier)
         let isTerminal = TerminalApps.isTerminal(bundleID: bundleID)
 
         // Terminals expose the whole scrollback as one blob with no meaningful
@@ -78,6 +86,8 @@ enum ContextExtractor {
                 role: role,
                 appBundleID: bundleID,
                 windowTitle: windowTitle,
+                subrole: subrole,
+                elementIdentifier: elementIdentifier,
                 supportsReplace: true
             )
             return ReadOutcome(snapshot: snapshot, valueUnreadable: false)
@@ -93,7 +103,9 @@ enum ContextExtractor {
             selectedRange: range,
             role: role,
             appBundleID: bundleID,
-            windowTitle: windowTitle
+            windowTitle: windowTitle,
+            subrole: subrole,
+            elementIdentifier: elementIdentifier
         )
         return ReadOutcome(snapshot: snapshot, valueUnreadable: rawValue == nil)
     }
@@ -113,6 +125,8 @@ enum ContextExtractor {
             role: base.role,
             appBundleID: base.appBundleID,
             windowTitle: base.windowTitle,
+            subrole: base.subrole,
+            elementIdentifier: base.elementIdentifier,
             supportsReplace: base.supportsReplace
         )
     }

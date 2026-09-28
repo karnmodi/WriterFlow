@@ -85,10 +85,10 @@ actor WriterFlowInferenceTransport: InferenceTransport {
     /// budget for the whole response — Prompt Builder and Elaborate routinely
     /// generate for longer than this. Injectable so tests can exercise the
     /// watchdog without waiting out the production value.
-    /// The server aborts at three seconds. This slightly wider client deadline
+    /// The server aborts at 2.5 seconds. This slightly wider client deadline
     /// lets its terminal SSE error arrive while still bounding edge/network
     /// stalls that never reach the server.
-    static let defaultFirstTokenTimeout = Duration.seconds(4)
+    static let defaultFirstTokenTimeout = Duration.seconds(3)
 
     /// Which child of the streaming task group reported back. The watchdog
     /// retiring is not a reason to stop reading, so the two cases have to be
@@ -263,11 +263,24 @@ actor WriterFlowInferenceTransport: InferenceTransport {
         case "decision":
             if order.gotDecision { throw WriterFlowInferenceError.invalidOrder }
             order.gotDecision = true
-            continuation.yield(.decision(
-                intent: json["intent"] as? String ?? "",
-                route: json["route"] as? String ?? "",
-                outputMode: json["outputMode"] as? String ?? "replace"
-            ))
+            if let skillID = json["skillId"] as? String {
+                continuation.yield(.skillDecision(
+                    skillId: skillID,
+                    skillVersion: json["skillVersion"] as? String ?? "",
+                    label: json["skillLabel"] as? String ?? "Improve",
+                    confidence: json["confidence"] as? Double ?? 0,
+                    route: json["route"] as? String ?? "",
+                    outputMode: json["outputMode"] as? String ?? "replace",
+                    reasonCode: json["reasonCode"] as? String,
+                    executionMode: json["executionMode"] as? String ?? "direct"
+                ))
+            } else {
+                continuation.yield(.decision(
+                    intent: json["intent"] as? String ?? "",
+                    route: json["route"] as? String ?? "",
+                    outputMode: json["outputMode"] as? String ?? "replace"
+                ))
+            }
 
         case "output.delta":
             // Canonical order: decision always precedes any delta.
@@ -325,33 +338,78 @@ actor WriterFlowInferenceTransport: InferenceTransport {
     private static func body(for request: InferenceRequest) -> [String: Any] {
         // Omit optional UUID fields when unset. JSON null for `retryOf` fails
         // the server's Zod envelope (`z.uuid().optional()` is not nullable).
-        var body: [String: Any] = [
-            "operationId": request.operationId.uuidString.lowercased(),
-            "mode": "explicit",
-            "task": [
+        let mode: String
+        let task: [String: Any]
+        switch request.mode {
+        case .explicit:
+            mode = "explicit"
+            task = [
                 "requestedAction": request.action.apiValue,
                 "customInstruction": request.customInstruction as Any,
                 "promptBuilder": promptBuilderBody(request.promptBuilder),
                 "outputModeHint": request.outputModeHint
-            ],
-            "target": [
-                "bundleId": request.bundleId,
-                "site": request.site as Any,
-                "windowClass": request.windowClass as Any,
-                "fieldRevision": NSNull()
-            ],
+            ]
+        case .auto(let directive):
+            mode = "auto"
+            task = [
+                "directive": directive as Any,
+                "outputModeHint": request.outputModeHint
+            ]
+        case .adjust(let parentOperationId, let instruction, let priorOutput):
+            mode = "adjust"
+            task = [
+                "parentOperationId": parentOperationId.uuidString.lowercased(),
+                "instruction": instruction,
+                "priorOutput": priorOutput,
+                "outputModeHint": request.outputModeHint
+            ]
+        }
+
+        var target: [String: Any] = [
+            "bundleId": request.bundleId,
+            "site": request.site as Any,
+            "windowClass": request.windowClass as Any,
+            // Explicit mode is the rollback wire contract already deployed in
+            // production. Keep its field revision null until the server cohort
+            // advertises auto/adjust support.
+            "fieldRevision": request.mode == .explicit ? NSNull() : request.fieldRevision as Any
+        ]
+        if request.mode != .explicit, request.fieldRevision == nil {
+            target["fieldRevision"] = NSNull()
+        }
+
+        var signals: [String: Any] = [
+            "hasSelection": request.hasSelection,
+            "hasVisibleThread": request.hasVisibleThread,
+            "inputLength": request.draft.count,
+            "appTone": request.appTone
+        ]
+        // These fields belong only to the Phase 6 union. Sending them on an
+        // explicit rollback request breaks older strict servers.
+        if request.mode != .explicit {
+            signals.merge([
+                "appCategory": request.appCategory,
+                "destinationKind": request.destinationKind,
+                "composeSurface": request.composeSurface,
+                "draftState": request.draftState,
+                "contentShape": request.contentShape,
+                "languageHint": request.languageHint as Any,
+                "constraintCount": request.constraintCount
+            ]) { _, new in new }
+        }
+
+        var body: [String: Any] = [
+            "operationId": request.operationId.uuidString.lowercased(),
+            "mode": mode,
+            "task": task,
+            "target": target,
             "content": [
                 "targetScope": request.targetScope,
                 "draft": request.draft,
                 "selectedText": request.selectedText as Any,
                 "conversation": request.conversation as Any
             ],
-            "signals": [
-                "hasSelection": request.hasSelection,
-                "hasVisibleThread": request.hasVisibleThread,
-                "inputLength": request.draft.count,
-                "appTone": appTone(for: request.site)
-            ],
+            "signals": signals,
             // Local history, memory notes, and app-rule instructions are
             // intentionally never uploaded. Only the reviewed closed-enum
             // appTone signal above crosses the boundary in private beta.
@@ -381,17 +439,6 @@ actor WriterFlowInferenceTransport: InferenceTransport {
             return nil
         }
         return message
-    }
-
-    private static func appTone(for site: String?) -> Any {
-        switch site {
-        case "gmail", "outlook", "linkedin":
-            return "formal"
-        case "slack", "whatsapp-web", "whatsapp-desktop", "telegram":
-            return "casual"
-        default:
-            return "neutral"
-        }
     }
 
     private static func promptBuilderBody(_ task: InferenceRequest.PromptBuilderTask?) -> Any {

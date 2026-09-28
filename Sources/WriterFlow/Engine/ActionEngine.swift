@@ -43,6 +43,14 @@ final class ActionEngine {
     var onPromptBuilderClarify: PromptBuilderClarifyHandler?
     var onCompleted: CompletedHandler?
     var onFailed: ((String) -> Void)?
+    var onSkillDecision: ((
+        _ skillID: String,
+        _ skillVersion: String,
+        _ label: String,
+        _ action: WritingAction,
+        _ outputMode: String,
+        _ executionMode: String
+    ) -> Void)?
 
     init(
         legacyClient: any LegacyActionInferenceClient,
@@ -80,6 +88,14 @@ final class ActionEngine {
         promptBuilderSession = nil
         runningTask = Task {
             await execute(action: action, field: field, customInstruction: customInstruction)
+        }
+    }
+
+    func runAuto(request: InferenceRequest, capsule: ContextCapsule) {
+        runningTask?.cancel()
+        promptBuilderSession = nil
+        runningTask = Task {
+            await executeAuto(request: request, capsule: capsule)
         }
     }
 
@@ -366,7 +382,7 @@ final class ActionEngine {
                     promptVersion = version
                 case .usageSummary(let usedUnits, let remainingUnits):
                     CloudUsageStore.shared.update(usedUnits: usedUnits, remainingUnits: remainingUnits)
-                case .requestAccepted, .decision:
+                case .requestAccepted, .decision, .skillDecision:
                     break
                 }
             }
@@ -389,6 +405,97 @@ final class ActionEngine {
         event.model = promptVersion
         event.latencyMs = ms
         onCompleted?(action, .single(finalOutput), snapshot, event)
+    }
+
+    private func executeAuto(request: InferenceRequest, capsule: ContextCapsule) async {
+        guard !Task.isCancelled else { return }
+        let sessionState = await deviceSession?.state ?? .signedOut
+        if let message = automaticWritingUnavailableMessage(
+            useCloudInference: TransportPreferences.useCloudInference,
+            sessionState: sessionState,
+            hasTransport: inferenceTransport != nil
+        ) {
+            onFailed?(message)
+            ErrorToast.show(message)
+            return
+        }
+        guard let transport = inferenceTransport else { return }
+
+        var resolvedAction: WritingAction = .custom
+        var promptVersion: String?
+        var rawOutput = ""
+        let started = ContinuousClock.now
+        var firstTokenLogged = false
+        let accumulator = WordStreamAccumulator { [weak self] text in
+            self?.onStreamDelta?(text)
+        }
+
+        do {
+            for try await streamEvent in transport.stream(request) {
+                if Task.isCancelled { return }
+                switch streamEvent {
+                case .skillDecision(
+                    let skillID,
+                    let skillVersion,
+                    let label,
+                    _,
+                    _,
+                    let outputMode,
+                    _,
+                    let executionMode
+                ):
+                    resolvedAction = WritingAction.forSkill(skillID)
+                    onSkillDecision?(
+                        skillID,
+                        skillVersion,
+                        label,
+                        resolvedAction,
+                        outputMode,
+                        executionMode
+                    )
+                case .delta(let delta):
+                    if !firstTokenLogged {
+                        firstTokenLogged = true
+                        Log.engine.info(
+                            "AutoAction firstTokenMs=\(started.duration(to: .now).milliseconds, privacy: .public)"
+                        )
+                    }
+                    let clean = OutputSanitizer.sanitize(delta)
+                    rawOutput += clean
+                    accumulator.push(clean)
+                case .completed(_, let version):
+                    promptVersion = version
+                case .usageSummary(let usedUnits, let remainingUnits):
+                    CloudUsageStore.shared.update(usedUnits: usedUnits, remainingUnits: remainingUnits)
+                case .requestAccepted, .decision:
+                    break
+                }
+            }
+        } catch {
+            let message = Self.userFacingMessage(for: error)
+            onFailed?(message)
+            ErrorToast.show(message)
+            Log.engine.error("AutoAction failed: \(message, privacy: .public)")
+            return
+        }
+
+        let finalOutput = OutputSanitizer.sanitize(rawOutput)
+        accumulator.flush()
+        guard !finalOutput.isEmpty else {
+            let message = "WriterFlow returned no text. Please try again."
+            onFailed?(message)
+            return
+        }
+        var event = ConversionEvent(
+            appBundleID: capsule.field.appBundleID,
+            site: capsule.site,
+            action: resolvedAction,
+            input: capsule.snapshot.actionText
+        )
+        event.output = finalOutput
+        event.model = promptVersion
+        event.latencyMs = started.duration(to: .now).milliseconds
+        onCompleted?(resolvedAction, .single(finalOutput), capsule.snapshot, event)
     }
 
     private func executeMultiVariant(
@@ -565,7 +672,7 @@ final class ActionEngine {
                         cloudPromptVersion = version
                     case .usageSummary(let usedUnits, let remainingUnits):
                         CloudUsageStore.shared.update(usedUnits: usedUnits, remainingUnits: remainingUnits)
-                    case .requestAccepted, .decision:
+                    case .requestAccepted, .decision, .skillDecision:
                         break
                     }
                 }
@@ -687,7 +794,7 @@ final class ActionEngine {
                         cloudPromptVersion = version
                     case .usageSummary(let usedUnits, let remainingUnits):
                         CloudUsageStore.shared.update(usedUnits: usedUnits, remainingUnits: remainingUnits)
-                    case .requestAccepted, .decision:
+                    case .requestAccepted, .decision, .skillDecision:
                         break
                     }
                 }

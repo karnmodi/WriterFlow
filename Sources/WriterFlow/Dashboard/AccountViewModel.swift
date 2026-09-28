@@ -81,6 +81,7 @@ final class AccountViewModel: ObservableObject {
             openBrowser(for: challenge)
             loadState = .awaitingApproval(challenge)
             try await session.awaitPairedToken()
+            NotificationCenter.default.post(name: .writerFlowDeviceSessionChanged, object: nil)
             if await session.needsRelaunchAfterAccountSwitch {
                 statusMessage = "Signed in with a different account. Relaunching so local data stays isolated…"
                 statusIsError = false
@@ -103,7 +104,7 @@ final class AccountViewModel: ObservableObject {
             statusIsError = true
             loadState = .signedOut
         } catch {
-            statusMessage = error.localizedDescription
+            statusMessage = Self.signInFailureMessage(error)
             statusIsError = true
             loadState = .signedOut
         }
@@ -140,6 +141,17 @@ final class AccountViewModel: ObservableObject {
         }
     }
 
+    static func signInFailureMessage(_ error: Error) -> String {
+        let urlError = error as? URLError
+        if urlError?.code == .cannotConnectToHost
+            || urlError?.code == .cannotFindHost
+            || urlError?.code == .timedOut
+            || urlError?.code == .networkConnectionLost {
+            return "Could not reach WriterFlow's account service. Check your connection and try again."
+        }
+        return error.localizedDescription
+    }
+
     func cancelSignIn() async {
         await session.cancelPairing()
         loadState = .signedOut
@@ -147,6 +159,7 @@ final class AccountViewModel: ObservableObject {
 
     func signOut() async {
         await session.signOut()
+        NotificationCenter.default.post(name: .writerFlowDeviceSessionChanged, object: nil)
         statusMessage = nil
         loadState = .signedOut
     }
@@ -163,6 +176,7 @@ final class AccountViewModel: ObservableObject {
             statusMessage = "Signed out locally; server revoke may not have completed: \(error.localizedDescription)"
             statusIsError = true
         }
+        NotificationCenter.default.post(name: .writerFlowDeviceSessionChanged, object: nil)
         loadState = .signedOut
     }
 }

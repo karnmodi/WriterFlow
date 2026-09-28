@@ -1,0 +1,167 @@
+version: "6.0.3"
+skills:
+  - id: reply
+    label: Reply
+    version: "reply@6.0.0"
+    action: reply
+    route: rewrite_standard
+    requiredSignals: [hasVisibleThread, composeSurface]
+    contextRequirement: required
+    promptResource: intents/reply.md
+    guardrails: ["Do not invent thread facts", "Return only reply text"]
+    directEligible: true
+    includeConversation: true
+    allowComposed: true
+    outputModes: [replace]
+    maxOutputTokens: 1200
+    confidenceThreshold: 0.75
+    evalTags: [reply, context_required]
+    directive: "Write the most natural reply to the visible conversation, using the draft as the user's intended direction."
+  - id: continue
+    label: Continue
+    version: "continue@6.0.1"
+    action: custom
+    route: rewrite_standard
+    requiredSignals: [draftState]
+    contextRequirement: optional
+    promptResource: intents/custom.md
+    guardrails:
+      - "Do not repeat the existing opening"
+      - "Preserve facts and constraints"
+      - "Never append generic planning advice, placeholder next steps, owners, or timing"
+      - "If the draft is already complete, polish it instead of inventing a continuation"
+    directEligible: true
+    includeConversation: true
+    allowComposed: true
+    outputModes: [replace]
+    maxOutputTokens: 1600
+    confidenceThreshold: 0.80
+    evalTags: [continue, contextual]
+    directive: "Continue only an unfinished draft using the visible conversation. If it already expresses a complete message, return a polished version without adding new asks, owners, dates, or next steps."
+  - id: improve
+    label: Improve
+    version: "improve@6.0.0"
+    action: custom
+    route: rewrite_standard
+    requiredSignals: [contentShape]
+    contextRequirement: none
+    promptResource: intents/custom.md
+    guardrails: ["Preserve meaning and facts", "Return only revised text"]
+    directEligible: true
+    includeConversation: false
+    allowComposed: true
+    outputModes: [replace]
+    maxOutputTokens: 1600
+    confidenceThreshold: 0.60
+    evalTags: [neutral, fallback_safe]
+    directive: "Improve clarity, flow, and naturalness while preserving meaning, facts, and tone."
+  - id: correct
+    label: Correct
+    version: "correct@6.0.0"
+    action: fixGrammar
+    route: grammar_fast
+    requiredSignals: [contentShape]
+    contextRequirement: none
+    promptResource: intents/grammar.md
+    guardrails: ["Change only clear language errors", "Never rephrase"]
+    directEligible: true
+    includeConversation: false
+    allowComposed: false
+    outputModes: [replace]
+    maxOutputTokens: 1200
+    confidenceThreshold: 0.90
+    evalTags: [grammar, low_destructive_risk]
+    directive: "Correct only clear spelling, grammar, punctuation, and capitalization errors."
+  - id: shorten
+    label: Shorten
+    version: "shorten@6.0.0"
+    action: custom
+    route: rewrite_standard
+    requiredSignals: [contentShape, inputLength]
+    contextRequirement: none
+    promptResource: intents/custom.md
+    guardrails: ["Preserve important facts", "Do not add new claims"]
+    directEligible: true
+    includeConversation: false
+    allowComposed: false
+    outputModes: [replace]
+    maxOutputTokens: 900
+    confidenceThreshold: 0.84
+    evalTags: [shorten, length_transform]
+    directive: "Make this concise while preserving every important fact and commitment."
+  - id: expand
+    label: Expand
+    version: "expand@6.0.0"
+    action: elaborate
+    route: rewrite_standard
+    requiredSignals: [contentShape]
+    contextRequirement: optional
+    promptResource: intents/elaborate.md
+    guardrails: ["Do not invent facts", "Preserve commitments and names"]
+    directEligible: true
+    includeConversation: true
+    allowComposed: true
+    outputModes: [replace]
+    maxOutputTokens: 2400
+    confidenceThreshold: 0.84
+    evalTags: [expand, length_transform]
+    directive: "Develop the draft with useful detail and smooth transitions without inventing facts."
+  - id: tone_adapt
+    label: Adapt tone
+    version: "tone-adapt@6.0.0"
+    action: custom
+    route: rewrite_standard
+    requiredSignals: [appCategory, appTone]
+    contextRequirement: optional
+    promptResource: intents/custom.md
+    guardrails: ["Preserve meaning", "Do not exaggerate sentiment"]
+    directEligible: true
+    includeConversation: true
+    allowComposed: false
+    outputModes: [replace]
+    maxOutputTokens: 1600
+    confidenceThreshold: 0.82
+    evalTags: [tone, destination_aware]
+    directive: "Adapt tone to the destination and conversation while preserving the user's meaning."
+  - id: prompt_enhance
+    label: Enhance prompt
+    version: "prompt-enhance@6.0.2"
+    action: custom
+    route: prompt_enhancer
+    requiredSignals: [destinationKind, contentShape]
+    contextRequirement: optional
+    promptResource: intents/prompt-builder.md
+    guardrails:
+      - "Preserve every explicit constraint"
+      - "Never select tools, URLs, or models"
+      - "Emit one consolidated prompt; never nest or repeat Objective, Context, Requirements, or Output headings"
+      - "If the source is already structured, normalize and deduplicate it instead of wrapping it in another template"
+      - "Use a natural single message for simple requests; add headings only for multiple distinct constraints or deliverables"
+      - "Never add stock Requirements such as preserve meaning, ready-to-use output, or avoid assumptions"
+      - "Use chat or email history only when it resolves a reference or materially improves the requested prompt"
+      - "Never paste, summarize, or restate the whole conversation when only a few relevant details are needed"
+    directEligible: true
+    includeConversation: true
+    allowComposed: true
+    outputModes: [replace]
+    maxOutputTokens: 2200
+    confidenceThreshold: 0.82
+    evalTags: [prompt, llm_destination, code_destination]
+    directive: "Turn the draft into one precise, effective, send-ready prompt. Keep simple requests natural and unstructured. Use only relevant details from available chat or email context, consolidate duplicate structure, and introduce headings only when complexity genuinely benefits from them."
+  - id: custom_adjust
+    label: Adjust
+    version: "custom-adjust@6.0.0"
+    action: custom
+    route: rewrite_standard
+    requiredSignals: [explicitInstruction]
+    contextRequirement: optional
+    promptResource: intents/custom.md
+    guardrails: ["Follow only the submitted adjustment", "Preserve constraints not explicitly overridden"]
+    directEligible: true
+    includeConversation: true
+    allowComposed: true
+    outputModes: [replace, insert_before]
+    maxOutputTokens: 2400
+    confidenceThreshold: 1.0
+    evalTags: [adjustment, explicit_instruction]
+    directive: "Follow the user's explicit instruction exactly while preserving all constraints that the instruction does not override."

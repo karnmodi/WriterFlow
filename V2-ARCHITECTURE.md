@@ -825,7 +825,7 @@ flowchart TD
     Plan --> Router["Logical model router"]
     Router --> Preview["Stream preview + intent label"]
     Preview --> Confirm["User confirms Replace/Copy"]
-    Preview --> Correct["Secondary Change intent feedback"]
+    Preview --> Correct["Free-text Adjust + coarse feedback"]
 ```
 
 Suggested deterministic rules, validated by evals rather than assumed correct:
@@ -843,6 +843,21 @@ Normal click or `⌃⌥ Space` starts auto mode. Shift-click or `⌃⌥⇧ Space
 existing non-activating Custom composer directly and sends nothing until the user submits
 the instruction; this keeps free-text control without retaining the options list or
 wasting an auto call.
+
+The Mac may warm a volatile active-field `ContextCapsule` after a 350 ms debounce, but
+it never runs a background cloud agent, persists a capsule, buffers key values, or sends
+content before the explicit trigger. Trigger-time field and conversation reads run
+concurrently under the existing AX watchdog; stale conversation is accepted only from a
+matching capsule no older than five seconds. An opaque target fingerprint is checked at
+generation start and again before Replace. A mismatch disables Replace while preserving
+Copy.
+
+The server runtime is hybrid but bounded: deterministic rule, optional `classifier_fast`,
+then one streaming writer. High-complexity manifests may run at most two structured
+specialists concurrently under a shared 700 ms deadline; timeout/failure discards their
+content and falls back to the direct writer. Every path has a 2.5 second no-first-delta
+deadline, not a total-generation cutoff. This remains one unbuffered SSE response—no
+Socket.IO or client-facing WebSocket channel is required.
 
 ### 11.3 Personalized classifier
 

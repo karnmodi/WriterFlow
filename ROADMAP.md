@@ -125,8 +125,9 @@ The delivery order is:
    local GRDB/SQLCipher, PostgreSQL, authenticated SSE relay, private Azure model access,
    logical routes, idempotency, quotas, and usage ledger.
 2. **Phase 6 — contextual intelligence:** stronger field/window identity, deterministic
-   context signals, classifier, personalized routing, versioned prompt enhancer, and
-   removal of the normal pre-generation options flow.
+   context capsules, first-party skill routing, bounded classifier/specialists, versioned
+   prompt enhancement, streamed auto preview, and cohort-gated removal of the normal
+   pre-generation options flow.
 3. **Phase 7 — memberships and Stripe:** Free/Pro entitlement projection, Checkout,
    Customer Portal, webhook reconciliation, optional encrypted personalization sync,
    and shadow metered-overage readiness.
